@@ -8,8 +8,8 @@ import (
 )
 
 type BridgeConfig struct {
-	Database string
-	Refresh  time.Duration
+	Database    string
+	AutoRefresh time.Duration // Every few seconds by default; set to -1 to disable.
 }
 
 type Bridge struct {
@@ -29,6 +29,9 @@ func StartBridge(config *BridgeConfig) (*Bridge, error) {
 		servers:  make(map[string]*ircServer),
 		requests: make(chan interface{}),
 		r:        make(chan *Message),
+	}
+	if b.config.AutoRefresh == 0 {
+		b.config.AutoRefresh = 3 * time.Second
 	}
 	session, err := mgo.Dial(b.config.Database)
 	if err != nil {
@@ -56,8 +59,8 @@ func (b *Bridge) Stop() error {
 func (b *Bridge) loop() {
 	b.handleRefresh()
 	var refresh <-chan time.Time
-	if b.config.Refresh > 0 {
-		ticker := time.NewTicker(b.config.Refresh)
+	if b.config.AutoRefresh > 0 {
+		ticker := time.NewTicker(b.config.AutoRefresh)
 		defer ticker.Stop()
 		refresh = ticker.C
 	}

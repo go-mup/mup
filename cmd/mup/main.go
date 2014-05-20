@@ -15,7 +15,6 @@ func main() {
 	mup.SetDebug(true)
 	config := &mup.BridgeConfig{
 		Database: "localhost/mup",
-		Refresh: 2*time.Second,
 	}
 	if _, err := mup.StartBridge(config); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

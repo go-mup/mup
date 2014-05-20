@@ -30,12 +30,13 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 	SetLogger(c)
 
 	config := &BridgeConfig{
-		Database: "localhost:50017/mup",
+		Database:    "localhost:50017/mup",
+		AutoRefresh: -1, // Disable for testing.
 	}
 
 	err := s.Session.DB("").C("servers").Insert(M{
-		"name": "testserver",
-		"host": s.Addr.String(),
+		"name":     "testserver",
+		"host":     s.Addr.String(),
 		"password": "password",
 	})
 	c.Assert(err, IsNil)
