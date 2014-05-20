@@ -324,7 +324,6 @@ Outer2:
 		}
 	}
 	if len(parts) > 0 {
-		// XXX UNTESTED
 		err := s.ircW.Sendf("PART %s", strings.Join(parts, ","))
 		if err != nil {
 			return err

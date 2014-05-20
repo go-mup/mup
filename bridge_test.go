@@ -78,13 +78,34 @@ func (s *BridgeSuite) TestPingPongPostAuth(c *C) {
 }
 
 func (s *BridgeSuite) TestJoinChannel(c *C) {
+	s.SendLine(":n.net 001 mup :Welcome!")
+
 	servers := s.Session.DB("").C("servers")
 	err := servers.Update(
 		M{"name": "testserver"},
 		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}}}},
 	)
 	c.Assert(err, IsNil)
-	s.SendLine(":n.net 001 mup :Welcome!")
+
 	s.Bridge.Refresh()
 	c.Assert(s.ReadLine(), Equals, "JOIN #c1,#c2")
+
+	// Confirm it joined both channels.
+	s.SendLine(":mup!~mup@10.0.0.1 JOIN #c1")
+	s.SendLine(":mup!~mup@10.0.0.1 JOIN #c2")
+
+	err = servers.Update(
+		M{"name": "testserver"},
+		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c3"}}}},
+	)
+	c.Assert(err, IsNil)
+
+	s.Bridge.Refresh()
+	c.Assert(s.ReadLine(), Equals, "JOIN #c3")
+	c.Assert(s.ReadLine(), Equals, "PART #c2")
+
+	// Do not confirm, forcing it to retry.
+	s.Bridge.Refresh()
+	c.Assert(s.ReadLine(), Equals, "JOIN #c3")
+	c.Assert(s.ReadLine(), Equals, "PART #c2")
 }

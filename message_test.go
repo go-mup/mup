@@ -252,9 +252,13 @@ var parseTests = []struct {
 	},
 }
 
-func (s *S) TestParseMessage(c *C) {
+type MessageSuite struct{}
+
+var _ = Suite(&MessageSuite{})
+
+func (s *MessageSuite) TestParseMessage(c *C) {
 	for _, test := range parseTests {
-		c.Assert(ParseMessage(test.nick, test.bang, test.line), Equals, &test.msg)
+		c.Assert(ParseMessage(test.nick, test.bang, test.line), DeepEquals, &test.msg)
 	}
 }
 
@@ -280,7 +284,7 @@ var stringTests = []struct {
 	},
 }
 
-func (s *S) TestMessageString(c *C) {
+func (s *MessageSuite) TestMessageString(c *C) {
 	for _, test := range stringTests {
 		c.Assert(test.msg.String(), Equals, test.line)
 	}
