@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"launchpad.net/tomb"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -213,6 +214,13 @@ func (s *ircServer) auth() (err error) {
 	return nil
 }
 
+// TODO Delivery confirmation mechanism:
+//
+// 1. Deliver message to writer
+// 2. Add message to pending list with timestamp
+// 3. Periodically, ping the server
+// 4. On pong, confirm all messages before the received timestamp as delivered
+
 func (s *ircServer) forward() error {
 
 	// Join initial channels before forwarding any outgoing messages.
@@ -226,8 +234,6 @@ func (s *ircServer) forward() error {
 
 	inRecv = s.ircR.Incoming
 	outRecv = s.Outgoing
-
-	//pinger := time.NewTicker(10 * time.Second)
 
 	for {
 		select {
@@ -397,16 +403,22 @@ func (w *ircWriter) Sendf(format string, args ...interface{}) error {
 }
 
 func (w *ircWriter) loop() {
+
+	pinger := time.NewTicker(3 * time.Second)
+	defer pinger.Stop()
+
 loop:
 	for {
-		var msg *Message
+		var line string
 		select {
-		case msg = <-w.Outgoing:
+		case msg := <-w.Outgoing:
+			line = msg.String()
+			debugf("[%s] Sending: %s", w.name, line)
+		case t := <-pinger.C:
+			line = "PING :" + strconv.FormatInt(t.Unix(), 10)
 		case <-w.Dying:
 			break loop
 		}
-		line := msg.String()
-		debugf("[%s] Sending: %s", w.name, line)
 		_, err := w.buf.WriteString(line)
 		if err != nil {
 			w.tomb.Kill(err)
@@ -481,8 +493,10 @@ func (r *ircReader) loop() {
 			r.tomb.Killf("line is too long")
 			break
 		}
-		debugf("[%s] Received: %s", r.name, line)
 		msg := ParseMessage(r.activeNick, "!", string(line))
+		if msg.Cmd != cmdPong {
+			debugf("[%s] Received: %s", r.name, line)
+		}
 		switch msg.Cmd {
 		case cmdNick:
 			if r.activeNick == "" || r.activeNick == msg.Nick {

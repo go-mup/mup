@@ -68,10 +68,10 @@ func (b *Bridge) createCollections() error {
 
 func (b *Bridge) Stop() error {
 	log("Stop requested. Waiting...")
-	b.tomb.Kill(nil)
 	for _, server := range b.servers {
 		server.Stop()
 	}
+	b.tomb.Kill(nil)
 	err := b.tomb.Wait()
 	b.session.Close()
 	logf("Stopped (%v).", err)
@@ -169,6 +169,7 @@ func (b *Bridge) tail(server *ircServer) {
 		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"server", server.Name}})
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
+		// Loop while iterator remains valid.
 		for {
 			var msg *Message
 			for iter.Next(&msg) {
@@ -194,6 +195,7 @@ func (b *Bridge) tail(server *ircServer) {
 			logf("Error iterating over outgoing collection: %v", err)
 		}
 
+		// Only sleep if a stop was not requested. Speeds tests up a bit.
 		if b.tomb.Err() == tomb.ErrStillAlive {
 			time.Sleep(100 * time.Millisecond)
 		}
