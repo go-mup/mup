@@ -74,6 +74,7 @@ func (s *ircServer) Err() error {
 }
 
 func (s *ircServer) Stop() error {
+	// TODO Attempt to send a quit notice before killing it.
 	s.tomb.Kill(nil)
 	return s.tomb.Wait()
 }
@@ -91,39 +92,45 @@ func (s *ircServer) UpdateInfo(info *serverInfo) {
 }
 
 func (s *ircServer) loop() {
-	for s.tomb.Err() == tomb.ErrStillAlive {
-		s.cleanup()
+	defer logf("[%s] Server loop terminated (%v)", s.Name, s.tomb.Err())
+	defer s.tomb.Done()
+	defer s.cleanup()
 
-		err := s.connect()
-		if err != nil {
-			logf("[%s] Failed to connect to IRC server: %s", s.Name, err)
-			continue
-		}
-
-		err = s.auth()
-		if err != nil {
-			logf("[%s] Failed to authenticate on IRC server: %s", s.Name, err)
-			continue
-		}
-
-		err = s.forward()
-		if err != nil {
-			logf("[%s] Error communicating with IRC server: %s", s.Name, err)
-		}
+	err := s.connect()
+	if err != nil {
+		logf("[%s] Failed to connect to IRC server: %v", s.Name, err)
+		s.tomb.Killf("%s: cannot connect to IRC server: %v", s.Name, err)
+		return
 	}
-	s.cleanup()
-	logf("[%s] Server loop terminated (%v)", s.Name, s.tomb.Err())
-	s.tomb.Done()
+
+	err = s.auth()
+	if err != nil {
+		logf("[%s] Failed to authenticate on IRC server: %v", s.Name, err)
+		s.tomb.Killf("%s: cannot authenticate on IRC server: %v", s.Name, err)
+		return
+	}
+
+	err = s.forward()
+	if err != nil {
+		logf("[%s] Error communicating with IRC server: %v", s.Name, err)
+		s.tomb.Killf("%s: error communicating with IRC server: %v", s.Name, err)
+		return
+	}
 }
 
 func (s *ircServer) cleanup() {
 	logf("[%s] Cleaning IRC connection resources", s.Name)
+
+	// Stop the writer before closing the connection, so that
+	// in progress writes are politely finished.
 	if s.ircW != nil {
 		err := s.ircW.Stop()
 		if err != nil {
 			logf("[%s] IRC writer failure: %s", s.Name, err)
 		}
 	}
+	// Close the connection before stopping the reader, as the
+	// reader is likely blocked attempting to get more data.
 	if s.conn != nil {
 		err := s.conn.Close()
 		if err != nil {
@@ -131,6 +138,8 @@ func (s *ircServer) cleanup() {
 		}
 		s.conn = nil
 	}
+	// Finally, stop the reader, which will likely exit with
+	// an error due to the connection being shut on it.
 	if s.ircR != nil {
 		err := s.ircR.Stop()
 		if err != nil {
