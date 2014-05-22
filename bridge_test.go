@@ -3,12 +3,14 @@ package mup
 import (
 	//"labix.org/v2/mgo/bson"
 	. "gopkg.in/check.v1"
+	"time"
 )
 
 type BridgeSuite struct {
 	LineServerSuite
 	MgoSuite
 	Bridge *Bridge
+	Config *BridgeConfig
 }
 
 var _ = Suite(&BridgeSuite{})
@@ -29,7 +31,7 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 	SetDebug(true)
 	SetLogger(c)
 
-	config := &BridgeConfig{
+	s.Config = &BridgeConfig{
 		Database:    "localhost:50017/mup",
 		AutoRefresh: -1, // Disable for testing.
 	}
@@ -41,7 +43,7 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	s.Bridge, err = StartBridge(config)
+	s.Bridge, err = StartBridge(s.Config)
 	c.Assert(err, IsNil)
 
 	c.Assert(s.ReadLine(), Equals, "PASS password")
@@ -50,7 +52,9 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 }
 
 func (s *BridgeSuite) TearDownTest(c *C) {
-	s.Bridge.Stop()
+	if s.Bridge != nil {
+		s.Bridge.Stop()
+	}
 
 	s.LineServerSuite.TearDownTest(c)
 	s.MgoSuite.TearDownTest(c)
@@ -73,7 +77,7 @@ func (s *BridgeSuite) TestPingPong(c *C) {
 }
 
 func (s *BridgeSuite) TestPingPongPostAuth(c *C) {
-	s.SendLine(":n.net 001 mynick :Welcome!")
+	s.SendLine(":n.net 001 mup :Welcome!")
 	s.SendLine("PING :foo")
 	c.Assert(s.ReadLine(), Equals, "PONG :foo")
 }
@@ -109,4 +113,95 @@ func (s *BridgeSuite) TestJoinChannel(c *C) {
 	s.Bridge.Refresh()
 	c.Assert(s.ReadLine(), Equals, "JOIN #c3")
 	c.Assert(s.ReadLine(), Equals, "PART #c2")
+}
+
+func waitFor(condition func() bool) {
+	now := time.Now()
+	end := now.Add(1 * time.Second)
+	for now.Before(end) {
+		if condition() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+		now = time.Now()
+	}
+}
+
+func (s *BridgeSuite) TestIncoming(c *C) {
+	s.SendLine(":n.net 001 mup :Welcome!")
+	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
+
+	incoming := s.Session.DB("").C("incoming")
+
+	waitFor(func() bool {
+		count, err := incoming.Find(nil).Count()
+		c.Assert(err, IsNil)
+		return count > 0
+	})
+
+	var messages []*Message
+	err := incoming.Find(nil).All(&messages)
+	c.Assert(err, IsNil)
+	c.Assert(messages, HasLen, 1)
+
+	messages[0].Id = ""
+
+	c.Assert(messages[0], DeepEquals, &Message{
+		Server:  "testserver",
+		Prefix:  "somenick!~someuser@somehost",
+		Nick:    "somenick",
+		User:    "~someuser",
+		Host:    "somehost",
+		Cmd:     "PRIVMSG",
+		Params:  []string{"mup", ":Hello mup!"},
+		Target:  "mup",
+		Text:    "Hello mup!",
+		Bang:    "!",
+		MupNick: "mup",
+		MupChat: true,
+		MupText: "Hello mup!",
+	})
+}
+
+func (s *BridgeSuite) TestOutgoing(c *C) {
+	c.Assert(s.Bridge.Stop(), IsNil)
+	s.Bridge = nil
+
+	s.ResetLineServer(c)
+
+	servers := s.Session.DB("").C("servers")
+	err := servers.Update(
+		M{"name": "testserver"},
+		M{"$set": M{"channels": []M{{"name": "#test"}}}},
+	)
+	c.Assert(err, IsNil)
+
+	outgoing := s.Session.DB("").C("outgoing")
+	err = outgoing.Insert(&Message{
+		Server: "testserver",
+		Target: "someone",
+		Text:   "Hello there!",
+	})
+	c.Assert(err, IsNil)
+
+	s.Bridge, err = StartBridge(s.Config)
+	c.Assert(err, IsNil)
+
+	c.Assert(s.ReadLine(), Equals, "PASS password")
+	c.Assert(s.ReadLine(), Equals, "NICK mup")
+	c.Assert(s.ReadLine(), Equals, "USER mup 0 0 :Mup Pet")
+
+	s.SendLine(":n.net 001 mup :Welcome!")
+
+	c.Assert(s.ReadLine(), Equals, "JOIN #test")
+	c.Assert(s.ReadLine(), Equals, "PRIVMSG someone :Hello there!")
+
+	err = outgoing.Insert(&Message{
+		Server: "testserver",
+		Target: "someone",
+		Text:   "Hello again!",
+	})
+	c.Assert(err, IsNil)
+
+	c.Assert(s.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 }

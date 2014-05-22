@@ -270,6 +270,9 @@ var stringTests = []struct {
 		Message{Cmd: "CMD"},
 		"CMD",
 	}, {
+		Message{Target: "mup", Text: "Text"},
+		"PRIVMSG mup :Text",
+	}, {
 		Message{Cmd: "PRIVMSG", Target: "mup", Text: "Text"},
 		"PRIVMSG mup :Text",
 	}, {

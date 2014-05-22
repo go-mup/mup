@@ -2,28 +2,33 @@ package mup
 
 import (
 	"fmt"
+	"labix.org/v2/mgo/bson"
 	"strings"
 	"unicode"
 )
 
 type Message struct {
-	Prefix string   `bson:",omitempty"`
-	Nick   string   `bson:",omitempty"`
-	User   string   `bson:",omitempty"`
-	Host   string   `bson:",omitempty"`
-	Cmd    string   `bson:",omitempty"`
-	Params []string `bson:",omitempty"`
-	Target string   `bson:",omitempty"`
-	Text   string   `bson:",omitempty"`
-	Bang   string   `bson:",omitempty"`
-
-	MupChat bool   `bson:",omitempty"`
-	MupText string `bson:",omitempty"`
-	MupNick string `bson:",omitempty"`
+	Id      bson.ObjectId `bson:"_id,omitempty"`
+	Server  string        `bson:",omitempty"`
+	Prefix  string        `bson:",omitempty"`
+	Nick    string        `bson:",omitempty"`
+	User    string        `bson:",omitempty"`
+	Host    string        `bson:",omitempty"`
+	Cmd     string        `bson:",omitempty"`
+	Params  []string      `bson:",omitempty"`
+	Target  string        `bson:",omitempty"`
+	Text    string        `bson:",omitempty"`
+	Bang    string        `bson:",omitempty"`
+	MupChat bool          `bson:",omitempty"`
+	MupText string        `bson:",omitempty"`
+	MupNick string        `bson:",omitempty"`
 }
 
 func (m *Message) String() string {
 	cmd := m.Cmd
+	if cmd == "" {
+		cmd = "PRIVMSG"
+	}
 	if len(m.Prefix) > 0 {
 		cmd = fmt.Sprint(":", m.Prefix, " ", m.Cmd)
 	} else if len(m.Nick) > 0 || len(m.User) > 0 || len(m.Host) > 0 {

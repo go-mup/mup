@@ -3,10 +3,10 @@ package mup
 import (
 	"bufio"
 	"bytes"
-	"os/exec"
 	. "gopkg.in/check.v1"
 	"labix.org/v2/mgo"
 	"net"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -23,12 +23,13 @@ type M map[string]interface{}
 // The test suite for emulating a line-based protocol.
 
 type LineServerSuite struct {
-	Addr *net.TCPAddr
-	l *net.TCPListener
-	m sync.Mutex
-	conn *net.TCPConn
+	Addr  *net.TCPAddr
+	l     *net.TCPListener
+	m     sync.Mutex
+	conn  *net.TCPConn
 	connr *bufio.Reader
-	done bool
+	done  bool
+	reset bool
 }
 
 func (tp *LineServerSuite) SetUpSuite(c *C) {
@@ -54,6 +55,16 @@ func (tp *LineServerSuite) TearDownSuite(c *C) {
 	}
 }
 
+func (tp *LineServerSuite) ResetLineServer(c *C) {
+	tp.m.Lock()
+	tp.reset = true
+	tp.m.Unlock()
+	conn, err := net.DialTCP("tcp", nil, tp.Addr)
+	if err != nil {
+		conn.Close()
+	}
+}
+
 func (tp *LineServerSuite) TearDownTest(c *C) {
 	tp.m.Lock()
 	if tp.conn != nil {
@@ -71,9 +82,18 @@ func (tp *LineServerSuite) serve() {
 		tp.m.Unlock()
 		conn, err := tp.l.Accept()
 		tp.m.Lock()
-		if tp.done {
+		if tp.done || tp.reset {
 			if err != nil {
 				conn.Close()
+			}
+			if tp.conn != nil {
+				tp.conn.Close()
+				tp.conn = nil
+				tp.connr = nil
+			}
+			if tp.reset {
+				tp.reset = false
+				continue
 			}
 			tp.l.Close()
 			return
@@ -132,8 +152,8 @@ func (tp *LineServerSuite) waitConn() {
 
 type MgoSuite struct {
 	Session *mgo.Session
-	output bytes.Buffer
-	server *exec.Cmd
+	output  bytes.Buffer
+	server  *exec.Cmd
 }
 
 func (s *MgoSuite) SetUpSuite(c *C) {

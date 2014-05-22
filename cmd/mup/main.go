@@ -4,15 +4,17 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"gopkg.in/niemeyer/mup.v0"
+	//"labix.org/v2/mgo"
 )
 
 func main() {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	mup.SetLogger(logger)
 	mup.SetDebug(true)
+	//mgo.SetLogger(logger)
+	//mgo.SetDebug(true)
 	config := &mup.BridgeConfig{
 		Database: "localhost/mup",
 	}
