@@ -38,6 +38,8 @@ type channelInfo struct {
 	Key  string
 }
 
+const networkTimeout = 15 * time.Second
+
 type ircServer struct {
 	info serverInfo
 	conn net.Conn
@@ -87,6 +89,7 @@ func (s *ircServer) UpdateInfo(info *serverInfo) {
 	if info.Name != s.Name {
 		panic("cannot change the server name")
 	}
+	// Make a copy as its use will continue after returning to the caller.
 	infoCopy := *info
 	s.requests <- ireqUpdateInfo(&infoCopy)
 }
@@ -157,7 +160,7 @@ func (s *ircServer) connect() (err error) {
 		}
 		s.conn, err = tls.Dial("tcp", s.info.Host, &config)
 	} else {
-		s.conn, err = net.DialTimeout("tcp", s.info.Host, 10*time.Second)
+		s.conn, err = net.DialTimeout("tcp", s.info.Host, networkTimeout)
 	}
 	if err != nil {
 		s.conn = nil
@@ -368,6 +371,7 @@ Outer2:
 // An ircWriter reads messages from the Outgoing channel and sends it to the server.
 type ircWriter struct {
 	name string
+	conn net.Conn
 	buf  *bufio.Writer
 	tomb tomb.Tomb
 
@@ -378,6 +382,7 @@ type ircWriter struct {
 func startIrcWriter(name string, conn net.Conn) *ircWriter {
 	w := &ircWriter{
 		name:     name,
+		conn:     conn,
 		buf:      bufio.NewWriter(conn),
 		Outgoing: make(chan *Message, 1),
 	}
@@ -424,6 +429,7 @@ loop:
 			line = msg.String()
 			debugf("[%s] Sending: %s", w.name, line)
 		case t := <-pinger.C:
+			w.conn.SetDeadline(t.Add(networkTimeout))
 			line = "PING :" + strconv.FormatInt(t.Unix(), 10)
 		case <-w.Dying:
 			break loop

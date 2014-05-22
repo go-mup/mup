@@ -98,16 +98,34 @@ func (b *Bridge) handleRefresh() {
 		return
 	}
 
-	for _, info := range infos {
+	// Drop dead or deleted servers.
+NextServer:
+	for _, server := range b.servers {
+		select {
+		case <-server.Dying:
+		default:
+			for i := range infos {
+				if server.Name == infos[i].Name {
+					continue NextServer
+				}
+			}
+		}
+		server.Stop()
+		delete(b.servers, server.Name)
+	}
+
+	// Bring new servers up and update existing ones.
+	for i := range infos {
+		info := &infos[i]
 		if info.Nick == "" {
 			info.Nick = "mup"
 		}
 		if server, ok := b.servers[info.Name]; !ok {
-			server = startIrcServer(&info, b.incoming)
+			server = startIrcServer(info, b.incoming)
 			b.servers[info.Name] = server
 			go b.tail(server)
 		} else {
-			server.UpdateInfo(&info)
+			server.UpdateInfo(info)
 		}
 	}
 }
