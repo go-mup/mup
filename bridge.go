@@ -20,7 +20,7 @@ type Bridge struct {
 	servers  map[string]*ircServer
 	tomb     tomb.Tomb
 	requests chan interface{}
-	r        chan *Message
+	incoming chan *Message
 }
 
 func StartBridge(config *BridgeConfig) (*Bridge, error) {
@@ -29,7 +29,7 @@ func StartBridge(config *BridgeConfig) (*Bridge, error) {
 		config:   *config,
 		servers:  make(map[string]*ircServer),
 		requests: make(chan interface{}),
-		r:        make(chan *Message),
+		incoming: make(chan *Message),
 	}
 	if b.config.AutoRefresh == 0 {
 		b.config.AutoRefresh = 3 * time.Second
@@ -54,7 +54,7 @@ const mb = 1024 * 1024
 
 func (b *Bridge) createCollections() error {
 	capped := mgo.CollectionInfo{
-		Capped: true,
+		Capped:   true,
 		MaxBytes: 4 * mb,
 	}
 	for _, c := range []string{"incoming", "outgoing"} {
@@ -103,7 +103,7 @@ func (b *Bridge) handleRefresh() {
 			info.Nick = "mup"
 		}
 		if server, ok := b.servers[info.Name]; !ok {
-			server = startIrcServer(&info, b.r)
+			server = startIrcServer(&info, b.incoming)
 			b.servers[info.Name] = server
 			go b.tail(server)
 		} else {
@@ -124,7 +124,7 @@ func (b *Bridge) loop() {
 	for b.tomb.Err() == tomb.ErrStillAlive {
 		b.session.Refresh()
 		select {
-		case msg := <-b.r:
+		case msg := <-b.incoming:
 			err := incoming.Insert(msg)
 			if err != nil {
 				logf("Cannot insert incoming message: %v", err)
@@ -174,7 +174,7 @@ func (b *Bridge) tail(server *ircServer) {
 			for iter.Next(&msg) {
 				debugf("[%s] Tail iterator got outgoing message: %s", msg.Server, msg.String())
 				select {
-				case server.W <- msg:
+				case server.Outgoing <- msg:
 					lastId = msg.Id
 					msg = nil
 				case <-server.Dying:

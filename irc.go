@@ -49,19 +49,19 @@ type ircServer struct {
 
 	requests chan interface{}
 
-	Name  string
-	Dying <-chan struct{}
-	R     chan *Message
-	W     chan *Message
+	Name     string
+	Dying    <-chan struct{}
+	Incoming chan *Message
+	Outgoing chan *Message
 }
 
-func startIrcServer(info *serverInfo, r chan *Message) *ircServer {
+func startIrcServer(info *serverInfo, incoming chan *Message) *ircServer {
 	s := &ircServer{
 		info:     *info,
 		requests: make(chan interface{}, 1),
 		Name:     info.Name,
-		W:        make(chan *Message),
-		R:        r,
+		Incoming: incoming,
+		Outgoing: make(chan *Message),
 	}
 	s.Dying = s.tomb.Dying()
 	go s.loop()
@@ -79,7 +79,12 @@ func (s *ircServer) Stop() error {
 
 type ireqUpdateInfo *serverInfo
 
+// UpdateInfo updates the server information. Everything but the
+// server name may be updated.
 func (s *ircServer) UpdateInfo(info *serverInfo) {
+	if info.Name != s.Name {
+		panic("cannot change the server name")
+	}
 	infoCopy := *info
 	s.requests <- ireqUpdateInfo(&infoCopy)
 }
@@ -142,7 +147,7 @@ func (s *ircServer) connect() (err error) {
 		}
 		s.conn, err = tls.Dial("tcp", s.info.Host, &config)
 	} else {
-		s.conn, err = net.DialTimeout("tcp", s.info.Host, 10 * time.Second)
+		s.conn, err = net.DialTimeout("tcp", s.info.Host, 10*time.Second)
 	}
 	if err != nil {
 		s.conn = nil
@@ -174,7 +179,7 @@ func (s *ircServer) auth() (err error) {
 	for {
 		var msg *Message
 		select {
-		case msg = <-s.ircR.R:
+		case msg = <-s.ircR.Incoming:
 		case <-s.Dying:
 			return s.Err()
 		case <-s.ircR.Dying:
@@ -209,50 +214,49 @@ func (s *ircServer) auth() (err error) {
 }
 
 func (s *ircServer) forward() error {
-	var rMsg *Message
-	var wMsg *Message
-	var rIn, wIn <-chan *Message
-	var rOut, wOut chan<- *Message
 
-	rIn = s.ircR.R
-	wIn = s.W
-
+	// Join initial channels before forwarding any outgoing messages.
 	if err := s.handleUpdateInfo(&s.info); err != nil {
 		return err
 	}
+
+	var inMsg, outMsg *Message
+	var inRecv, outRecv <-chan *Message
+	var inSend, outSend chan<- *Message
+
+	inRecv = s.ircR.Incoming
+	outRecv = s.Outgoing
 
 	//pinger := time.NewTicker(10 * time.Second)
 
 	for {
 		select {
-		case rMsg = <-rIn:
-			skip, err := s.handleMessage(rMsg)
+		case inMsg = <-inRecv:
+			skip, err := s.handleMessage(inMsg)
 			if err != nil {
 				return err
 			}
 			if skip {
-				rMsg = nil
+				inMsg = nil
 				continue
 			}
-			rMsg.Server = s.Name
-			rOut = s.R
-			rIn = nil
+			inMsg.Server = s.Name
+			inRecv = nil
+			inSend = s.Incoming
 
-		case rOut <- rMsg:
-			rMsg = nil
-			rOut = nil
-			rIn = s.ircR.R
+		case inSend <- inMsg:
+			inMsg = nil
+			inRecv = s.ircR.Incoming
+			inSend = nil
 
-		case wMsg = <-wIn:
-			logf("[%s] Got outgoing message for delivery: %s", s.Name, wMsg)
-			wOut = s.ircW.W
-			wIn = nil
+		case outMsg = <-outRecv:
+			outRecv = nil
+			outSend = s.ircW.Outgoing
 
-		case wOut <- wMsg:
-			logf("[%s] Delivered outgoing message: %s", s.Name, wMsg)
-			wMsg = nil
-			wOut = nil
-			wIn = s.W
+		case outSend <- outMsg:
+			outMsg = nil
+			outRecv = s.Outgoing
+			outSend = nil
 
 		case req := <-s.requests:
 			switch r := req.(type) {
@@ -346,20 +350,21 @@ Outer2:
 // ---------------------------------------------------------------------------
 // ircWriter
 
-// An ircWriter reads messages from the W channel and sends it to the server.
+// An ircWriter reads messages from the Outgoing channel and sends it to the server.
 type ircWriter struct {
-	name  string
-	W     chan *Message
-	buf   *bufio.Writer
-	tomb  tomb.Tomb
-	Dying <-chan struct{}
+	name string
+	buf  *bufio.Writer
+	tomb tomb.Tomb
+
+	Dying    <-chan struct{}
+	Outgoing chan *Message
 }
 
 func startIrcWriter(name string, conn net.Conn) *ircWriter {
 	w := &ircWriter{
-		name: name,
-		W:    make(chan *Message, 1),
-		buf:  bufio.NewWriter(conn),
+		name:     name,
+		buf:      bufio.NewWriter(conn),
+		Outgoing: make(chan *Message, 1),
 	}
 	w.Dying = w.tomb.Dying()
 	go w.loop()
@@ -380,7 +385,7 @@ func (w *ircWriter) Stop() error {
 
 func (w *ircWriter) Send(msg *Message) error {
 	select {
-	case w.W <- msg:
+	case w.Outgoing <- msg:
 	case <-w.Dying:
 		return w.Err()
 	}
@@ -396,7 +401,7 @@ loop:
 	for {
 		var msg *Message
 		select {
-		case msg = <-w.W:
+		case msg = <-w.Outgoing:
 		case <-w.Dying:
 			break loop
 		}
@@ -425,21 +430,22 @@ loop:
 // ---------------------------------------------------------------------------
 // ircReader
 
-// An ircReader reads lines from the server and injects it in the R channel.
+// An ircReader reads lines from the server and injects it in the Incoming channel.
 type ircReader struct {
 	name       string
-	R          chan *Message
 	activeNick string
 	buf        *bufio.Reader
 	tomb       tomb.Tomb
-	Dying      <-chan struct{}
+
+	Dying    <-chan struct{}
+	Incoming chan *Message
 }
 
 func startIrcReader(name string, conn net.Conn) *ircReader {
 	r := &ircReader{
-		name: name,
-		R:    make(chan *Message, 1),
-		buf:  bufio.NewReader(conn),
+		name:     name,
+		buf:      bufio.NewReader(conn),
+		Incoming: make(chan *Message, 1),
 	}
 	r.Dying = r.tomb.Dying()
 	go r.loop()
@@ -492,7 +498,7 @@ func (r *ircReader) loop() {
 			}
 		}
 		select {
-		case r.R <- msg:
+		case r.Incoming <- msg:
 		case <-r.Dying:
 		}
 	}
