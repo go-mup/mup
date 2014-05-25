@@ -3,8 +3,10 @@ package mup
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	. "gopkg.in/check.v1"
 	"labix.org/v2/mgo"
+	"launchpad.net/tomb"
 	"net"
 	"os/exec"
 	"sync"
@@ -12,143 +14,149 @@ import (
 	"time"
 )
 
-func Test(t *testing.T) {
-	TestingT(t)
-}
+func Test(t *testing.T) { TestingT(t) }
 
-// Handy alias
 type M map[string]interface{}
 
-// ----------------------------------------------------------------------------
-// The test suite for emulating a line-based protocol.
-
 type LineServerSuite struct {
-	Addr  *net.TCPAddr
-	l     *net.TCPListener
-	m     sync.Mutex
-	conn  *net.TCPConn
-	connr *bufio.Reader
-	done  bool
-	reset bool
+	Addr    *net.TCPAddr
+	tomb    tomb.Tomb
+	l       *net.TCPListener
+	m       sync.Mutex
+	active  bool
+	servers []*LineServer
 }
 
-func (tp *LineServerSuite) SetUpSuite(c *C) {
+func (lsuite *LineServerSuite) SetUpSuite(c *C) {
 	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	if err != nil {
 		panic(err)
 	}
-	tp.l, err = net.ListenTCP("tcp", addr)
+	lsuite.l, err = net.ListenTCP("tcp", addr)
 	if err != nil {
 		panic(err)
 	}
-	tp.Addr = tp.l.Addr().(*net.TCPAddr)
-	go tp.serve()
+	lsuite.Addr = lsuite.l.Addr().(*net.TCPAddr)
+	go lsuite.loop()
 }
 
-func (tp *LineServerSuite) TearDownSuite(c *C) {
-	tp.m.Lock()
-	tp.done = true
-	tp.m.Unlock()
-	conn, err := net.DialTCP("tcp", nil, tp.Addr)
-	if err != nil {
-		conn.Close()
+func (lsuite *LineServerSuite) TearDownSuite(c *C) {
+	lsuite.tomb.Kill(nil)
+	lsuite.l.Close()
+}
+
+func (lsuite *LineServerSuite) SetUpTest(c *C) {
+	c.Assert(lsuite.tomb.Err(), Equals, tomb.ErrStillAlive)
+	lsuite.m.Lock()
+	lsuite.active = true
+	lsuite.m.Unlock()
+}
+
+func (lsuite *LineServerSuite) TearDownTest(c *C) {
+	lsuite.m.Lock()
+	lsuite.active = false
+	lsuite.m.Unlock()
+	for _, server := range lsuite.servers {
+		server.Close()
 	}
+	lsuite.servers = nil
+	c.Assert(lsuite.tomb.Err(), Equals, tomb.ErrStillAlive)
 }
 
-func (tp *LineServerSuite) ResetLineServer(c *C) {
-	tp.m.Lock()
-	tp.reset = true
-	tp.m.Unlock()
-	conn, err := net.DialTCP("tcp", nil, tp.Addr)
-	if err != nil {
-		conn.Close()
-	}
-}
-
-func (tp *LineServerSuite) TearDownTest(c *C) {
-	tp.m.Lock()
-	if tp.conn != nil {
-		tp.conn.Close()
-		tp.conn = nil
-		tp.connr = nil
-	}
-	tp.m.Unlock()
-}
-
-func (tp *LineServerSuite) serve() {
-	tp.m.Lock()
-	defer tp.m.Unlock()
-	for {
-		tp.m.Unlock()
-		conn, err := tp.l.Accept()
-		tp.m.Lock()
-		if tp.done || tp.reset {
-			if err != nil {
-				conn.Close()
-			}
-			if tp.conn != nil {
-				tp.conn.Close()
-				tp.conn = nil
-				tp.connr = nil
-			}
-			if tp.reset {
-				tp.reset = false
-				continue
-			}
-			tp.l.Close()
+func (lsuite *LineServerSuite) loop() {
+	defer lsuite.tomb.Done()
+	for lsuite.tomb.Err() == tomb.ErrStillAlive {
+		conn, err := lsuite.l.Accept()
+		if err != nil {
+			lsuite.tomb.Kill(err)
 			return
 		}
-		if tp.conn != nil {
-			panic("got second connection with one in progress")
+		lsuite.m.Lock()
+		if !lsuite.active {
+			panic("LineServerSuite got connection without active tests")
 		}
-		if err != nil {
-			panic(err)
-		}
-		tp.conn = conn.(*net.TCPConn)
-		tp.connr = bufio.NewReader(conn)
+		lsuite.servers = append(lsuite.servers, NewLineServer(conn))
+		lsuite.m.Unlock()
 	}
 }
 
-func (tp *LineServerSuite) ReadLine() string {
-	tp.m.Lock()
-	defer tp.m.Unlock()
-	tp.waitConn()
-	l, prefix, err := tp.connr.ReadLine()
-	if prefix {
-		panic("line is too long")
+func (lsuite *LineServerSuite) LineServer(connIndex int) *LineServer {
+	var server *LineServer
+	for i := 0; i < 500; i++ {
+		lsuite.m.Lock()
+		if len(lsuite.servers) > connIndex {
+			server = lsuite.servers[connIndex]
+		}
+		lsuite.m.Unlock()
+		if server != nil {
+			return server
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if err != nil {
-		panic(err)
-	}
-	return string(l)
+	panic(fmt.Sprintf("timeout waiting for connection %d to be established", connIndex))
 }
 
-func (tp *LineServerSuite) SendLine(line string) {
-	tp.m.Lock()
-	defer tp.m.Unlock()
-	tp.waitConn()
-	n, err := tp.conn.Write([]byte(line + "\r\n"))
+type LineServer struct {
+	conn net.Conn
+	tomb tomb.Tomb
+	lbuf chan string
+}
+
+func NewLineServer(conn net.Conn) *LineServer {
+	lserver := &LineServer{
+		conn: conn,
+		lbuf: make(chan string, 64),
+	}
+	go lserver.loop()
+	return lserver
+}
+
+func (lserver *LineServer) loop() {
+	defer lserver.tomb.Done()
+	scanner := bufio.NewScanner(lserver.conn)
+	for scanner.Scan() && lserver.tomb.Err() == tomb.ErrStillAlive {
+		select {
+		case lserver.lbuf <- scanner.Text():
+		default:
+			panic("too many lines received without being processed by test")
+		}
+	}
+	lserver.tomb.Kill(scanner.Err())
+}
+
+func (lserver *LineServer) Close() error {
+	lserver.tomb.Kill(nil)
+	lserver.conn.Close()
+	return lserver.tomb.Wait()
+}
+
+func (lserver *LineServer) Err() error {
+	return lserver.tomb.Err()
+}
+
+func (lserver *LineServer) ReadLine() string {
+	select {
+	case line := <-lserver.lbuf:
+		return line
+	case <-lserver.tomb.Dead():
+		select {
+		case line := <-lserver.lbuf:
+			return line
+		default:
+		}
+		return fmt.Sprintf("<LineServer closed: %v>", lserver.tomb.Err())
+	}
+}
+
+func (lserver *LineServer) SendLine(line string) {
+	n, err := lserver.conn.Write([]byte(line + "\r\n"))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("LineServer cannot SendLine: %v", err))
 	}
 	if n < len(line) {
 		panic("short write")
 	}
 }
-
-func (tp *LineServerSuite) waitConn() {
-	for i := 0; i < 50 && tp.conn == nil; i++ {
-		tp.m.Unlock()
-		time.Sleep(1e8)
-		tp.m.Lock()
-	}
-	if tp.conn == nil {
-		panic("not connected")
-	}
-}
-
-// ----------------------------------------------------------------------------
-// The mgo test suite
 
 type MgoSuite struct {
 	Session *mgo.Session

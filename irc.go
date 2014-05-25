@@ -76,9 +76,12 @@ func (s *ircServer) Err() error {
 }
 
 func (s *ircServer) Stop() error {
-	// TODO Attempt to send a quit notice before killing it.
-	s.tomb.Kill(nil)
-	return s.tomb.Wait()
+	s.tomb.Kill(errStop)
+	err := s.tomb.Wait()
+	if err != errStop {
+		return err
+	}
+	return nil
 }
 
 type ireqUpdateInfo *serverInfo
@@ -95,7 +98,7 @@ func (s *ircServer) UpdateInfo(info *serverInfo) {
 }
 
 func (s *ircServer) loop() {
-	defer logf("[%s] Server loop terminated (%v)", s.Name, s.tomb.Err())
+	defer func() { logf("[%s] Server loop terminated (%v)", s.Name, s.tomb.Err()) }()
 	defer s.tomb.Done()
 	defer s.cleanup()
 
@@ -135,6 +138,7 @@ func (s *ircServer) cleanup() {
 	// Close the connection before stopping the reader, as the
 	// reader is likely blocked attempting to get more data.
 	if s.conn != nil {
+		debugf("[%s] Closing connection", s.Name)
 		err := s.conn.Close()
 		if err != nil {
 			logf("[%s] Failure closing IRC server connection: %s", s.Name, err)
@@ -234,6 +238,8 @@ func (s *ircServer) auth() (err error) {
 // 4. On pong, confirm all messages before the received timestamp as delivered
 
 func (s *ircServer) forward() error {
+	debugf("[%s] server entering forward loop", s.Name)
+	defer debugf("[%s] server leaving forward loop", s.Name)
 
 	// Join initial channels before forwarding any outgoing messages.
 	if err := s.handleUpdateInfo(&s.info); err != nil {
@@ -397,10 +403,12 @@ func (w *ircWriter) Err() error {
 
 func (w *ircWriter) Stop() error {
 	debugf("[%s] Requesting writer to stop...", w.name)
-	w.tomb.Kill(nil)
+	w.tomb.Kill(errStop)
 	err := w.tomb.Wait()
-	debugf("[%s] Writer is stopped (%v).", w.name, err)
-	return err
+	if err != errStop {
+		return err
+	}
+	return nil
 }
 
 func (w *ircWriter) Send(msg *Message) error {
@@ -483,12 +491,16 @@ func (r *ircReader) Err() error {
 	return r.tomb.Err()
 }
 
+var errStop = fmt.Errorf("stop requested")
+
 func (r *ircReader) Stop() error {
 	debugf("[%s] Requesting reader to stop...", r.name)
-	r.tomb.Kill(nil)
+	r.tomb.Kill(errStop)
 	err := r.tomb.Wait()
-	debugf("[%s] Reader is stopped (%v).", r.name, err)
-	return err
+	if err != errStop {
+		return err
+	}
+	return nil
 }
 
 func (r *ircReader) loop() {
@@ -532,5 +544,5 @@ func (r *ircReader) loop() {
 		}
 	}
 	r.tomb.Done()
-	debugf("[%s] Reader is dead (%#v)", r.name, r.tomb.Err())
+	debugf("[%s] Reader is dead (%v)", r.name, r.tomb.Err())
 }

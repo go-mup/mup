@@ -71,11 +71,14 @@ func (b *Bridge) Stop() error {
 	for _, server := range b.servers {
 		server.Stop()
 	}
-	b.tomb.Kill(nil)
+	b.tomb.Kill(errStop)
 	err := b.tomb.Wait()
 	b.session.Close()
-	logf("Stopped (%v).", err)
-	return err
+	logf("Bridge stopped (%v).", err)
+	if err != errStop {
+		return err
+	}
+	return nil
 }
 
 type sreqRefresh struct {
