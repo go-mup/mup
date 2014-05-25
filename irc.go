@@ -440,6 +440,9 @@ loop:
 			w.conn.SetDeadline(t.Add(networkTimeout))
 			line = "PING :" + strconv.FormatInt(t.Unix(), 10)
 		case <-w.Dying:
+			// Ignore errors - it's on the way out.
+			w.buf.WriteString("QUIT :brb\r\n")
+			w.buf.Flush()
 			break loop
 		}
 		_, err := w.buf.WriteString(line)

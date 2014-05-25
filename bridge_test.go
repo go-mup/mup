@@ -56,7 +56,6 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 func (s *BridgeSuite) TearDownTest(c *C) {
 	if s.Bridge != nil {
 		s.Bridge.Stop()
-		//c.Assert(s.LineServer(0).ReadLine(), Equals, "QUIT :brb")
 	}
 
 	s.LineServerSuite.TearDownTest(c)
@@ -86,6 +85,18 @@ func (s *BridgeSuite) TestPingPongPostAuth(c *C) {
 	lserver.SendLine(":n.net 001 mup :Welcome!")
 	lserver.SendLine("PING :foo")
 	c.Assert(lserver.ReadLine(), Equals, "PONG :foo")
+}
+
+func (s *BridgeSuite) TestQuit(c *C) {
+	s.Bridge.Stop()
+	c.Assert(s.LineServer(0).ReadLine(), Equals, "QUIT :brb")
+}
+
+func (s *BridgeSuite) TestQuitPostAuth(c *C) {
+	lserver := s.LineServer(0)
+	lserver.SendLine(":n.net 001 mup :Welcome!")
+	s.Bridge.Stop()
+	c.Assert(lserver.ReadLine(), Equals, "QUIT :brb")
 }
 
 func (s *BridgeSuite) TestJoinChannel(c *C) {
