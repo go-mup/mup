@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 
 	"gopkg.in/niemeyer/mup.v0"
 	//"labix.org/v2/mgo"
@@ -18,9 +19,13 @@ func main() {
 	config := &mup.BridgeConfig{
 		Database: "localhost/mup",
 	}
-	if _, err := mup.StartBridge(config); err != nil {
+	bridge, err := mup.StartBridge(config)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	select{}
+	ch := make(chan os.Signal)
+	signal.Notify(ch, os.Interrupt)
+	<-ch
+	bridge.Stop()
 }

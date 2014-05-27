@@ -7,6 +7,7 @@ import (
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"launchpad.net/tomb"
+	"sync"
 )
 
 type BridgeConfig struct {
@@ -15,10 +16,11 @@ type BridgeConfig struct {
 }
 
 type Bridge struct {
+	tomb     tomb.Tomb
+	stopping bool
 	config   BridgeConfig
 	session  *mgo.Session
 	servers  map[string]*ircServer
-	tomb     tomb.Tomb
 	requests chan interface{}
 	incoming chan *Message
 }
@@ -66,11 +68,10 @@ func (b *Bridge) createCollections() error {
 	return nil
 }
 
+type sreqStop struct{}
+
 func (b *Bridge) Stop() error {
 	log("Stop requested. Waiting...")
-	for _, server := range b.servers {
-		server.Stop()
-	}
 	b.tomb.Kill(errStop)
 	err := b.tomb.Wait()
 	b.session.Close()
@@ -81,9 +82,7 @@ func (b *Bridge) Stop() error {
 	return nil
 }
 
-type sreqRefresh struct {
-	done chan struct{}
-}
+type sreqRefresh struct{ done chan struct{} }
 
 // Refresh forces reloading of the server information from the database.
 func (b *Bridge) Refresh() {
@@ -92,7 +91,59 @@ func (b *Bridge) Refresh() {
 	<-req.done
 }
 
+func (b *Bridge) die() {
+	defer b.tomb.Done()
+
+	var wg sync.WaitGroup
+	wg.Add(len(b.servers))
+	for _, server := range b.servers {
+		server := server
+		go func() {
+			server.Stop()
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+func (b *Bridge) loop() {
+	defer b.die()
+
+	b.handleRefresh()
+	var refresh <-chan time.Time
+	if b.config.AutoRefresh > 0 {
+		ticker := time.NewTicker(b.config.AutoRefresh)
+		defer ticker.Stop()
+		refresh = ticker.C
+	}
+	incoming := b.session.DB("").C("incoming")
+	for b.tomb.Err() == tomb.ErrStillAlive {
+		b.session.Refresh()
+		select {
+		case msg := <-b.incoming:
+			err := incoming.Insert(msg)
+			if err != nil {
+				logf("Cannot insert incoming message: %v", err)
+				b.tomb.Kill(err)
+			}
+		case req := <-b.requests:
+			switch r := req.(type) {
+			case sreqRefresh:
+				b.handleRefresh()
+				close(r.done)
+			}
+		case <-refresh:
+			b.handleRefresh()
+		case <-b.tomb.Dying():
+		}
+	}
+
+}
+
 func (b *Bridge) handleRefresh() {
+	if b.stopping {
+		return
+	}
 	var infos []serverInfo
 	err := b.session.DB("").C("servers").Find(nil).All(&infos)
 	if err != nil {
@@ -131,38 +182,6 @@ NextServer:
 			server.UpdateInfo(info)
 		}
 	}
-}
-
-func (b *Bridge) loop() {
-	b.handleRefresh()
-	var refresh <-chan time.Time
-	if b.config.AutoRefresh > 0 {
-		ticker := time.NewTicker(b.config.AutoRefresh)
-		defer ticker.Stop()
-		refresh = ticker.C
-	}
-	incoming := b.session.DB("").C("incoming")
-	for b.tomb.Err() == tomb.ErrStillAlive {
-		b.session.Refresh()
-		select {
-		case msg := <-b.incoming:
-			err := incoming.Insert(msg)
-			if err != nil {
-				logf("Cannot insert incoming message: %v", err)
-				b.tomb.Kill(err)
-			}
-		case req := <-b.requests:
-			switch r := req.(type) {
-			case sreqRefresh:
-				b.handleRefresh()
-				close(r.done)
-			}
-		case <-refresh:
-			b.handleRefresh()
-		case <-b.tomb.Dying():
-		}
-	}
-	b.tomb.Done()
 }
 
 func (b *Bridge) tail(server *ircServer) {

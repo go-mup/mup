@@ -21,6 +21,7 @@ const (
 	cmdPong      = "PONG"
 	cmdJoin      = "JOIN"
 	cmdPart      = "PART"
+	cmdQuit      = "QUIT"
 )
 
 type serverInfo struct {
@@ -51,6 +52,7 @@ type ircServer struct {
 	activeChannels []string
 
 	requests chan interface{}
+	stopAuth chan bool
 
 	Name     string
 	Dying    <-chan struct{}
@@ -62,6 +64,7 @@ func startIrcServer(info *serverInfo, incoming chan *Message) *ircServer {
 	s := &ircServer{
 		info:     *info,
 		requests: make(chan interface{}, 1),
+		stopAuth: make(chan bool),
 		Name:     info.Name,
 		Incoming: incoming,
 		Outgoing: make(chan *Message),
@@ -76,6 +79,18 @@ func (s *ircServer) Err() error {
 }
 
 func (s *ircServer) Stop() error {
+	// Try to disconnect gracefully.
+	timeout := time.After(networkTimeout)
+	select {
+	case s.Outgoing <- &Message{Cmd: cmdQuit, Params: []string{":brb"}}:
+		select {
+		case <-s.tomb.Dying():
+		case <-timeout:
+		}
+	case s.stopAuth <- true:
+	case <-s.tomb.Dying():
+	case <-timeout:
+	}
 	s.tomb.Kill(errStop)
 	err := s.tomb.Wait()
 	if err != errStop {
@@ -94,38 +109,41 @@ func (s *ircServer) UpdateInfo(info *serverInfo) {
 	}
 	// Make a copy as its use will continue after returning to the caller.
 	infoCopy := *info
-	s.requests <- ireqUpdateInfo(&infoCopy)
+	select {
+	case s.requests <- ireqUpdateInfo(&infoCopy):
+	case <-s.tomb.Dying():
+	}
 }
 
 func (s *ircServer) loop() {
 	defer func() { logf("[%s] Server loop terminated (%v)", s.Name, s.tomb.Err()) }()
-	defer s.tomb.Done()
-	defer s.cleanup()
+	defer s.die()
 
 	err := s.connect()
 	if err != nil {
-		logf("[%s] Failed to connect to IRC server: %v", s.Name, err)
+		logf("[%s] While connecting to IRC server: %v", s.Name, err)
 		s.tomb.Killf("%s: cannot connect to IRC server: %v", s.Name, err)
 		return
 	}
 
 	err = s.auth()
 	if err != nil {
-		logf("[%s] Failed to authenticate on IRC server: %v", s.Name, err)
+		logf("[%s] While authenticating on IRC server: %v", s.Name, err)
 		s.tomb.Killf("%s: cannot authenticate on IRC server: %v", s.Name, err)
 		return
 	}
 
 	err = s.forward()
 	if err != nil {
-		logf("[%s] Error communicating with IRC server: %v", s.Name, err)
-		s.tomb.Killf("%s: error communicating with IRC server: %v", s.Name, err)
+		logf("[%s] While talking to IRC server: %v", s.Name, err)
+		s.tomb.Killf("%s: while talking to IRC server: %v", s.Name, err)
 		return
 	}
 }
 
-func (s *ircServer) cleanup() {
+func (s *ircServer) die() {
 	logf("[%s] Cleaning IRC connection resources", s.Name)
+	defer s.tomb.Done()
 
 	// Stop the writer before closing the connection, so that
 	// in progress writes are politely finished.
@@ -145,8 +163,7 @@ func (s *ircServer) cleanup() {
 		}
 		s.conn = nil
 	}
-	// Finally, stop the reader, which will likely exit with
-	// an error due to the connection being shut on it.
+	// Finally, stop the reader.
 	if s.ircR != nil {
 		err := s.ircR.Stop()
 		if err != nil {
@@ -157,14 +174,15 @@ func (s *ircServer) cleanup() {
 
 func (s *ircServer) connect() (err error) {
 	logf("[%s] Connecting with nick %q to IRC server %q (tls=%v)", s.Name, s.info.Nick, s.info.Host, s.info.TLS)
+	dialer := &net.Dialer{Timeout: networkTimeout}
 	if s.info.TLS {
 		var config tls.Config
 		if s.info.TLSInsecure {
 			config.InsecureSkipVerify = true
 		}
-		s.conn, err = tls.Dial("tcp", s.info.Host, &config)
+		s.conn, err = tls.DialWithDialer(dialer, "tcp", s.info.Host, &config)
 	} else {
-		s.conn, err = net.DialTimeout("tcp", s.info.Host, networkTimeout)
+		s.conn, err = dialer.Dial("tcp", s.info.Host)
 	}
 	if err != nil {
 		s.conn = nil
@@ -203,6 +221,8 @@ func (s *ircServer) auth() (err error) {
 			return s.ircR.Err()
 		case <-s.ircW.Dying:
 			return s.ircW.Err()
+		case <-s.stopAuth:
+			return errStop
 		}
 
 		if msg.Cmd == cmdNickInUse {
@@ -238,9 +258,6 @@ func (s *ircServer) auth() (err error) {
 // 4. On pong, confirm all messages before the received timestamp as delivered
 
 func (s *ircServer) forward() error {
-	debugf("[%s] server entering forward loop", s.Name)
-	defer debugf("[%s] server leaving forward loop", s.Name)
-
 	// Join initial channels before forwarding any outgoing messages.
 	if err := s.handleUpdateInfo(&s.info); err != nil {
 		return err
@@ -253,6 +270,7 @@ func (s *ircServer) forward() error {
 	inRecv = s.ircR.Incoming
 	outRecv = s.Outgoing
 
+	quitting := false
 	for {
 		select {
 		case inMsg = <-inRecv:
@@ -274,6 +292,9 @@ func (s *ircServer) forward() error {
 			inSend = nil
 
 		case outMsg = <-outRecv:
+			if outMsg.Cmd == cmdQuit {
+				quitting = true
+			}
 			outRecv = nil
 			outSend = s.ircW.Outgoing
 
@@ -294,8 +315,14 @@ func (s *ircServer) forward() error {
 		case <-s.Dying:
 			return s.Err()
 		case <-s.ircR.Dying:
+			if quitting {
+				return errStop
+			}
 			return s.ircR.Err()
 		case <-s.ircW.Dying:
+			if quitting {
+				return errStop
+			}
 			return s.ircW.Err()
 		}
 	}
@@ -425,10 +452,8 @@ func (w *ircWriter) Sendf(format string, args ...interface{}) error {
 }
 
 func (w *ircWriter) loop() {
-
 	pinger := time.NewTicker(3 * time.Second)
 	defer pinger.Stop()
-
 loop:
 	for {
 		var line string
@@ -440,9 +465,6 @@ loop:
 			w.conn.SetDeadline(t.Add(networkTimeout))
 			line = "PING :" + strconv.FormatInt(t.Unix(), 10)
 		case <-w.Dying:
-			// Ignore errors - it's on the way out.
-			w.buf.WriteString("QUIT :brb\r\n")
-			w.buf.Flush()
 			break loop
 		}
 		_, err := w.buf.WriteString(line)

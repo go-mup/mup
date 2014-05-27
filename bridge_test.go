@@ -54,11 +54,10 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 }
 
 func (s *BridgeSuite) TearDownTest(c *C) {
+	s.LineServerSuite.TearDownTest(c)
 	if s.Bridge != nil {
 		s.Bridge.Stop()
 	}
-
-	s.LineServerSuite.TearDownTest(c)
 	s.MgoSuite.TearDownTest(c)
 }
 
@@ -89,14 +88,21 @@ func (s *BridgeSuite) TestPingPongPostAuth(c *C) {
 
 func (s *BridgeSuite) TestQuit(c *C) {
 	s.Bridge.Stop()
-	c.Assert(s.LineServer(0).ReadLine(), Equals, "QUIT :brb")
+	c.Assert(s.LineServer(0).ReadLine(), Equals, "<LineServer closed: <nil>>")
 }
 
 func (s *BridgeSuite) TestQuitPostAuth(c *C) {
 	lserver := s.LineServer(0)
 	lserver.SendLine(":n.net 001 mup :Welcome!")
-	s.Bridge.Stop()
+	lserver.SendLine("PING :roundtrip")
+	c.Assert(lserver.ReadLine(), Equals, "PONG :roundtrip")
+	stopped := make(chan error)
+	go func() {
+		stopped <- s.Bridge.Stop()
+	}()
 	c.Assert(lserver.ReadLine(), Equals, "QUIT :brb")
+	lserver.Close()
+	c.Assert(<-stopped, IsNil)
 }
 
 func (s *BridgeSuite) TestJoinChannel(c *C) {
@@ -184,6 +190,7 @@ func (s *BridgeSuite) TestIncoming(c *C) {
 }
 
 func (s *BridgeSuite) TestOutgoing(c *C) {
+	s.LineServer(0).Close()
 	c.Assert(s.Bridge.Stop(), IsNil)
 
 	servers := s.Session.DB("").C("servers")
@@ -206,6 +213,8 @@ func (s *BridgeSuite) TestOutgoing(c *C) {
 	defer bridge.Stop()
 
 	lserver := s.LineServer(1)
+	defer lserver.Close()
+
 	c.Assert(lserver.ReadLine(), Equals, "PASS password")
 	c.Assert(lserver.ReadLine(), Equals, "NICK mup")
 	c.Assert(lserver.ReadLine(), Equals, "USER mup 0 0 :Mup Pet")
