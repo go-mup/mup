@@ -7,6 +7,7 @@ import (
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"launchpad.net/tomb"
+	"strings"
 	"sync"
 )
 
@@ -116,15 +117,30 @@ func (b *Bridge) loop() {
 		defer ticker.Stop()
 		refresh = ticker.C
 	}
-	incoming := b.session.DB("").C("incoming")
+	var incoming = b.session.DB("").C("incoming")
+	var servers = b.session.DB("").C("servers")
+	var ticker = time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 	for b.tomb.Err() == tomb.ErrStillAlive {
 		b.session.Refresh()
 		select {
 		case msg := <-b.incoming:
-			err := incoming.Insert(msg)
-			if err != nil {
-				logf("Cannot insert incoming message: %v", err)
-				b.tomb.Kill(err)
+			if msg.Cmd == cmdPong {
+				if strings.HasPrefix(msg.Text, "sent:") {
+					// TODO Ensure it's a valid ObjectId.
+					lastId := bson.ObjectIdHex(msg.Text[5:])
+					err := servers.Update(bson.D{{"name", msg.Server}}, bson.D{{"$set", bson.D{{"lastid", lastId}}}})
+					if err != nil {
+						logf("Cannot update server with last sent message id: %v", err)
+						b.tomb.Kill(err)
+					}
+				}
+			} else {
+				err := incoming.Insert(msg)
+				if err != nil {
+					logf("Cannot insert incoming message: %v", err)
+					b.tomb.Kill(err)
+				}
 			}
 		case req := <-b.requests:
 			switch r := req.(type) {
@@ -199,7 +215,10 @@ func (b *Bridge) tail(server *ircServer) {
 	// The logic below knows how to retry on all three, and also when there
 	// are arbitrary communication errors.
 
-	lastId := bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+	lastId := server.LastId
+	if lastId == "" {
+		lastId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+	}
 
 	for b.tomb.Err() == tomb.ErrStillAlive {
 

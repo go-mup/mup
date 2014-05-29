@@ -48,9 +48,22 @@ func (s *BridgeSuite) SetUpTest(c *C) {
 	c.Assert(err, IsNil)
 
 	lserver := s.LineServer(0)
+	readUser(c, lserver)
+}
+
+func readUser(c *C, lserver *LineServer) {
 	c.Assert(lserver.ReadLine(), Equals, "PASS password")
 	c.Assert(lserver.ReadLine(), Equals, "NICK mup")
 	c.Assert(lserver.ReadLine(), Equals, "USER mup 0 0 :Mup Pet")
+}
+
+func sendWelcome(c *C, lserver *LineServer) {
+	lserver.SendLine(":n.net 001 mup :Welcome!")
+}
+
+func handshake(c *C, lserver *LineServer) {
+	readUser(c, lserver)
+	sendWelcome(c, lserver)
 }
 
 func (s *BridgeSuite) TearDownTest(c *C) {
@@ -81,7 +94,7 @@ func (s *BridgeSuite) TestPingPong(c *C) {
 
 func (s *BridgeSuite) TestPingPongPostAuth(c *C) {
 	lserver := s.LineServer(0)
-	lserver.SendLine(":n.net 001 mup :Welcome!")
+	sendWelcome(c, lserver)
 	lserver.SendLine("PING :foo")
 	c.Assert(lserver.ReadLine(), Equals, "PONG :foo")
 }
@@ -93,7 +106,7 @@ func (s *BridgeSuite) TestQuit(c *C) {
 
 func (s *BridgeSuite) TestQuitPostAuth(c *C) {
 	lserver := s.LineServer(0)
-	lserver.SendLine(":n.net 001 mup :Welcome!")
+	sendWelcome(c, lserver)
 	lserver.SendLine("PING :roundtrip")
 	c.Assert(lserver.ReadLine(), Equals, "PONG :roundtrip")
 	stopped := make(chan error)
@@ -107,6 +120,7 @@ func (s *BridgeSuite) TestQuitPostAuth(c *C) {
 
 func (s *BridgeSuite) TestJoinChannel(c *C) {
 	lserver := s.LineServer(0)
+	sendWelcome(c, lserver)
 	lserver.SendLine(":n.net 001 mup :Welcome!")
 
 	servers := s.Session.DB("").C("servers")
@@ -153,7 +167,8 @@ func waitFor(condition func() bool) {
 
 func (s *BridgeSuite) TestIncoming(c *C) {
 	lserver := s.LineServer(0)
-	lserver.SendLine(":n.net 001 mup :Welcome!")
+	sendWelcome(c, lserver)
+
 	lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
 
 	incoming := s.Session.DB("").C("incoming")
@@ -190,8 +205,9 @@ func (s *BridgeSuite) TestIncoming(c *C) {
 }
 
 func (s *BridgeSuite) TestOutgoing(c *C) {
+	// Stop default bridge to test the behavior of outgoing messages on start up.
 	s.LineServer(0).Close()
-	c.Assert(s.Bridge.Stop(), IsNil)
+	s.Bridge.Stop()
 
 	servers := s.Session.DB("").C("servers")
 	err := servers.Update(
@@ -214,22 +230,42 @@ func (s *BridgeSuite) TestOutgoing(c *C) {
 
 	lserver := s.LineServer(1)
 	defer lserver.Close()
+	handshake(c, lserver)
 
-	c.Assert(lserver.ReadLine(), Equals, "PASS password")
-	c.Assert(lserver.ReadLine(), Equals, "NICK mup")
-	c.Assert(lserver.ReadLine(), Equals, "USER mup 0 0 :Mup Pet")
-
-	lserver.SendLine(":n.net 001 mup :Welcome!")
-
+	// The initial JOINs is sent before any messages.
 	c.Assert(lserver.ReadLine(), Equals, "JOIN #test")
-	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello there!")
 
+	// Then the message and the PING asking for confirmation.
+	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello there!")
+	ping := lserver.ReadLine()
+	c.Assert(ping, Matches, "PING :sent:[0-9a-f]+")
+
+	// Confirm that the message was observed.
+	lserver.SendLine("PONG" + ping[4:])
+
+	// Send another message with the bridge running.
 	err = outgoing.Insert(&Message{
 		Server: "testserver",
 		Target: "someone",
 		Text:   "Hello again!",
 	})
 	c.Assert(err, IsNil)
-
 	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
+	c.Assert(lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
+
+	// Do not confirm it, and restart the bridge.
+	lserver.Close()
+	bridge.Stop()
+	bridge, err = StartBridge(s.Config)
+	c.Assert(err, IsNil)
+	defer bridge.Stop()
+
+	lserver = s.LineServer(2)
+	defer lserver.Close()
+	handshake(c, lserver)
+
+	// The unconfirmed message is resent.
+	c.Assert(lserver.ReadLine(), Equals, "JOIN #test")
+	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
+	c.Assert(lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"labix.org/v2/mgo/bson"
 	"launchpad.net/tomb"
 	"net"
 	"strconv"
@@ -32,6 +33,7 @@ type serverInfo struct {
 	Nick        string
 	Password    string
 	Channels    []channelInfo
+	LastId      bson.ObjectId
 }
 
 type channelInfo struct {
@@ -58,6 +60,7 @@ type ircServer struct {
 	Dying    <-chan struct{}
 	Incoming chan *Message
 	Outgoing chan *Message
+	LastId   bson.ObjectId
 }
 
 func startIrcServer(info *serverInfo, incoming chan *Message) *ircServer {
@@ -69,6 +72,7 @@ func startIrcServer(info *serverInfo, incoming chan *Message) *ircServer {
 		Incoming: incoming,
 		Outgoing: make(chan *Message),
 	}
+	s.LastId = s.info.LastId
 	s.Dying = s.tomb.Dying()
 	go s.loop()
 	return s
@@ -452,32 +456,41 @@ func (w *ircWriter) Sendf(format string, args ...interface{}) error {
 }
 
 func (w *ircWriter) loop() {
-	pinger := time.NewTicker(3 * time.Second)
+	pingDelay := 3 * time.Second
+	pinger := time.NewTicker(pingDelay)
 	defer pinger.Stop()
+	lastPing := time.Now()
 loop:
 	for {
-		var line string
+		var send []string
 		select {
 		case msg := <-w.Outgoing:
-			line = msg.String()
+			line := msg.String()
 			debugf("[%s] Sending: %s", w.name, line)
+			if (msg.Cmd == cmdPrivMsg || msg.Cmd == "") && msg.Id != "" {
+				send = []string{line, "\r\nPING :sent:", msg.Id.Hex(), "\r\n"}
+				lastPing = time.Now()
+			} else {
+				send = []string{line, "\r\n"}
+			}
 		case t := <-pinger.C:
+			if t.Before(lastPing.Add(pingDelay)) {
+				continue
+			}
+			lastPing = t
 			w.conn.SetDeadline(t.Add(networkTimeout))
-			line = "PING :" + strconv.FormatInt(t.Unix(), 10)
+			send = []string{"PING :", strconv.FormatInt(t.Unix(), 10), "\r\n"}
 		case <-w.Dying:
 			break loop
 		}
-		_, err := w.buf.WriteString(line)
-		if err != nil {
-			w.tomb.Kill(err)
-			break
+		for _, s := range send {
+			_, err := w.buf.WriteString(s)
+			if err != nil {
+				w.tomb.Kill(err)
+				break
+			}
 		}
-		_, err = w.buf.WriteString("\r\n")
-		if err != nil {
-			w.tomb.Kill(err)
-			break
-		}
-		err = w.buf.Flush()
+		err := w.buf.Flush()
 		if err != nil {
 			w.tomb.Kill(err)
 			break
