@@ -19,7 +19,7 @@ type Message struct {
 	Target  string        `bson:",omitempty"`
 	Text    string        `bson:",omitempty"`
 	Bang    string        `bson:",omitempty"`
-	MupChat bool          `bson:",omitempty"`
+	ToMup bool          `bson:",omitempty"`
 	MupText string        `bson:",omitempty"`
 	MupNick string        `bson:",omitempty"`
 }
@@ -108,15 +108,15 @@ func ParseMessage(mupnick, bang, line string) *Message {
 			m.Target = m.Params[0]
 		}
 
-		// MupChat, MupText
+		// ToMup, MupText
 		text := m.Text
 		nl := len(m.MupNick)
 		if nl > 0 && len(m.Text) > nl+1 && (m.Text[nl] == ':' || m.Text[nl] == ',') && m.Text[:nl] == m.MupNick {
-			m.MupChat = true
+			m.ToMup = true
 			m.MupText = strings.TrimSpace(m.Text[nl+1:])
 			text = m.MupText
 		} else if m.Target != "" && m.Target == m.MupNick {
-			m.MupChat = true
+			m.ToMup = true
 			m.MupText = strings.TrimSpace(m.Text)
 			text = m.MupText
 		}
@@ -124,7 +124,7 @@ func ParseMessage(mupnick, bang, line string) *Message {
 		// Bang
 		bl := len(m.Bang)
 		if bl > 0 && len(text) >= bl && text[:bl] == m.Bang && (len(text) == bl || unicode.IsLetter(rune(text[bl]))) {
-			m.MupChat = true
+			m.ToMup = true
 			m.MupText = text[bl:]
 		}
 	}

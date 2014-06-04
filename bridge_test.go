@@ -208,7 +208,7 @@ func (s *StationSuite) TestIncoming(c *C) {
 		Text:    "Hello mup!",
 		Bang:    "!",
 		MupNick: "mup",
-		MupChat: true,
+		ToMup: true,
 		MupText: "Hello mup!",
 	})
 }
@@ -277,4 +277,18 @@ func (s *StationSuite) TestOutgoing(c *C) {
 	c.Assert(lserver.ReadLine(), Equals, "JOIN #test")
 	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 	c.Assert(lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
+}
+
+func (s *StationSuite) TestEchoPlugin(c *C) {
+	lserver := s.LineServer(0)
+	sendWelcome(c, lserver)
+
+	plugins := s.Session.DB("").C("plugins")
+	err := plugins.Insert(M{"name": "echo"})
+	c.Assert(err, IsNil)
+
+	s.station.RefreshPlugins()
+
+	lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echo Repeat this.")
+	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG somenick :Repeat this.")
 }

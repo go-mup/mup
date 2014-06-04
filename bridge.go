@@ -131,6 +131,8 @@ func (b *bridge) loop() {
 			case sreqRefresh:
 				b.handleRefresh()
 				close(r.done)
+			default:
+				panic("unknown request received by bridge")
 			}
 		case <-refresh:
 			b.handleRefresh()

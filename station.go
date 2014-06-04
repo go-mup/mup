@@ -14,17 +14,17 @@ type Config struct {
 	// Refresh defines how often to refresh server and plugin
 	// information from the database. Default to every few seconds.
 	// Set to -1 to disable.
-	Refresh  time.Duration
+	Refresh time.Duration
 
 	// Servers defines which of the IRC servers defined in the database
 	// this station is responsible for. Defaults to all if nil. Set to
 	// an empty list for handling no servers in this station.
-	Servers  []string
+	Servers []string
 
 	// Plugins defines which of the plugins defined in the database
 	// this station is responsible for. Defaults to all if nil. Set to
 	// an empty list for handling no plugins in this station.
-	Plugins  []string
+	Plugins []string
 }
 
 // A Station handles some or all of the duties of a mup instance.
@@ -45,8 +45,8 @@ type Config struct {
 // same MongoDB server and database.
 //
 type Station struct {
-	bridge   *bridge
-	pmanager *pluginManager
+	bridge  *bridge
+	plugmgr *pluginManager
 }
 
 // Start starts a mup station that handles some or all of the duties
@@ -62,7 +62,7 @@ func Start(config *Config) (*Station, error) {
 	if err != nil {
 		return nil, err
 	}
-	st.pmanager, err = startPluginManager(configCopy)
+	st.plugmgr, err = startPluginManager(configCopy)
 	if err != nil {
 		st.bridge.Stop()
 		return nil, err
@@ -72,7 +72,7 @@ func Start(config *Config) (*Station, error) {
 
 // Stop synchronously terminates all activities of the mup station.
 func (st *Station) Stop() error {
-	err1 := st.pmanager.Stop()
+	err1 := st.plugmgr.Stop()
 	err2 := st.bridge.Stop()
 	if err2 != nil {
 		return err2
@@ -84,4 +84,10 @@ func (st *Station) Stop() error {
 // the IRC servers this station is responsible for.
 func (st *Station) RefreshServers() {
 	st.bridge.Refresh()
+}
+
+// RefreshPlugins reloads from the database all information about
+// the plugins this station is responsible for.
+func (st *Station) RefreshPlugins() {
+	st.plugmgr.Refresh()
 }

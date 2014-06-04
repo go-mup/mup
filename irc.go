@@ -455,9 +455,13 @@ func (w *ircWriter) Sendf(format string, args ...interface{}) error {
 	return w.Send(ParseMessage("", "", fmt.Sprintf(format, args...)))
 }
 
+func (w *ircWriter) die() {
+	debugf("[%s] Writer is dead (%v)", w.name, w.tomb.Err())
+	w.tomb.Done()
+}
+
 func (w *ircWriter) loop() {
-	defer w.tomb.Done()
-	defer debugf("[%s] Writer is dead (%v)", w.name, w.tomb.Err())
+	defer w.die()
 
 	pingDelay := networkTimeout / 5
 	pinger := time.NewTicker(pingDelay)

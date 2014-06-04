@@ -1,6 +1,7 @@
 package mup
 
 import (
+	"fmt"
 	"time"
 
 	"labix.org/v2/mgo"
@@ -9,10 +10,8 @@ import (
 	"sync"
 )
 
-type Plugger struct{}
-
 type Plugin interface {
-	Start(plugger *Plugger) error
+	Start() error
 	Stop() error
 	Handle(msg *Message) error
 }
@@ -25,6 +24,7 @@ type pluginManager struct {
 	plugins  map[string]Plugin
 	requests chan interface{}
 	incoming chan *Message
+	outgoing *mgo.Collection
 }
 
 func startPluginManager(config Config) (*pluginManager, error) {
@@ -37,7 +37,9 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	}
 	m.session = config.Database.Session.Copy()
 	m.database = config.Database.With(m.session)
+	m.outgoing = m.database.C("outgoing")
 	go m.loop()
+	go m.tail()
 	return m, nil
 }
 
@@ -103,9 +105,11 @@ func (m *pluginManager) loop() {
 			}
 		case req := <-m.requests:
 			switch r := req.(type) {
-			case sreqRefresh:
+			case mreqRefresh:
 				m.handleRefresh()
 				close(r.done)
+			default:
+				panic("unknown request received by plugin manager")
 			}
 		case <-refresh:
 			m.handleRefresh()
@@ -145,17 +149,19 @@ func (m *pluginManager) handleRefresh() {
 	}
 }
 
-type dummyPlugin struct {}
-func (p dummyPlugin) Start(plugger *Plugger) error { return nil }
-func (p dummyPlugin) Stop() error { return nil }
-func (p dummyPlugin) Handle(msg *Message) error {
-	logf("Plugin got message: %s", msg)
-	return nil
-}
-
 func (m *pluginManager) startPlugin(info *pluginInfo) (Plugin, error) {
 	// TODO Send plugin's last id to tail for a potential rollback.
-	return dummyPlugin{}, nil
+	newPlugin, ok := registeredPlugins[info.Name]
+	if !ok {
+		logf("Enabled plugin is not registered: %s", info.Name)
+		return nil, fmt.Errorf("plugin %q not registered", info.Name)
+	}
+	plugger := newPlugger(m.send)
+	return newPlugin(plugger), nil
+}
+
+func (m *pluginManager) send(msg *Message) error {
+	return m.outgoing.Insert(msg)
 }
 
 func (m *pluginManager) tail() {
@@ -180,7 +186,7 @@ func (m *pluginManager) tail() {
 		for {
 			var msg *Message
 			for iter.Next(&msg) {
-				debugf("Tail iterator got incoming message: %s", msg.Server, msg.String())
+				debugf("[%s] Tail iterator got incoming message: %s", msg.Server, msg.String())
 				select {
 				case m.incoming <- msg:
 					lastId = msg.Id

@@ -138,8 +138,8 @@ var parseTests = []struct {
 			Target: "mup",
 			Text:   "Hello there",
 
+			ToMup:   true,
 			MupNick: "mup",
-			MupChat: true,
 			MupText: "Hello there",
 		},
 	}, {
@@ -152,8 +152,8 @@ var parseTests = []struct {
 			Target: "mup",
 			Text:   "mup: Hello there",
 
+			ToMup:   true,
 			MupNick: "mup",
-			MupChat: true,
 			MupText: "Hello there",
 		},
 	}, {
@@ -166,8 +166,8 @@ var parseTests = []struct {
 			Target: "mup",
 			Text:   "mup, Hello there",
 
+			ToMup:   true,
 			MupNick: "mup",
-			MupChat: true,
 			MupText: "Hello there",
 		},
 	}, {
@@ -180,8 +180,8 @@ var parseTests = []struct {
 			Target: "#channel",
 			Text:   "mup: Hello there",
 
+			ToMup:   true,
 			MupNick: "mup",
-			MupChat: true,
 			MupText: "Hello there",
 		},
 	}, {
@@ -194,8 +194,8 @@ var parseTests = []struct {
 			Target: "mup",
 			Text:   "mup, Hello there",
 
+			ToMup:   true,
 			MupNick: "mup",
-			MupChat: true,
 			MupText: "Hello there",
 		},
 	},
@@ -231,7 +231,7 @@ var parseTests = []struct {
 			Text:   "!Hello there",
 			Bang:   "!",
 
-			MupChat: true,
+			ToMup:   true,
 			MupText: "Hello there",
 		},
 	}, {
@@ -245,8 +245,8 @@ var parseTests = []struct {
 			Text:   "mup: !Hello there",
 			Bang:   "!",
 
+			ToMup:   true,
 			MupNick: "mup",
-			MupChat: true,
 			MupText: "Hello there",
 		},
 	},
