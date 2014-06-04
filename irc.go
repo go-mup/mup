@@ -456,7 +456,10 @@ func (w *ircWriter) Sendf(format string, args ...interface{}) error {
 }
 
 func (w *ircWriter) loop() {
-	pingDelay := 3 * time.Second
+	defer w.tomb.Done()
+	defer debugf("[%s] Writer is dead (%v)", w.name, w.tomb.Err())
+
+	pingDelay := networkTimeout / 5
 	pinger := time.NewTicker(pingDelay)
 	defer pinger.Stop()
 	lastPing := time.Now()
@@ -480,7 +483,6 @@ loop:
 				continue
 			}
 			lastPing = t
-			w.conn.SetDeadline(t.Add(networkTimeout))
 			send = []string{"PING :", strconv.FormatInt(t.Unix(), 10), "\r\n"}
 		case <-w.Dying:
 			break loop
@@ -498,8 +500,6 @@ loop:
 			break
 		}
 	}
-	w.tomb.Done()
-	debugf("[%s] Writer is dead (%v)", w.name, w.tomb.Err())
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +508,7 @@ loop:
 // An ircReader reads lines from the server and injects it in the Incoming channel.
 type ircReader struct {
 	name       string
+	conn       net.Conn
 	activeNick string
 	buf        *bufio.Reader
 	tomb       tomb.Tomb
@@ -519,6 +520,7 @@ type ircReader struct {
 func startIrcReader(name string, conn net.Conn) *ircReader {
 	r := &ircReader{
 		name:     name,
+		conn:     conn,
 		buf:      bufio.NewReader(conn),
 		Incoming: make(chan *Message, 1),
 	}
@@ -545,14 +547,9 @@ func (r *ircReader) Stop() error {
 
 func (r *ircReader) loop() {
 	for r.tomb.Err() == tomb.ErrStillAlive {
+		r.conn.SetReadDeadline(time.Now().Add(networkTimeout))
 		line, prefix, err := r.buf.ReadLine()
 		if err != nil {
-			if e, ok := err.(net.Error); ok && e.Timeout() {
-				if len(line) > 0 {
-					panic("FIXME: timeout with line")
-				}
-				continue
-			}
 			r.tomb.Kill(err)
 			break
 		}

@@ -11,57 +11,43 @@ import (
 	"sync"
 )
 
-type BridgeConfig struct {
-	Database    string
-	AutoRefresh time.Duration // Every few seconds by default; set to -1 to disable.
-}
-
-type Bridge struct {
+type bridge struct {
 	tomb     tomb.Tomb
-	stopping bool
-	config   BridgeConfig
+	config   Config
 	session  *mgo.Session
+	database *mgo.Database
 	servers  map[string]*ircServer
 	requests chan interface{}
 	incoming chan *Message
 }
 
-func StartBridge(config *BridgeConfig) (*Bridge, error) {
-	logf("Starting server...")
-	b := &Bridge{
-		config:   *config,
+func startBridge(config Config) (*bridge, error) {
+	logf("Starting bridge...")
+	b := &bridge{
+		config:   config,
 		servers:  make(map[string]*ircServer),
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
 	}
-	if b.config.AutoRefresh == 0 {
-		b.config.AutoRefresh = 3 * time.Second
-	}
-	var err error
-	b.session, err = mgo.Dial(b.config.Database)
-	if err != nil {
-		logf("Could not connect to database %s: %v", config.Database, err)
-		return nil, err
-	}
-	err = b.createCollections()
-	if err != nil {
+	b.session = config.Database.Session.Copy()
+	b.database = config.Database.With(b.session)
+	if err := b.createCollections(); err != nil {
 		logf("Cannot create collections: %v", err)
 		return nil, fmt.Errorf("cannot create collections: %v", err)
 	}
-	logf("Connected to database: %s", config.Database)
 	go b.loop()
 	return b, nil
 }
 
 const mb = 1024 * 1024
 
-func (b *Bridge) createCollections() error {
+func (b *bridge) createCollections() error {
 	capped := mgo.CollectionInfo{
 		Capped:   true,
 		MaxBytes: 4 * mb,
 	}
 	for _, c := range []string{"incoming", "outgoing"} {
-		err := b.session.DB("").C(c).Create(&capped)
+		err := b.database.C(c).Create(&capped)
 		if err != nil && err.Error() != "collection already exists" {
 			return err
 		}
@@ -71,8 +57,8 @@ func (b *Bridge) createCollections() error {
 
 type sreqStop struct{}
 
-func (b *Bridge) Stop() error {
-	log("Stop requested. Waiting...")
+func (b *bridge) Stop() error {
+	log("Bridge stop requested. Waiting...")
 	b.tomb.Kill(errStop)
 	err := b.tomb.Wait()
 	b.session.Close()
@@ -85,14 +71,14 @@ func (b *Bridge) Stop() error {
 
 type sreqRefresh struct{ done chan struct{} }
 
-// Refresh forces reloading of the server information from the database.
-func (b *Bridge) Refresh() {
+// Refresh forces reloading all server information from the database.
+func (b *bridge) Refresh() {
 	req := sreqRefresh{make(chan struct{})}
 	b.requests <- req
 	<-req.done
 }
 
-func (b *Bridge) die() {
+func (b *bridge) die() {
 	defer b.tomb.Done()
 
 	var wg sync.WaitGroup
@@ -107,20 +93,18 @@ func (b *Bridge) die() {
 	wg.Wait()
 }
 
-func (b *Bridge) loop() {
+func (b *bridge) loop() {
 	defer b.die()
 
 	b.handleRefresh()
 	var refresh <-chan time.Time
-	if b.config.AutoRefresh > 0 {
-		ticker := time.NewTicker(b.config.AutoRefresh)
+	if b.config.Refresh > 0 {
+		ticker := time.NewTicker(b.config.Refresh)
 		defer ticker.Stop()
 		refresh = ticker.C
 	}
-	var incoming = b.session.DB("").C("incoming")
-	var servers = b.session.DB("").C("servers")
-	var ticker = time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	var incoming = b.database.C("incoming")
+	var servers = b.database.C("servers")
 	for b.tomb.Err() == tomb.ErrStillAlive {
 		b.session.Refresh()
 		select {
@@ -156,12 +140,9 @@ func (b *Bridge) loop() {
 
 }
 
-func (b *Bridge) handleRefresh() {
-	if b.stopping {
-		return
-	}
+func (b *bridge) handleRefresh() {
 	var infos []serverInfo
-	err := b.session.DB("").C("servers").Find(nil).All(&infos)
+	err := b.database.C("servers").Find(nil).All(&infos)
 	if err != nil {
 		// TODO Reduce frequency of logged messages if the database goes down.
 		logf("Cannot fetch server information from the database: %v", err)
@@ -200,9 +181,11 @@ NextServer:
 	}
 }
 
-func (b *Bridge) tail(server *ircServer) {
+func (b *bridge) tail(server *ircServer) {
 	session := b.session.Copy()
 	defer session.Close()
+	database := b.database.With(session)
+	outgoing := database.C("outgoing")
 
 	// Tailing is more involved than it ought to be. The complexity comes
 	// from the fact that there are three ways to look for a new message,
@@ -224,7 +207,6 @@ func (b *Bridge) tail(server *ircServer) {
 
 		// Prepare a new tailing iterator.
 		session.Refresh()
-		outgoing := session.DB("").C("outgoing")
 		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"server", server.Name}})
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
