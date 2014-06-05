@@ -34,7 +34,7 @@ func run() error {
 	config := &mup.Config{
 		Database: session.DB(""),
 	}
-	bot, err := mup.Start(config)
+	server, err := mup.Start(config)
 	if err != nil {
 		return err
 	}
@@ -42,5 +42,5 @@ func run() error {
 	ch := make(chan os.Signal)
 	signal.Notify(ch, os.Interrupt)
 	<-ch
-	return bot.Stop()
+	return server.Stop()
 }

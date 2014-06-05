@@ -9,7 +9,7 @@ import (
 
 type Message struct {
 	Id      bson.ObjectId `bson:"_id,omitempty"`
-	Server  string        `bson:",omitempty"`
+	Account string        `bson:",omitempty"`
 	Prefix  string        `bson:",omitempty"`
 	Nick    string        `bson:",omitempty"`
 	User    string        `bson:",omitempty"`

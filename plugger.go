@@ -22,7 +22,7 @@ func (p *Plugger) Replyf(msg *Message, format string, args ...interface{}) error
 	} else {
 		text = msg.Nick + ": " + text
 	}
-	reply := &Message{Server: msg.Server, Target: target, Text: text}
+	reply := &Message{Account: msg.Account, Target: target, Text: text}
 	err := p.send(reply)
 	if err != nil {
 		logf("Cannot put message in outgoing queue: %v", err)

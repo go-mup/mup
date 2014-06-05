@@ -186,7 +186,7 @@ func (m *pluginManager) tail() {
 		for {
 			var msg *Message
 			for iter.Next(&msg) {
-				debugf("[%s] Tail iterator got incoming message: %s", msg.Server, msg.String())
+				debugf("[%s] Tail iterator got incoming message: %s", msg.Account, msg.String())
 				select {
 				case m.incoming <- msg:
 					lastId = msg.Id

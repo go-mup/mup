@@ -7,28 +7,28 @@ import (
 	"labix.org/v2/mgo"
 )
 
-type StationSuite struct {
+type ServerSuite struct {
 	LineServerSuite
 	MgoSuite
 
 	session *mgo.Session
 	config  *Config
-	station *Station
+	server  *Server
 }
 
-var _ = Suite(&StationSuite{})
+var _ = Suite(&ServerSuite{})
 
-func (s *StationSuite) SetUpSuite(c *C) {
+func (s *ServerSuite) SetUpSuite(c *C) {
 	s.LineServerSuite.SetUpSuite(c)
 	s.MgoSuite.SetUpSuite(c)
 }
 
-func (s *StationSuite) TearDownSuite(c *C) {
+func (s *ServerSuite) TearDownSuite(c *C) {
 	s.LineServerSuite.TearDownSuite(c)
 	s.MgoSuite.TearDownSuite(c)
 }
 
-func (s *StationSuite) SetUpTest(c *C) {
+func (s *ServerSuite) SetUpTest(c *C) {
 	s.LineServerSuite.SetUpTest(c)
 	s.MgoSuite.SetUpTest(c)
 
@@ -44,14 +44,14 @@ func (s *StationSuite) SetUpTest(c *C) {
 		Refresh:  -1, // Manual refreshing for testing.
 	}
 
-	err = s.config.Database.C("servers").Insert(M{
+	err = s.config.Database.C("accounts").Insert(M{
 		"name":     "testserver",
 		"host":     s.Addr.String(),
 		"password": "password",
 	})
 	c.Assert(err, IsNil)
 
-	s.station, err = Start(s.config)
+	s.server, err = Start(s.config)
 	c.Assert(err, IsNil)
 
 	lserver := s.LineServer(0)
@@ -73,21 +73,21 @@ func handshake(c *C, lserver *LineServer) {
 	sendWelcome(c, lserver)
 }
 
-func (s *StationSuite) TearDownTest(c *C) {
+func (s *ServerSuite) TearDownTest(c *C) {
 	s.LineServerSuite.TearDownTest(c)
-	if s.station != nil {
-		s.station.Stop()
+	if s.server != nil {
+		s.server.Stop()
 	}
 	s.session.Close()
 	s.config.Database.Session.Close()
 	s.MgoSuite.TearDownTest(c)
 }
 
-func (s *StationSuite) TestConnect(c *C) {
+func (s *ServerSuite) TestConnect(c *C) {
 	// SetUpTest does it all.
 }
 
-func (s *StationSuite) TestNickInUse(c *C) {
+func (s *ServerSuite) TestNickInUse(c *C) {
 	lserver := s.LineServer(0)
 	lserver.SendLine(":n.net 433 * mup :Nickname is already in use.")
 	c.Assert(lserver.ReadLine(), Equals, "NICK mup_")
@@ -95,69 +95,69 @@ func (s *StationSuite) TestNickInUse(c *C) {
 	c.Assert(lserver.ReadLine(), Equals, "NICK mup__")
 }
 
-func (s *StationSuite) TestPingPong(c *C) {
+func (s *ServerSuite) TestPingPong(c *C) {
 	lserver := s.LineServer(0)
 	lserver.SendLine("PING :foo")
 	c.Assert(lserver.ReadLine(), Equals, "PONG :foo")
 }
 
-func (s *StationSuite) TestPingPongPostAuth(c *C) {
+func (s *ServerSuite) TestPingPongPostAuth(c *C) {
 	lserver := s.LineServer(0)
 	sendWelcome(c, lserver)
 	lserver.SendLine("PING :foo")
 	c.Assert(lserver.ReadLine(), Equals, "PONG :foo")
 }
 
-func (s *StationSuite) TestQuit(c *C) {
-	s.station.Stop()
+func (s *ServerSuite) TestQuit(c *C) {
+	s.server.Stop()
 	c.Assert(s.LineServer(0).ReadLine(), Equals, "<LineServer closed: <nil>>")
 }
 
-func (s *StationSuite) TestQuitPostAuth(c *C) {
+func (s *ServerSuite) TestQuitPostAuth(c *C) {
 	lserver := s.LineServer(0)
 	sendWelcome(c, lserver)
 	lserver.SendLine("PING :roundtrip")
 	c.Assert(lserver.ReadLine(), Equals, "PONG :roundtrip")
 	stopped := make(chan error)
 	go func() {
-		stopped <- s.station.Stop()
+		stopped <- s.server.Stop()
 	}()
 	c.Assert(lserver.ReadLine(), Equals, "QUIT :brb")
 	lserver.Close()
 	c.Assert(<-stopped, IsNil)
 }
 
-func (s *StationSuite) TestJoinChannel(c *C) {
+func (s *ServerSuite) TestJoinChannel(c *C) {
 	lserver := s.LineServer(0)
 	sendWelcome(c, lserver)
 	lserver.SendLine(":n.net 001 mup :Welcome!")
 
-	servers := s.Session.DB("").C("servers")
-	err := servers.Update(
+	accounts := s.Session.DB("").C("accounts")
+	err := accounts.Update(
 		M{"name": "testserver"},
 		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}}}},
 	)
 	c.Assert(err, IsNil)
 
-	s.station.RefreshServers()
+	s.server.RefreshAccounts()
 	c.Assert(lserver.ReadLine(), Equals, "JOIN #c1,#c2")
 
 	// Confirm it joined both channels.
 	lserver.SendLine(":mup!~mup@10.0.0.1 JOIN #c1")
 	lserver.SendLine(":mup!~mup@10.0.0.1 JOIN #c2")
 
-	err = servers.Update(
+	err = accounts.Update(
 		M{"name": "testserver"},
 		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c3"}}}},
 	)
 	c.Assert(err, IsNil)
 
-	s.station.RefreshServers()
+	s.server.RefreshAccounts()
 	c.Assert(lserver.ReadLine(), Equals, "JOIN #c3")
 	c.Assert(lserver.ReadLine(), Equals, "PART #c2")
 
 	// Do not confirm, forcing it to retry.
-	s.station.RefreshServers()
+	s.server.RefreshAccounts()
 	c.Assert(lserver.ReadLine(), Equals, "JOIN #c3")
 	c.Assert(lserver.ReadLine(), Equals, "PART #c2")
 }
@@ -174,7 +174,7 @@ func waitFor(condition func() bool) {
 	}
 }
 
-func (s *StationSuite) TestIncoming(c *C) {
+func (s *ServerSuite) TestIncoming(c *C) {
 	lserver := s.LineServer(0)
 	sendWelcome(c, lserver)
 
@@ -197,7 +197,7 @@ func (s *StationSuite) TestIncoming(c *C) {
 	messages[0].Id = ""
 
 	c.Assert(messages[0], DeepEquals, &Message{
-		Server:  "testserver",
+		Account: "testserver",
 		Prefix:  "somenick!~someuser@somehost",
 		Nick:    "somenick",
 		User:    "~someuser",
@@ -207,19 +207,19 @@ func (s *StationSuite) TestIncoming(c *C) {
 		Target:  "mup",
 		Text:    "Hello mup!",
 		Bang:    "!",
+		ToMup:   true,
 		MupNick: "mup",
-		ToMup: true,
 		MupText: "Hello mup!",
 	})
 }
 
-func (s *StationSuite) TestOutgoing(c *C) {
+func (s *ServerSuite) TestOutgoing(c *C) {
 	// Stop default bridge to test the behavior of outgoing messages on start up.
 	s.LineServer(0).Close()
-	s.station.Stop()
+	s.server.Stop()
 
-	servers := s.Session.DB("").C("servers")
-	err := servers.Update(
+	accounts := s.Session.DB("").C("accounts")
+	err := accounts.Update(
 		M{"name": "testserver"},
 		M{"$set": M{"channels": []M{{"name": "#test"}}}},
 	)
@@ -227,9 +227,9 @@ func (s *StationSuite) TestOutgoing(c *C) {
 
 	outgoing := s.Session.DB("").C("outgoing")
 	err = outgoing.Insert(&Message{
-		Server: "testserver",
-		Target: "someone",
-		Text:   "Hello there!",
+		Account: "testserver",
+		Target:  "someone",
+		Text:    "Hello there!",
 	})
 	c.Assert(err, IsNil)
 
@@ -254,9 +254,9 @@ func (s *StationSuite) TestOutgoing(c *C) {
 
 	// Send another message with the bridge running.
 	err = outgoing.Insert(&Message{
-		Server: "testserver",
-		Target: "someone",
-		Text:   "Hello again!",
+		Account: "testserver",
+		Target:  "someone",
+		Text:    "Hello again!",
 	})
 	c.Assert(err, IsNil)
 	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
@@ -279,7 +279,7 @@ func (s *StationSuite) TestOutgoing(c *C) {
 	c.Assert(lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
 }
 
-func (s *StationSuite) TestEchoPlugin(c *C) {
+func (s *ServerSuite) TestEchoPlugin(c *C) {
 	lserver := s.LineServer(0)
 	sendWelcome(c, lserver)
 
@@ -287,7 +287,7 @@ func (s *StationSuite) TestEchoPlugin(c *C) {
 	err := plugins.Insert(M{"name": "echo"})
 	c.Assert(err, IsNil)
 
-	s.station.RefreshPlugins()
+	s.server.RefreshPlugins()
 
 	lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echo Repeat this.")
 	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG somenick :Repeat this.")
