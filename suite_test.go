@@ -55,11 +55,11 @@ func (lsuite *LineServerSuite) SetUpTest(c *C) {
 func (lsuite *LineServerSuite) TearDownTest(c *C) {
 	lsuite.m.Lock()
 	lsuite.active = false
-	lsuite.m.Unlock()
 	for _, server := range lsuite.servers {
 		server.Close()
 	}
 	lsuite.servers = nil
+	lsuite.m.Unlock()
 	c.Assert(lsuite.tomb.Err(), Equals, tomb.ErrStillAlive)
 }
 
@@ -78,6 +78,21 @@ func (lsuite *LineServerSuite) loop() {
 		lsuite.servers = append(lsuite.servers, NewLineServer(conn))
 		lsuite.m.Unlock()
 	}
+}
+
+func (lsuite *LineServerSuite) CloseLineServers() {
+	lsuite.m.Lock()
+	for _, server := range lsuite.servers {
+		server.Close()
+	}
+	lsuite.m.Unlock()
+}
+
+func (lsuite *LineServerSuite) NextLineServer() int {
+	lsuite.m.Lock()
+	n := len(lsuite.servers)
+	lsuite.m.Unlock()
+	return n
 }
 
 func (lsuite *LineServerSuite) LineServer(connIndex int) *LineServer {

@@ -55,8 +55,6 @@ func (am *accountManager) createCollections() error {
 	return nil
 }
 
-type sreqStop struct{}
-
 func (am *accountManager) Stop() error {
 	log("Account manager stop requested. Waiting...")
 	am.tomb.Kill(errStop)
@@ -69,11 +67,11 @@ func (am *accountManager) Stop() error {
 	return nil
 }
 
-type sreqRefresh struct{ done chan struct{} }
+type accountRequestRefresh struct{ done chan struct{} }
 
 // Refresh forces reloading all account information from the database.
 func (am *accountManager) Refresh() {
-	req := sreqRefresh{make(chan struct{})}
+	req := accountRequestRefresh{make(chan struct{})}
 	am.requests <- req
 	<-req.done
 }
@@ -128,7 +126,7 @@ func (am *accountManager) loop() {
 			}
 		case req := <-am.requests:
 			switch r := req.(type) {
-			case sreqRefresh:
+			case accountRequestRefresh:
 				am.handleRefresh()
 				close(r.done)
 			default:

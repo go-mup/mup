@@ -5,13 +5,19 @@ import (
 )
 
 type Plugger struct {
-	send     func(*Message) error
+	sendMessage  func(*Message) error
+	loadSettings func(result interface{})
 }
 
-func newPlugger(send func(msg *Message) error) *Plugger {
+func newPlugger(sendMessage func(msg *Message) error, loadSettings func(result interface{})) *Plugger {
 	return &Plugger{
-		send:     send,
+		sendMessage:  sendMessage,
+		loadSettings: loadSettings,
 	}
+}
+
+func (p *Plugger) Settings(result interface{}) {
+	p.loadSettings(result)
 }
 
 func (p *Plugger) Replyf(msg *Message, format string, args ...interface{}) error {
@@ -23,7 +29,7 @@ func (p *Plugger) Replyf(msg *Message, format string, args ...interface{}) error
 		text = msg.Nick + ": " + text
 	}
 	reply := &Message{Account: msg.Account, Target: target, Text: text}
-	err := p.send(reply)
+	err := p.sendMessage(reply)
 	if err != nil {
 		logf("Cannot put message in outgoing queue: %v", err)
 		return fmt.Errorf("cannot put message in outgoing queue: %v", err)

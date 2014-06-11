@@ -38,6 +38,8 @@ func (m *Message) String() string {
 		return fmt.Sprint(cmd, " ", strings.Join(m.Params, " "))
 	} else if m.Target != "" {
 		return fmt.Sprint(cmd, " ", m.Target, " :", m.Text)
+	} else if m.Text != "" {
+		return fmt.Sprint(cmd, " :", m.Text)
 	}
 	return cmd
 }

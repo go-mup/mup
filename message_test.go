@@ -284,6 +284,9 @@ var stringTests = []struct {
 	}, {
 		Message{Cmd: "CMD", Prefix: "nick!user@host"},
 		":nick!user@host CMD",
+	}, {
+		Message{Cmd: "PING", Text: "hi"},
+		"PING :hi",
 	},
 }
 

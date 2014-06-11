@@ -5,6 +5,7 @@ import (
 
 	. "gopkg.in/check.v1"
 	"labix.org/v2/mgo"
+	"strings"
 )
 
 type ServerSuite struct {
@@ -14,6 +15,9 @@ type ServerSuite struct {
 	session *mgo.Session
 	config  *Config
 	server  *Server
+	lserver *LineServer
+
+	c *C
 }
 
 var _ = Suite(&ServerSuite{})
@@ -51,36 +55,72 @@ func (s *ServerSuite) SetUpTest(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	s.server, err = Start(s.config)
-	c.Assert(err, IsNil)
-
-	lserver := s.LineServer(0)
-	readUser(c, lserver)
-}
-
-func readUser(c *C, lserver *LineServer) {
-	c.Assert(lserver.ReadLine(), Equals, "PASS password")
-	c.Assert(lserver.ReadLine(), Equals, "NICK mup")
-	c.Assert(lserver.ReadLine(), Equals, "USER mup 0 0 :Mup Pet")
-}
-
-func sendWelcome(c *C, lserver *LineServer) {
-	lserver.SendLine(":n.net 001 mup :Welcome!")
-}
-
-func handshake(c *C, lserver *LineServer) {
-	readUser(c, lserver)
-	sendWelcome(c, lserver)
+	s.c = c
+	s.RestartServer()
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
+	s.StopServer()
 	s.LineServerSuite.TearDownTest(c)
-	if s.server != nil {
-		s.server.Stop()
-	}
 	s.session.Close()
 	s.config.Database.Session.Close()
 	s.MgoSuite.TearDownTest(c)
+}
+
+func (s *ServerSuite) StopServer() {
+	if s.lserver != nil {
+		s.lserver.Close()
+		s.lserver = nil
+	}
+	if s.server != nil {
+		s.server.Stop()
+		s.server = nil
+	}
+}
+
+func (s *ServerSuite) RestartServer() {
+	s.StopServer()
+	n := s.NextLineServer()
+	var err error
+	s.server, err = Start(s.config)
+	s.c.Assert(err, IsNil)
+	s.lserver = s.LineServer(n)
+	s.ReadUser()
+}
+
+func (s *ServerSuite) ReadUser() {
+	s.ReadLine("PASS password")
+	s.ReadLine("NICK mup")
+	s.ReadLine("USER mup 0 0 :Mup Pet")
+}
+
+func (s *ServerSuite) SendWelcome() {
+	s.SendLine(":n.net 001 mup :Welcome!")
+}
+
+func (s *ServerSuite) Handshake() {
+	s.ReadUser()
+	s.SendWelcome()
+}
+
+func (s *ServerSuite) SendLine(line string) {
+	s.lserver.SendLine(line)
+}
+
+func (s *ServerSuite) ReadLine(line string) {
+	s.c.Assert(s.lserver.ReadLine(), Equals, line)
+
+	// Confirm read message.
+	if strings.HasPrefix(line, "PRIVMSG ") {
+		ping := s.lserver.ReadLine()
+		s.c.Assert(ping, Matches, "PING :sent:.*")
+		s.lserver.SendLine("PONG " + ping[5:])
+	}
+}
+
+func (s *ServerSuite) Roundtrip() {
+	s.lserver.SendLine("PING :roundtrip")
+	s.c.Assert(s.lserver.ReadLine(), Equals, "PONG :roundtrip")
 }
 
 func (s *ServerSuite) TestConnect(c *C) {
@@ -88,49 +128,42 @@ func (s *ServerSuite) TestConnect(c *C) {
 }
 
 func (s *ServerSuite) TestNickInUse(c *C) {
-	lserver := s.LineServer(0)
-	lserver.SendLine(":n.net 433 * mup :Nickname is already in use.")
-	c.Assert(lserver.ReadLine(), Equals, "NICK mup_")
-	lserver.SendLine(":n.net 433 * mup_ :Nickname is already in use.")
-	c.Assert(lserver.ReadLine(), Equals, "NICK mup__")
+	s.SendLine(":n.net 433 * mup :Nickname is already in use.")
+	s.ReadLine("NICK mup_")
+	s.SendLine(":n.net 433 * mup_ :Nickname is already in use.")
+	s.ReadLine("NICK mup__")
 }
 
 func (s *ServerSuite) TestPingPong(c *C) {
-	lserver := s.LineServer(0)
-	lserver.SendLine("PING :foo")
-	c.Assert(lserver.ReadLine(), Equals, "PONG :foo")
+	s.SendLine("PING :foo")
+	s.ReadLine("PONG :foo")
 }
 
 func (s *ServerSuite) TestPingPongPostAuth(c *C) {
-	lserver := s.LineServer(0)
-	sendWelcome(c, lserver)
-	lserver.SendLine("PING :foo")
-	c.Assert(lserver.ReadLine(), Equals, "PONG :foo")
+	s.SendWelcome()
+	s.SendLine("PING :foo")
+	s.ReadLine("PONG :foo")
 }
 
 func (s *ServerSuite) TestQuit(c *C) {
 	s.server.Stop()
-	c.Assert(s.LineServer(0).ReadLine(), Equals, "<LineServer closed: <nil>>")
+	s.ReadLine("<LineServer closed: <nil>>")
 }
 
 func (s *ServerSuite) TestQuitPostAuth(c *C) {
-	lserver := s.LineServer(0)
-	sendWelcome(c, lserver)
-	lserver.SendLine("PING :roundtrip")
-	c.Assert(lserver.ReadLine(), Equals, "PONG :roundtrip")
+	s.SendWelcome()
+	s.Roundtrip()
 	stopped := make(chan error)
 	go func() {
 		stopped <- s.server.Stop()
 	}()
-	c.Assert(lserver.ReadLine(), Equals, "QUIT :brb")
-	lserver.Close()
+	s.ReadLine("QUIT :brb")
+	s.lserver.Close()
 	c.Assert(<-stopped, IsNil)
 }
 
 func (s *ServerSuite) TestJoinChannel(c *C) {
-	lserver := s.LineServer(0)
-	sendWelcome(c, lserver)
-	lserver.SendLine(":n.net 001 mup :Welcome!")
+	s.SendWelcome()
 
 	accounts := s.Session.DB("").C("accounts")
 	err := accounts.Update(
@@ -140,11 +173,11 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
-	c.Assert(lserver.ReadLine(), Equals, "JOIN #c1,#c2")
+	s.ReadLine("JOIN #c1,#c2")
 
 	// Confirm it joined both channels.
-	lserver.SendLine(":mup!~mup@10.0.0.1 JOIN #c1")
-	lserver.SendLine(":mup!~mup@10.0.0.1 JOIN #c2")
+	s.SendLine(":mup!~mup@10.0.0.1 JOIN #c1")
+	s.SendLine(":mup!~mup@10.0.0.1 JOIN #c2")
 
 	err = accounts.Update(
 		M{"name": "testserver"},
@@ -153,13 +186,13 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
-	c.Assert(lserver.ReadLine(), Equals, "JOIN #c3")
-	c.Assert(lserver.ReadLine(), Equals, "PART #c2")
+	s.ReadLine("JOIN #c3")
+	s.ReadLine("PART #c2")
 
 	// Do not confirm, forcing it to retry.
 	s.server.RefreshAccounts()
-	c.Assert(lserver.ReadLine(), Equals, "JOIN #c3")
-	c.Assert(lserver.ReadLine(), Equals, "PART #c2")
+	s.ReadLine("JOIN #c3")
+	s.ReadLine("PART #c2")
 }
 
 func waitFor(condition func() bool) {
@@ -175,28 +208,18 @@ func waitFor(condition func() bool) {
 }
 
 func (s *ServerSuite) TestIncoming(c *C) {
-	lserver := s.LineServer(0)
-	sendWelcome(c, lserver)
+	s.SendWelcome()
+	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
+	s.Roundtrip()
+	time.Sleep(100 * time.Millisecond)
 
-	lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
-
+	var msg Message
 	incoming := s.Session.DB("").C("incoming")
-
-	waitFor(func() bool {
-		count, err := incoming.Find(nil).Count()
-		c.Assert(err, IsNil)
-		return count > 0
-	})
-
-	var messages []*Message
-	err := incoming.Find(nil).All(&messages)
+	err := incoming.Find(nil).Sort("$natural").One(&msg)
 	c.Assert(err, IsNil)
 
-	c.Assert(messages, HasLen, 1)
-
-	messages[0].Id = ""
-
-	c.Assert(messages[0], DeepEquals, &Message{
+	msg.Id = ""
+	c.Assert(msg, DeepEquals, Message{
 		Account: "testserver",
 		Prefix:  "somenick!~someuser@somehost",
 		Nick:    "somenick",
@@ -214,9 +237,8 @@ func (s *ServerSuite) TestIncoming(c *C) {
 }
 
 func (s *ServerSuite) TestOutgoing(c *C) {
-	// Stop default bridge to test the behavior of outgoing messages on start up.
-	s.LineServer(0).Close()
-	s.server.Stop()
+	// Stop default server to test the behavior of outgoing messages on start up.
+	s.StopServer()
 
 	accounts := s.Session.DB("").C("accounts")
 	err := accounts.Update(
@@ -233,62 +255,68 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	bridge, err := Start(s.config)
-	c.Assert(err, IsNil)
-	defer bridge.Stop()
-
-	lserver := s.LineServer(1)
-	defer lserver.Close()
-	handshake(c, lserver)
+	s.RestartServer()
+	s.SendWelcome()
 
 	// The initial JOINs is sent before any messages.
-	c.Assert(lserver.ReadLine(), Equals, "JOIN #test")
+	s.ReadLine("JOIN #test")
 
-	// Then the message and the PING asking for confirmation.
-	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello there!")
-	ping := lserver.ReadLine()
-	c.Assert(ping, Matches, "PING :sent:[0-9a-f]+")
+	// Then the message and the PING asking for confirmation, handled by ReadLine.
+	s.ReadLine("PRIVMSG someone :Hello there!")
 
-	// Confirm that the message was observed.
-	lserver.SendLine("PONG" + ping[4:])
-
-	// Send another message with the bridge running.
+	// Send another message with the server running.
 	err = outgoing.Insert(&Message{
 		Account: "testserver",
 		Target:  "someone",
 		Text:    "Hello again!",
 	})
 	c.Assert(err, IsNil)
-	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
-	c.Assert(lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
 
-	// Do not confirm it, and restart the bridge.
-	lserver.Close()
-	bridge.Stop()
-	bridge, err = Start(s.config)
-	c.Assert(err, IsNil)
-	defer bridge.Stop()
-
-	lserver = s.LineServer(2)
-	defer lserver.Close()
-	handshake(c, lserver)
+	// Do not use the s.ReadLine helper as the message won't be confirmed.
+	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
+	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
+	s.RestartServer()
+	s.SendWelcome()
 
 	// The unconfirmed message is resent.
-	c.Assert(lserver.ReadLine(), Equals, "JOIN #test")
-	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
-	c.Assert(lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
+	c.Assert(s.lserver.ReadLine(), Equals, "JOIN #test")
+	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
+	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
 }
 
-func (s *ServerSuite) TestEchoPlugin(c *C) {
-	lserver := s.LineServer(0)
-	sendWelcome(c, lserver)
+
+func (s *ServerSuite) TestPlugin(c *C) {
+	s.SendWelcome()
+
+	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A1")
+	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B1")
+	s.Roundtrip()
 
 	plugins := s.Session.DB("").C("plugins")
-	err := plugins.Insert(M{"name": "echo"})
+	err := plugins.Insert(M{"name": "echo:A", "settings": M{"command": "echoA"}})
 	c.Assert(err, IsNil)
-
 	s.server.RefreshPlugins()
 
-	lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echo Repeat this.")
-	c.Assert(lserver.ReadLine(), Equals, "PRIVMSG somenick :Repeat this.")
+	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A2")
+	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B2")
+
+	s.ReadLine("PRIVMSG somenick :A1")
+	s.ReadLine("PRIVMSG somenick :A2")
+
+	err = plugins.Insert(M{"name": "echo:B", "settings": M{"command": "echoB"}})
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+
+	s.ReadLine("PRIVMSG somenick :B1")
+	s.ReadLine("PRIVMSG somenick :B2")
+	s.Roundtrip()
+
+	s.RestartServer()
+	s.SendWelcome()
+
+	s.lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A3")
+	s.lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B3")
+
+	s.ReadLine("PRIVMSG somenick :A3")
+	s.ReadLine("PRIVMSG somenick :B3")
 }

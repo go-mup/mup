@@ -6,13 +6,13 @@ import (
 
 var _ = Suite(&PluggerSuite{})
 
-func newTestPlugger(replies *[]string) *Plugger {
+func newTestPlugger(replies *[]string, settings func(result interface{})) *Plugger {
 	*replies = nil
-	p := newPlugger(func(msg *Message) error {
+	send := func(msg *Message) error {
 		*replies = append(*replies, msg.String())
 		return nil
-	})
-	return p
+	}
+	return newPlugger(send, settings)
 }
 
 type PluggerSuite struct {
@@ -21,7 +21,7 @@ type PluggerSuite struct {
 }
 
 func (s *PluggerSuite) SetUpTest(c *C) {
-	s.plugger = newTestPlugger(&s.replies)
+	s.plugger = newTestPlugger(&s.replies, func(interface{}) {})
 }
 
 func parse(line string) *Message {

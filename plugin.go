@@ -7,13 +7,26 @@ import (
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"launchpad.net/tomb"
+	"strings"
 	"sync"
 )
 
 type Plugin interface {
-	Start() error
 	Stop() error
 	Handle(msg *Message) error
+}
+
+type pluginInfo struct {
+	Name     string
+	LastId   bson.ObjectId `bson:",omitempty"`
+	Settings bson.Raw
+	State    bson.Raw
+}
+
+type pluginHandler struct {
+	info    pluginInfo
+	plugger *Plugger
+	plugin  Plugin
 }
 
 type pluginManager struct {
@@ -21,19 +34,21 @@ type pluginManager struct {
 	config   Config
 	session  *mgo.Session
 	database *mgo.Database
-	plugins  map[string]Plugin
+	plugins  map[string]*pluginHandler
 	requests chan interface{}
 	incoming chan *Message
 	outgoing *mgo.Collection
+	rollback chan bson.ObjectId
 }
 
 func startPluginManager(config Config) (*pluginManager, error) {
 	logf("Starting plugins...")
 	m := &pluginManager{
 		config:   config,
-		plugins:  make(map[string]Plugin),
+		plugins:  make(map[string]*pluginHandler),
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
+		rollback: make(chan bson.ObjectId),
 	}
 	m.session = config.Database.Session.Copy()
 	m.database = config.Database.With(m.session)
@@ -43,25 +58,25 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	return m, nil
 }
 
-type mreqStop struct{}
+type pluginRequestStop struct{}
 
 func (m *pluginManager) Stop() error {
-	log("Plugins stop requested. Waiting...")
+	log("Plugin manager stop requested. Waiting...")
 	m.tomb.Kill(errStop)
 	err := m.tomb.Wait()
 	m.session.Close()
-	logf("Plugins stopped (%v).", err)
+	logf("Plugin manager stopped (%v).", err)
 	if err != errStop {
 		return err
 	}
 	return nil
 }
 
-type mreqRefresh struct{ done chan struct{} }
+type pluginRequestRefresh struct{ done chan struct{} }
 
 // Refresh forces reloading all plguins information from the database.
 func (m *pluginManager) Refresh() {
-	req := mreqRefresh{make(chan struct{})}
+	req := pluginRequestRefresh{make(chan struct{})}
 	m.requests <- req
 	<-req.done
 }
@@ -71,10 +86,10 @@ func (m *pluginManager) die() {
 
 	var wg sync.WaitGroup
 	wg.Add(len(m.plugins))
-	for _, p := range m.plugins {
-		p := p
+	for _, handler := range m.plugins {
+		plugin := handler.plugin
 		go func() {
-			p.Stop()
+			plugin.Stop()
 			wg.Done()
 		}()
 	}
@@ -91,21 +106,32 @@ func (m *pluginManager) loop() {
 		defer ticker.Stop()
 		refresh = ticker.C
 	}
+	plugins := m.database.C("plugins")
 	for m.tomb.Err() == tomb.ErrStillAlive {
 		m.session.Refresh()
 		select {
 		case msg := <-m.incoming:
-			for name, plugin := range m.plugins {
-				// TODO Check if msg.Id > plugin's last handled id
-				err := plugin.Handle(msg)
-				if err != nil {
-					logf("Plugin %q failed to handle message: %s", name, msg)
+			if msg.Cmd == cmdPong {
+				continue
+			}
+			for name, handler := range m.plugins {
+				if handler.info.LastId >= msg.Id {
+					continue
 				}
-				// TODO Record last handled id in plugin.
+				handler.info.LastId = msg.Id
+				err := handler.plugin.Handle(msg)
+				if err != nil {
+					logf("Plugin %q failed to handle message: %s: %v", name, msg, err)
+				}
+				err = plugins.Update(bson.D{{"name", name}}, bson.D{{"$set", bson.D{{"lastid", msg.Id}}}})
+				if err != nil {
+					logf("Cannot update last message id for plugin %q: %v", name, err)
+					// TODO How to recover properly from this?
+				}
 			}
 		case req := <-m.requests:
 			switch r := req.(type) {
-			case mreqRefresh:
+			case pluginRequestRefresh:
 				m.handleRefresh()
 				close(r.done)
 			default:
@@ -117,10 +143,6 @@ func (m *pluginManager) loop() {
 		}
 	}
 
-}
-
-type pluginInfo struct {
-	Name string
 }
 
 func (m *pluginManager) handleRefresh() {
@@ -135,34 +157,93 @@ func (m *pluginManager) handleRefresh() {
 	// TODO Stop and remove all plugins that were removed or changed.
 
 	// Add all plugins that are new or were changed.
+	var rollbackId bson.ObjectId
 	for i := range infos {
 		info := &infos[i]
-		if plugin, ok := m.plugins[info.Name]; !ok {
-			plugin, err = m.startPlugin(info)
+		if handler, ok := m.plugins[info.Name]; !ok {
+			logf("Starting %q plugin", info.Name)
+			handler, err = m.startPlugin(info)
+			logf("Plugin %q started.", info.Name)
 			if err != nil {
-				logf("Cannot start plugin %q: %v", info.Name, err)
+				logf("Cannot start %q plugin: %v", info.Name, err)
 				continue
 			}
-			m.plugins[info.Name] = plugin
+			m.plugins[info.Name] = handler
+
+			if rollbackId == "" || rollbackId > handler.info.LastId {
+				rollbackId = handler.info.LastId
+			}
+
 		}
 		// TODO The changed bit.
 	}
+
+	// If the last id observed by a plugin is older than the current
+	// position of the tail iterator, the iterator must be restarted
+	// at a previous position to avoid losing messages, so that plugins
+	// may be restarted at any point without losing incoming messages.
+	if rollbackId != "" {
+		// Wake up tail iterator by injecting a dummy message. The iterator
+		// won't be able to deliver this message because incoming is
+		// consumed by this goroutine after this method returns.
+		err := m.database.C("incoming").Insert(&Message{Cmd: cmdPong, Account: rollbackAccount, Text: rollbackText})
+		if err != nil {
+			logf("Cannot insert wake up message in incoming queue: %v", err)
+			return
+		}
+
+		// Send oldest observed id to the tail loop for a potential rollback.
+		select {
+		case m.rollback <- rollbackId:
+		case <-m.tomb.Dying():
+			return
+		}
+	}
 }
 
-func (m *pluginManager) startPlugin(info *pluginInfo) (Plugin, error) {
-	// TODO Send plugin's last id to tail for a potential rollback.
-	newPlugin, ok := registeredPlugins[info.Name]
+// rollbackLimit defines how long messages can be waiting in the
+// incoming queue while still being submitted to plugins.
+const (
+	rollbackLimit   = 5 * time.Second
+	rollbackAccount = "<rollback>"
+	rollbackText    = "<rollback>"
+)
+
+func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandler, error) {
+	pluginName := info.Name
+	if i := strings.Index(pluginName, ":"); i >= 0 {
+		pluginName = pluginName[:i]
+	}
+	newPlugin, ok := registeredPlugins[pluginName]
 	if !ok {
 		logf("Enabled plugin is not registered: %s", info.Name)
 		return nil, fmt.Errorf("plugin %q not registered", info.Name)
 	}
-	plugger := newPlugger(m.send)
-	return newPlugin(plugger), nil
+	loadSettings := func(result interface{}) {
+		if info.Settings.Data != nil {
+			info.Settings.Unmarshal(result)
+		}
+	}
+	plugger := newPlugger(m.sendMessage, loadSettings)
+	plugin := newPlugin(plugger)
+	handler := &pluginHandler{
+		info:    *info,
+		plugger: plugger,
+		plugin:  plugin,
+	}
+
+	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
+	if !handler.info.LastId.Valid() || handler.info.LastId < lastId {
+		handler.info.LastId = lastId
+	}
+	return handler, nil
 }
 
-func (m *pluginManager) send(msg *Message) error {
+func (m *pluginManager) sendMessage(msg *Message) error {
 	return m.outgoing.Insert(msg)
 }
+
+const zeroId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
 func (m *pluginManager) tail() {
 	session := m.session.Copy()
@@ -172,11 +253,10 @@ func (m *pluginManager) tail() {
 
 	// See comment on the bridge.tail for more details on this procedure.
 
-	// TODO Start iteration from the oldest lastid for all plugins.
-	lastId := bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
 
+NextTail:
 	for m.tomb.Err() == tomb.ErrStillAlive {
-
 		// Prepare a new tailing iterator.
 		session.Refresh()
 		query := incoming.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}})
@@ -187,10 +267,19 @@ func (m *pluginManager) tail() {
 			var msg *Message
 			for iter.Next(&msg) {
 				debugf("[%s] Tail iterator got incoming message: %s", msg.Account, msg.String())
+			DeliverMsg:
 				select {
 				case m.incoming <- msg:
 					lastId = msg.Id
 					msg = nil
+				case rollbackId := <-m.rollback:
+					if rollbackId < lastId {
+						logf("Rolling back tail iterator to consider older incoming messages")
+						lastId = rollbackId
+						iter.Close()
+						continue NextTail
+					}
+					goto DeliverMsg
 				case <-m.tomb.Dying():
 					iter.Close()
 					return

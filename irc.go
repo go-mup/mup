@@ -330,7 +330,7 @@ func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
 	case cmdNick:
 		c.activeNick = msg.MupNick
 	case cmdPing:
-		err := c.ircW.Sendf("PONG :%s", msg.Text)
+		err = c.ircW.Sendf("PONG :%s", msg.Text)
 		if err != nil {
 			return false, err
 		}
@@ -455,7 +455,7 @@ func (w *ircWriter) die() {
 func (w *ircWriter) loop() {
 	defer w.die()
 
-	pingDelay := networkTimeout / 5
+	pingDelay := networkTimeout / 3
 	pinger := time.NewTicker(pingDelay)
 	defer pinger.Stop()
 	lastPing := time.Now()
