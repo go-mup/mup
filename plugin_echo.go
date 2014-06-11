@@ -4,11 +4,6 @@ import (
 	"strings"
 )
 
-var registeredPlugins = map[string]func(*Plugger) Plugin{
-	"echo": newEchoPlugin,
-	"ldap": newLdapPlugin,
-}
-
 type echoPlugin struct {
 	plugger  *Plugger
 	prefix   string

@@ -16,6 +16,11 @@ type Plugin interface {
 	Handle(msg *Message) error
 }
 
+var registeredPlugins = map[string]func(*Plugger) Plugin{
+	"echo": newEchoPlugin,
+	"ldap": newLdapPlugin,
+}
+
 type pluginInfo struct {
 	Name     string
 	LastId   bson.ObjectId `bson:",omitempty"`
