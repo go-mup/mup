@@ -6,7 +6,7 @@ import (
 	"fmt"
 	. "gopkg.in/check.v1"
 	"labix.org/v2/mgo"
-	"launchpad.net/tomb"
+	"gopkg.in/tomb.v2"
 	"net"
 	"os/exec"
 	"sync"
@@ -37,7 +37,7 @@ func (lsuite *LineServerSuite) SetUpSuite(c *C) {
 		panic(err)
 	}
 	lsuite.Addr = lsuite.l.Addr().(*net.TCPAddr)
-	go lsuite.loop()
+	lsuite.tomb.Go(lsuite.loop)
 }
 
 func (lsuite *LineServerSuite) TearDownSuite(c *C) {
@@ -63,13 +63,11 @@ func (lsuite *LineServerSuite) TearDownTest(c *C) {
 	c.Assert(lsuite.tomb.Err(), Equals, tomb.ErrStillAlive)
 }
 
-func (lsuite *LineServerSuite) loop() {
-	defer lsuite.tomb.Done()
-	for lsuite.tomb.Err() == tomb.ErrStillAlive {
+func (lsuite *LineServerSuite) loop() error {
+	for lsuite.tomb.Alive() {
 		conn, err := lsuite.l.Accept()
 		if err != nil {
-			lsuite.tomb.Kill(err)
-			return
+			return err
 		}
 		lsuite.m.Lock()
 		if !lsuite.active {
@@ -78,6 +76,7 @@ func (lsuite *LineServerSuite) loop() {
 		lsuite.servers = append(lsuite.servers, NewLineServer(conn))
 		lsuite.m.Unlock()
 	}
+	return nil
 }
 
 func (lsuite *LineServerSuite) CloseLineServers() {
@@ -122,21 +121,20 @@ func NewLineServer(conn net.Conn) *LineServer {
 		conn: conn,
 		lbuf: make(chan string, 64),
 	}
-	go lserver.loop()
+	lserver.tomb.Go(lserver.loop)
 	return lserver
 }
 
-func (lserver *LineServer) loop() {
-	defer lserver.tomb.Done()
+func (lserver *LineServer) loop() error {
 	scanner := bufio.NewScanner(lserver.conn)
-	for scanner.Scan() && lserver.tomb.Err() == tomb.ErrStillAlive {
+	for scanner.Scan() && lserver.tomb.Alive() {
 		select {
 		case lserver.lbuf <- scanner.Text():
 		default:
 			panic("too many lines received without being processed by test")
 		}
 	}
-	lserver.tomb.Kill(scanner.Err())
+	return scanner.Err()
 }
 
 func (lserver *LineServer) Close() error {

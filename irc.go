@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"labix.org/v2/mgo/bson"
-	"launchpad.net/tomb"
+	"gopkg.in/tomb.v2"
 	"net"
 	"strconv"
 	"strings"
@@ -74,7 +74,7 @@ func startIrcClient(info *accountInfo, incoming chan *Message) *ircClient {
 	}
 	c.LastId = c.info.LastId
 	c.Dying = c.tomb.Dying()
-	go c.loop()
+	c.tomb.Go(c.loop)
 	return c
 }
 
@@ -119,35 +119,35 @@ func (c *ircClient) UpdateInfo(info *accountInfo) {
 	}
 }
 
-func (c *ircClient) loop() {
-	defer func() { logf("[%s] Client loop terminated (%v)", c.Account, c.tomb.Err()) }()
+func (c *ircClient) loop() error {
 	defer c.die()
 
 	err := c.connect()
 	if err != nil {
 		logf("[%s] While connecting to IRC server: %v", c.Account, err)
 		c.tomb.Killf("%s: cannot connect to IRC server: %v", c.Account, err)
-		return
+		return nil
 	}
 
 	err = c.auth()
 	if err != nil {
 		logf("[%s] While authenticating on IRC server: %v", c.Account, err)
 		c.tomb.Killf("%s: cannot authenticate on IRC server: %v", c.Account, err)
-		return
+		return nil
 	}
 
 	err = c.forward()
 	if err != nil {
 		logf("[%s] While talking to IRC server: %v", c.Account, err)
 		c.tomb.Killf("%s: while talking to IRC server: %v", c.Account, err)
-		return
+		return nil
 	}
+
+	return nil
 }
 
 func (c *ircClient) die() {
 	logf("[%s] Cleaning IRC connection resources", c.Account)
-	defer c.tomb.Done()
 
 	// Stop the writer before closing the connection, so that
 	// in progress writes are politely finished.
@@ -174,6 +174,8 @@ func (c *ircClient) die() {
 			logf("[%s] IRC reader failure: %s", c.Account, err)
 		}
 	}
+
+	logf("[%s] Client loop terminated (%v)", c.Account, c.tomb.Err())
 }
 
 func (c *ircClient) connect() (err error) {
@@ -416,7 +418,7 @@ func startIrcWriter(name string, conn net.Conn) *ircWriter {
 		Outgoing: make(chan *Message, 1),
 	}
 	w.Dying = w.tomb.Dying()
-	go w.loop()
+	w.tomb.Go(w.loop)
 	return w
 }
 
@@ -449,10 +451,9 @@ func (w *ircWriter) Sendf(format string, args ...interface{}) error {
 
 func (w *ircWriter) die() {
 	debugf("[%s] Writer is dead (%v)", w.account, w.tomb.Err())
-	w.tomb.Done()
 }
 
-func (w *ircWriter) loop() {
+func (w *ircWriter) loop() error {
 	defer w.die()
 
 	pingDelay := networkTimeout / 3
@@ -496,6 +497,8 @@ loop:
 			break
 		}
 	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +524,7 @@ func startIrcReader(name string, conn net.Conn) *ircReader {
 		Incoming: make(chan *Message, 1),
 	}
 	r.Dying = r.tomb.Dying()
-	go r.loop()
+	r.tomb.Go(r.loop)
 	return r
 }
 
@@ -541,8 +544,14 @@ func (r *ircReader) Stop() error {
 	return nil
 }
 
-func (r *ircReader) loop() {
-	for r.tomb.Err() == tomb.ErrStillAlive {
+func (r *ircReader) die() {
+	debugf("[%s] Reader is dead (%v)", r.account, r.tomb.Err())
+}
+
+func (r *ircReader) loop() error {
+	defer r.die()
+
+	for r.tomb.Alive() {
 		r.conn.SetReadDeadline(time.Now().Add(networkTimeout))
 		line, prefix, err := r.buf.ReadLine()
 		if err != nil {
@@ -577,6 +586,5 @@ func (r *ircReader) loop() {
 		case <-r.Dying:
 		}
 	}
-	r.tomb.Done()
-	debugf("[%s] Reader is dead (%v)", r.account, r.tomb.Err())
+	return nil
 }

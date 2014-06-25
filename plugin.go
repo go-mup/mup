@@ -6,7 +6,7 @@ import (
 
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"launchpad.net/tomb"
+	"gopkg.in/tomb.v2"
 	"strings"
 	"sync"
 )
@@ -19,6 +19,7 @@ type Plugin interface {
 var registeredPlugins = map[string]func(*Plugger) Plugin{
 	"echo": newEchoPlugin,
 	"ldap": newLdapPlugin,
+	//"sms":  newSMSPlugin,
 }
 
 type pluginInfo struct {
@@ -58,8 +59,7 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	m.session = config.Database.Session.Copy()
 	m.database = config.Database.With(m.session)
 	m.outgoing = m.database.C("outgoing")
-	go m.loop()
-	go m.tail()
+	m.tomb.Go(m.loop, m.tail)
 	return m, nil
 }
 
@@ -87,8 +87,6 @@ func (m *pluginManager) Refresh() {
 }
 
 func (m *pluginManager) die() {
-	defer m.tomb.Done()
-
 	var wg sync.WaitGroup
 	wg.Add(len(m.plugins))
 	for _, handler := range m.plugins {
@@ -101,7 +99,7 @@ func (m *pluginManager) die() {
 	wg.Wait()
 }
 
-func (m *pluginManager) loop() {
+func (m *pluginManager) loop() error {
 	defer m.die()
 
 	m.handleRefresh()
@@ -112,7 +110,7 @@ func (m *pluginManager) loop() {
 		refresh = ticker.C
 	}
 	plugins := m.database.C("plugins")
-	for m.tomb.Err() == tomb.ErrStillAlive {
+	for m.tomb.Alive() {
 		m.session.Refresh()
 		select {
 		case msg := <-m.incoming:
@@ -147,7 +145,7 @@ func (m *pluginManager) loop() {
 		case <-m.tomb.Dying():
 		}
 	}
-
+	return nil
 }
 
 func (m *pluginManager) handleRefresh() {
@@ -250,7 +248,7 @@ func (m *pluginManager) sendMessage(msg *Message) error {
 
 const zeroId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
-func (m *pluginManager) tail() {
+func (m *pluginManager) tail() error {
 	session := m.session.Copy()
 	defer session.Close()
 	database := m.database.With(session)
@@ -261,7 +259,7 @@ func (m *pluginManager) tail() {
 	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
 
 NextTail:
-	for m.tomb.Err() == tomb.ErrStillAlive {
+	for m.tomb.Alive() {
 		// Prepare a new tailing iterator.
 		session.Refresh()
 		query := incoming.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}})
@@ -287,10 +285,10 @@ NextTail:
 					goto DeliverMsg
 				case <-m.tomb.Dying():
 					iter.Close()
-					return
+					return nil
 				}
 			}
-			if iter.Err() == nil && iter.Timeout() && m.tomb.Err() == tomb.ErrStillAlive {
+			if iter.Err() == nil && iter.Timeout() && m.tomb.Alive() {
 				// Iterator has timed out, but is still good for a retry.
 				continue
 			}
@@ -303,8 +301,10 @@ NextTail:
 		}
 
 		// Only sleep if a stop was not requested. Speeds tests up a bit.
-		if m.tomb.Err() == tomb.ErrStillAlive {
+		if m.tomb.Alive() {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+
+	return nil
 }

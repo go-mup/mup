@@ -6,7 +6,7 @@ import (
 
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"launchpad.net/tomb"
+	"gopkg.in/tomb.v2"
 	"strings"
 	"sync"
 )
@@ -35,7 +35,7 @@ func startAccountManager(config Config) (*accountManager, error) {
 		logf("Cannot create collections: %v", err)
 		return nil, fmt.Errorf("cannot create collections: %v", err)
 	}
-	go am.loop()
+	am.tomb.Go(am.loop)
 	return am, nil
 }
 
@@ -77,8 +77,6 @@ func (am *accountManager) Refresh() {
 }
 
 func (am *accountManager) die() {
-	defer am.tomb.Done()
-
 	var wg sync.WaitGroup
 	wg.Add(len(am.clients))
 	for _, client := range am.clients {
@@ -91,7 +89,7 @@ func (am *accountManager) die() {
 	wg.Wait()
 }
 
-func (am *accountManager) loop() {
+func (am *accountManager) loop() error {
 	defer am.die()
 
 	am.handleRefresh()
@@ -103,7 +101,7 @@ func (am *accountManager) loop() {
 	}
 	var incoming = am.database.C("incoming")
 	var accounts = am.database.C("accounts")
-	for am.tomb.Err() == tomb.ErrStillAlive {
+	for am.tomb.Alive() {
 		am.session.Refresh()
 		select {
 		case msg := <-am.incoming:
@@ -138,6 +136,7 @@ func (am *accountManager) loop() {
 		}
 	}
 
+	return nil
 }
 
 func (am *accountManager) handleRefresh() {
@@ -181,7 +180,7 @@ NextClient:
 	}
 }
 
-func (am *accountManager) tail(client *ircClient) {
+func (am *accountManager) tail(client *ircClient) error {
 	session := am.session.Copy()
 	defer session.Close()
 	database := am.database.With(session)
@@ -203,7 +202,7 @@ func (am *accountManager) tail(client *ircClient) {
 		lastId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 	}
 
-	for am.tomb.Err() == tomb.ErrStillAlive {
+	for am.tomb.Alive() {
 
 		// Prepare a new tailing iterator.
 		session.Refresh()
@@ -221,10 +220,10 @@ func (am *accountManager) tail(client *ircClient) {
 					msg = nil
 				case <-client.Dying:
 					iter.Close()
-					return
+					return nil
 				}
 			}
-			if iter.Err() == nil && iter.Timeout() && am.tomb.Err() == tomb.ErrStillAlive {
+			if iter.Err() == nil && iter.Timeout() && am.tomb.Alive() {
 				// Iterator has timed out, but is still good for a retry.
 				continue
 			}
@@ -237,8 +236,10 @@ func (am *accountManager) tail(client *ircClient) {
 		}
 
 		// Only sleep if a stop was not requested. Speeds tests up a bit.
-		if am.tomb.Err() == tomb.ErrStillAlive {
+		if am.tomb.Alive() {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+
+	return nil
 }

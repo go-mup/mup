@@ -29,10 +29,20 @@ func (p *Plugger) Replyf(msg *Message, format string, args ...interface{}) error
 		text = msg.Nick + ": " + text
 	}
 	reply := &Message{Account: msg.Account, Target: target, Text: text}
-	err := p.sendMessage(reply)
+	return p.Send(reply)
+}
+
+func (p *Plugger) Sendf(account, target, format string, args ...interface{}) error {
+	reply := &Message{Account: account, Target: target, Text: fmt.Sprintf(format, args...)}
+	return p.Send(reply)
+}
+
+func (p *Plugger) Send(msg *Message) error {
+	err := p.sendMessage(msg)
 	if err != nil {
 		logf("Cannot put message in outgoing queue: %v", err)
 		return fmt.Errorf("cannot put message in outgoing queue: %v", err)
 	}
 	return nil
 }
+
