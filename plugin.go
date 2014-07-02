@@ -19,7 +19,7 @@ type Plugin interface {
 var registeredPlugins = map[string]func(*Plugger) Plugin{
 	"echo": newEchoPlugin,
 	"ldap": newLdapPlugin,
-	//"sms":  newSMSPlugin,
+	// "sms":  newSMSPlugin,
 }
 
 type pluginInfo struct {
@@ -59,7 +59,8 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	m.session = config.Database.Session.Copy()
 	m.database = config.Database.With(m.session)
 	m.outgoing = m.database.C("outgoing")
-	m.tomb.Go(m.loop, m.tail)
+	m.tomb.Go(m.loop)
+	m.tomb.Go(m.tail)
 	return m, nil
 }
 
