@@ -10,11 +10,8 @@ import (
 	"net"
 	"os/exec"
 	"sync"
-	"testing"
 	"time"
 )
-
-func Test(t *testing.T) { TestingT(t) }
 
 type M map[string]interface{}
 

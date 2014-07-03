@@ -1,48 +1,41 @@
-package mup
+package mup_test
 
 import (
 	. "gopkg.in/check.v1"
+	"gopkg.in/niemeyer/mup.v0"
 	"labix.org/v2/mgo/bson"
+
+	"testing"
 )
+
+func Test(t *testing.T) { TestingT(t) }
 
 var _ = Suite(&EchoSuite{})
 
 type EchoSuite struct{}
 
-var echoTests = []struct {
-	msg, reply string
-	settings   interface{}
-}{
-	{":nick!~user@host PRIVMSG mup :echo repeat", "PRIVMSG nick :repeat", nil},
-	{":nick!~user@host PRIVMSG #channel :mup: echo repeat", "PRIVMSG #channel :nick: repeat", nil},
-	{":nick!~user@host PRIVMSG #channel :echo repeat", "", nil},
-	{":nick!~user@host PRIVMSG mup :notecho repeat", "", nil},
-	{":nick!~user@host PRIVMSG mup :echonospace", "", nil},
-	{":nick!~user@host PRIVMSG mup :myecho hi", "PRIVMSG nick :hi", M{"command": "myecho"}},
+type echoTest struct {
+	target   string
+	send     string
+	recv     string
+	settings interface{}
+}
+
+var echoTests = []echoTest{
+	{"mup", "echo repeat", "PRIVMSG nick :repeat", nil},
+	{"mup", "notecho repeat", "", nil},
+	{"mup", "echonospace", "", nil},
+	{"mup", "myecho hi", "PRIVMSG nick :hi", bson.M{"command": "myecho"}},
+	{"#channel", "mup: echo repeat", "PRIVMSG #channel :nick: repeat", nil},
+	{"#channel", "echo repeat", "", nil},
 }
 
 func (s *EchoSuite) TestEcho(c *C) {
 	for i, test := range echoTests {
-		var replies []string
-		settings := func(result interface{}) {
-			if test.settings == nil {
-				return
-			}
-			data, err := bson.Marshal(test.settings)
-			c.Assert(err, IsNil)
-			err = bson.Unmarshal(data, result)
-			c.Assert(err, IsNil)
-		}
-		plugger := newTestPlugger(&replies, settings)
-		plugin := registeredPlugins["echo"](plugger)
-
-		c.Logf("Feeding message #%d: %s", i, test.msg)
-		err := plugin.Handle(parse(test.msg))
-		c.Assert(err, IsNil)
-		if test.reply == "" {
-			c.Assert(replies, IsNil)
-		} else {
-			c.Assert(replies, DeepEquals, []string{test.reply})
-		}
+		c.Logf("Testing message #%d: %s", i, test.send)
+		tester := mup.StartPluginTest("echo", test.settings)
+		tester.Sendf(test.target, test.send)
+		tester.Stop()
+		c.Assert(tester.Recv(), Equals, test.recv)
 	}
 }

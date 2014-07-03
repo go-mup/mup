@@ -146,6 +146,7 @@ func (p *ldapPlugin) handle(conn ldap.Conn, msg *Message) error {
 	}
 	result, err := conn.Search(&search)
 	if err != nil {
+		p.plugger.Replyf(msg, "Cannot search LDAP server right now: %v", err)
 		return fmt.Errorf("cannot search LDAP server: %v", err)
 	}
 	if len(result) > 1 {

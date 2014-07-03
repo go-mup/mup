@@ -19,7 +19,6 @@ type Plugin interface {
 var registeredPlugins = map[string]func(*Plugger) Plugin{
 	"echo": newEchoPlugin,
 	"ldap": newLdapPlugin,
-	// "sms":  newSMSPlugin,
 }
 
 type pluginInfo struct {
