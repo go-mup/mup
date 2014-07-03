@@ -1,13 +1,15 @@
-package mup
+package echo
 
 import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"gopkg.in/niemeyer/mup.v0"
 )
 
 type echoPlugin struct {
-	plugger  *Plugger
+	plugger  *mup.Plugger
 	prefix   string
 	stopped  bool
 	settings struct {
@@ -16,7 +18,11 @@ type echoPlugin struct {
 	}
 }
 
-func newEchoPlugin(plugger *Plugger) Plugin {
+func init() {
+	mup.RegisterPlugin("echo", startPlugin)
+}
+
+func startPlugin(plugger *mup.Plugger) mup.Plugin {
 	p := &echoPlugin{plugger: plugger, prefix: "echo "}
 	plugger.Settings(&p.settings)
 	if p.settings.Command != "" {
@@ -30,7 +36,7 @@ func (p *echoPlugin) Stop() error {
 	return nil
 }
 
-func (p *echoPlugin) Handle(msg *Message) error {
+func (p *echoPlugin) Handle(msg *mup.Message) error {
 	if p.stopped {
 		return fmt.Errorf("plugin stopped")
 	}

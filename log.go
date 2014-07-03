@@ -17,8 +17,6 @@ type log_Logger interface {
 var globalLogger log_Logger
 var globalDebug bool
 
-const logPrefix = "MUP " 
-
 // Specify the *log.Logger object where log messages should be sent to.
 func SetLogger(logger log_Logger) {
 	globalLogger = logger
@@ -30,38 +28,19 @@ func SetDebug(debug bool) {
 	globalDebug = debug
 }
 
-func log(v ...interface{}) {
+// Logf sends to the logger registered via SetLogger the string resulting
+// from running format and args through Sprintf.
+func Logf(format string, args ...interface{}) {
 	if globalLogger != nil {
-		globalLogger.Output(2, logPrefix + fmt.Sprint(v...))
+		globalLogger.Output(2, fmt.Sprintf(format, args...))
 	}
 }
 
-func logln(v ...interface{}) {
-	if globalLogger != nil {
-		globalLogger.Output(2, logPrefix + fmt.Sprintln(v...))
-	}
-}
-
-func logf(format string, v ...interface{}) {
-	if globalLogger != nil {
-		globalLogger.Output(2, logPrefix + fmt.Sprintf(format, v...))
-	}
-}
-
-func debug(v ...interface{}) {
+// Debugf sends to the logger registered via SetLogger the string resulting
+// from running format and args through Sprintf, but only if debugging was
+// enabled via SetDebug.
+func Debugf(format string, args ...interface{}) {
 	if globalDebug && globalLogger != nil {
-		globalLogger.Output(2, logPrefix + fmt.Sprint(v...))
-	}
-}
-
-func debugln(v ...interface{}) {
-	if globalDebug && globalLogger != nil {
-		globalLogger.Output(2, logPrefix + fmt.Sprintln(v...))
-	}
-}
-
-func debugf(format string, v ...interface{}) {
-	if globalDebug && globalLogger != nil {
-		globalLogger.Output(2, logPrefix + fmt.Sprintf(format, v...))
+		globalLogger.Output(2, fmt.Sprintf(format, args...))
 	}
 }

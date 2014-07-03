@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"gopkg.in/tomb.v2"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"gopkg.in/tomb.v2"
 	"strings"
 	"sync"
 )
@@ -22,7 +22,7 @@ type accountManager struct {
 }
 
 func startAccountManager(config Config) (*accountManager, error) {
-	logf("Starting account manager...")
+	Logf("Starting account manager...")
 	am := &accountManager{
 		config:   config,
 		clients:  make(map[string]*ircClient),
@@ -32,7 +32,7 @@ func startAccountManager(config Config) (*accountManager, error) {
 	am.session = config.Database.Session.Copy()
 	am.database = config.Database.With(am.session)
 	if err := am.createCollections(); err != nil {
-		logf("Cannot create collections: %v", err)
+		Logf("Cannot create collections: %v", err)
 		return nil, fmt.Errorf("cannot create collections: %v", err)
 	}
 	am.tomb.Go(am.loop)
@@ -56,11 +56,11 @@ func (am *accountManager) createCollections() error {
 }
 
 func (am *accountManager) Stop() error {
-	log("Account manager stop requested. Waiting...")
+	Logf("Account manager stop requested. Waiting...")
 	am.tomb.Kill(errStop)
 	err := am.tomb.Wait()
 	am.session.Close()
-	logf("Account manager stopped (%v).", err)
+	Logf("Account manager stopped (%v).", err)
 	if err != errStop {
 		return err
 	}
@@ -111,14 +111,14 @@ func (am *accountManager) loop() error {
 					lastId := bson.ObjectIdHex(msg.Text[5:])
 					err := accounts.Update(bson.D{{"name", msg.Account}}, bson.D{{"$set", bson.D{{"lastid", lastId}}}})
 					if err != nil {
-						logf("Cannot update account with last sent message id: %v", err)
+						Logf("Cannot update account with last sent message id: %v", err)
 						am.tomb.Kill(err)
 					}
 				}
 			} else {
 				err := incoming.Insert(msg)
 				if err != nil {
-					logf("Cannot insert incoming message: %v", err)
+					Logf("Cannot insert incoming message: %v", err)
 					am.tomb.Kill(err)
 				}
 			}
@@ -144,7 +144,7 @@ func (am *accountManager) handleRefresh() {
 	err := am.database.C("accounts").Find(nil).All(&infos)
 	if err != nil {
 		// TODO Reduce frequency of logged messages if the database goes down.
-		logf("Cannot fetch account information from the database: %v", err)
+		Logf("Cannot fetch account information from the database: %v", err)
 		return
 	}
 
@@ -213,7 +213,7 @@ func (am *accountManager) tail(client *ircClient) error {
 		for {
 			var msg *Message
 			for iter.Next(&msg) {
-				debugf("[%s] Tail iterator got outgoing message: %s", msg.Account, msg.String())
+				Debugf("[%s] Tail iterator got outgoing message: %s", msg.Account, msg.String())
 				select {
 				case client.Outgoing <- msg:
 					lastId = msg.Id
@@ -232,7 +232,7 @@ func (am *accountManager) tail(client *ircClient) error {
 
 		// Iterator is not valid anymore.
 		if err := iter.Close(); err != nil {
-			logf("Error iterating over outgoing collection: %v", err)
+			Logf("Error iterating over outgoing collection: %v", err)
 		}
 
 		// Only sleep if a stop was not requested. Speeds tests up a bit.

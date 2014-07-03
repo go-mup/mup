@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-
 type PluginTester struct {
 	mu       sync.Mutex
 	cond     sync.Cond
@@ -77,7 +76,7 @@ func (t *PluginTester) Recv() string {
 	}
 	reply := t.replies[0]
 	copy(t.replies, t.replies[1:])
-	t.replies = t.replies[0:len(t.replies)-1]
+	t.replies = t.replies[0 : len(t.replies)-1]
 	return reply
 }
 
@@ -93,7 +92,7 @@ func (t *PluginTester) Sendf(target, format string, args ...interface{}) error {
 	if target == "" {
 		target = "mup"
 	}
-	msg := ParseMessage("mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG " + target + " :" + format, args...))
+	msg := ParseMessage("mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
 	return t.plugin.Handle(msg)
 }
 

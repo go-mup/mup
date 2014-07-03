@@ -7,16 +7,21 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
 	"gopkg.in/tomb.v2"
 )
 
+func init() {
+	mup.RegisterPlugin("ldap", startPlugin)
+}
+
 type ldapPlugin struct {
 	mu       sync.Mutex
 	tomb     tomb.Tomb
-	plugger  *Plugger
+	plugger  *mup.Plugger
 	prefix   string
-	messages chan *Message
+	messages chan *mup.Message
 	err      error
 	settings struct {
 		ldap.Settings `bson:",inline"`
@@ -27,11 +32,11 @@ type ldapPlugin struct {
 
 const ldapDefaultCommand = "poke"
 
-func newLdapPlugin(plugger *Plugger) Plugin {
+func startPlugin(plugger *mup.Plugger) mup.Plugin {
 	p := &ldapPlugin{
 		plugger:  plugger,
 		prefix:   ldapDefaultCommand,
-		messages: make(chan *Message),
+		messages: make(chan *mup.Message),
 	}
 	plugger.Settings(&p.settings)
 	if p.settings.Command != "" {
@@ -51,7 +56,7 @@ func (p *ldapPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *ldapPlugin) Handle(msg *Message) error {
+func (p *ldapPlugin) Handle(msg *mup.Message) error {
 	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
 		return nil
 	}
@@ -88,7 +93,7 @@ func (p *ldapPlugin) loop() error {
 func (p *ldapPlugin) dial() error {
 	conn, err := ldap.Dial(&p.settings.Settings)
 	if err != nil {
-		logf("%v", err)
+		mup.Logf("%v", err)
 		return err
 	}
 	defer conn.Close()
@@ -102,7 +107,7 @@ func (p *ldapPlugin) dial() error {
 			if err != nil {
 				p.plugger.Replyf(msg, "Error talking to LDAP server: %v", err)
 			}
-		case <-time.After(networkTimeout):
+		case <-time.After(mup.NetworkTimeout):
 			err = conn.Ping()
 		case <-p.tomb.Dying():
 			err = tomb.ErrDying
@@ -137,7 +142,7 @@ var ldapFormat = []struct {
 	{"skypePhone", "<skype:%s>", nil},
 }
 
-func (p *ldapPlugin) handle(conn ldap.Conn, msg *Message) error {
+func (p *ldapPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
 	query := strings.TrimSpace(msg.MupText[len(p.prefix):])
 	// TODO Escape query.
 	search := ldap.Search{

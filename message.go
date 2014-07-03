@@ -19,7 +19,7 @@ type Message struct {
 	Target  string        `bson:",omitempty"`
 	Text    string        `bson:",omitempty"`
 	Bang    string        `bson:",omitempty"`
-	ToMup bool          `bson:",omitempty"`
+	ToMup   bool          `bson:",omitempty"`
 	MupText string        `bson:",omitempty"`
 	MupNick string        `bson:",omitempty"`
 }

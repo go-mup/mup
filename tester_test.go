@@ -1,10 +1,16 @@
 package mup_test
 
 import (
+	"testing"
+
 	. "gopkg.in/check.v1"
 	"gopkg.in/niemeyer/mup.v0"
 	"labix.org/v2/mgo/bson"
+
+	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
 )
+
+func Test(t *testing.T) { TestingT(t) }
 
 var _ = Suite(&TesterSuite{})
 

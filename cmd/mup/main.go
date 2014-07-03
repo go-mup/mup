@@ -7,6 +7,9 @@ import (
 	"os/signal"
 
 	"gopkg.in/niemeyer/mup.v0"
+	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
+	_ "gopkg.in/niemeyer/mup.v0/plugins/ldap"
+
 	"labix.org/v2/mgo"
 )
 
@@ -21,8 +24,6 @@ func run() error {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	mup.SetLogger(logger)
 	mup.SetDebug(true)
-	//mgo.SetLogger(logger)
-	//mgo.SetDebug(true)
 
 	db := "localhost/mup"
 

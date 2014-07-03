@@ -40,9 +40,8 @@ func (p *Plugger) Sendf(account, target, format string, args ...interface{}) err
 func (p *Plugger) Send(msg *Message) error {
 	err := p.sendMessage(msg)
 	if err != nil {
-		logf("Cannot put message in outgoing queue: %v", err)
+		Logf("Cannot put message in outgoing queue: %v", err)
 		return fmt.Errorf("cannot put message in outgoing queue: %v", err)
 	}
 	return nil
 }
-

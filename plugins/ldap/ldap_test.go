@@ -1,12 +1,17 @@
 package mup_test
 
 import (
+	"strings"
+	"testing"
+	"time"
+
 	. "gopkg.in/check.v1"
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
-	"strings"
-	"time"
+	_ "gopkg.in/niemeyer/mup.v0/plugins/ldap"
 )
+
+func Test(t *testing.T) { TestingT(t) }
 
 var _ = Suite(&LDAPSuite{})
 

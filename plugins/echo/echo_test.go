@@ -1,11 +1,13 @@
-package mup_test
+package echo_test
 
 import (
-	. "gopkg.in/check.v1"
-	"gopkg.in/niemeyer/mup.v0"
-	"labix.org/v2/mgo/bson"
-
 	"testing"
+
+	. "gopkg.in/check.v1"
+	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
+	"gopkg.in/niemeyer/mup.v0"
+
+	"labix.org/v2/mgo/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }

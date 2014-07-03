@@ -284,7 +284,6 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
 }
 
-
 func (s *ServerSuite) TestPlugin(c *C) {
 	s.SendWelcome()
 
