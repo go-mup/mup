@@ -6,10 +6,10 @@ import (
 
 var _ = Suite(&PluggerSuite{})
 
-func newTestPlugger(replies *[]string, settings func(result interface{})) *Plugger {
-	*replies = nil
+func newTestPlugger(sent *[]string, settings func(result interface{})) *Plugger {
+	*sent = nil
 	send := func(msg *Message) error {
-		*replies = append(*replies, msg.String())
+		*sent = append(*sent, "["+msg.Account+"] "+msg.String())
 		return nil
 	}
 	return newPlugger(send, settings)
@@ -17,23 +17,51 @@ func newTestPlugger(replies *[]string, settings func(result interface{})) *Plugg
 
 type PluggerSuite struct {
 	plugger *Plugger
-	replies []string
+	sent    []string
+	settings interface{}
 }
 
 func (s *PluggerSuite) SetUpTest(c *C) {
-	s.plugger = newTestPlugger(&s.replies, func(interface{}) {})
+	s.plugger = newTestPlugger(&s.sent, s.loadSettings)
+}
+
+func (s *PluggerSuite) loadSettings(v interface{}) {
+	s.settings = v
 }
 
 func parse(line string) *Message {
-	return ParseMessage("mup", "!", line)
+	msg := ParseMessage("mup", "!", line)
+	msg.Account = "origin"
+	return msg
 }
 
 func (s *PluggerSuite) TestReplyfPrivate(c *C) {
 	s.plugger.Replyf(parse(":nick!~user@host PRIVMSG mup :query"), "<%s>", "reply")
-	c.Assert(s.replies, DeepEquals, []string{"PRIVMSG nick :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG nick :<reply>"})
 }
 
 func (s *PluggerSuite) TestReplyfChannel(c *C) {
 	s.plugger.Replyf(parse(":nick!~user@host PRIVMSG #channel :mup: query"), "<%s>", "reply")
-	c.Assert(s.replies, DeepEquals, []string{"PRIVMSG #channel :nick: <reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG #channel :nick: <reply>"})
+}
+
+func (s *PluggerSuite) TestSendf(c *C) {
+	s.plugger.Sendf("myaccount", "nick", "<%s>", "text")
+	c.Assert(s.sent, DeepEquals, []string{"[myaccount] PRIVMSG nick :<text>"})
+}
+
+func (s *PluggerSuite) TestSend(c *C) {
+	msg := &Message{
+		Account: "myaccount",
+		Cmd:     "PRIVMSG",
+		Target:  "nick",
+		Text:    "query",
+	}
+	s.plugger.Send(msg)
+	c.Assert(s.sent, DeepEquals, []string{"[myaccount] PRIVMSG nick :query"})
+}
+
+func (s *PluggerSuite) TestSettings(c *C) {
+	s.plugger.Settings("value")
+	c.Assert(s.settings, Equals, "value")
 }
