@@ -131,12 +131,17 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int) error {
 	if err != nil {
 		return err
 	}
-	return p.plugger.Replyf(msg, "Bug #%d: %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatTasks(&tasks), bugId)
+	return p.plugger.Replyf(msg, "Bug #%d: %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
 }
 
-func (p *lpPlugin) formatTasks(tasks *lpBugTasks) string {
+func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
 	var buf bytes.Buffer
 	buf.Grow(256)
+	for _, tag := range bug.Tags {
+		buf.WriteString(" <")
+		buf.WriteString(tag)
+		buf.WriteString(">")
+	}
 	for _, entry := range tasks.Entries {
 		buf.WriteString(" <")
 		buf.WriteString(entry.Target)
@@ -148,7 +153,7 @@ func (p *lpPlugin) formatTasks(tasks *lpBugTasks) string {
 			} else {
 				buf.WriteString(" by ")
 			}
-			buf.WriteString(entry.AssigneeLink[i:])
+			buf.WriteString(entry.AssigneeLink[i+1:])
 		}
 		buf.WriteString(">")
 	}

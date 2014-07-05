@@ -29,7 +29,7 @@ type lpTest struct {
 }
 
 var lpTests = []lpTest{
-	{"mup", "bug #123", "PRIVMSG nick :Bug #123: Title of 123 <Some Project:New> <https://launchpad.net/bugs/123>", nil},
+	{"mup", "bug #123", "PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>", nil},
 }
 
 func (s *S) SetUpTest(c *C) {
@@ -102,7 +102,8 @@ func (s *lpServer) serveBug(w http.ResponseWriter, req *http.Request) {
 	var res string
 	if tasks {
 		res = fmt.Sprintf(`{"entries": [
-			{"status": "New", "bug_target_display_name": "Some Project"}
+			{"status": "New", "bug_target_display_name": "Some Project"},
+			{"status": "Confirmed", "bug_target_display_name": "Other", "assignee_link": "foo/~joe"}
 		]}`)
 	} else {
 		res = fmt.Sprintf(`{
