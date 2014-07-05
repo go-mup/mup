@@ -32,7 +32,7 @@ type aqlPlugin struct {
 	smses    chan *smsMessage
 	err      error
 	settings struct {
-		ldap.Settings
+		ldap.Settings `bson:",inline"`
 		Command    string
 		Account    string
 		AQLProxy   string

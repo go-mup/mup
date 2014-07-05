@@ -23,7 +23,9 @@ func Test(t *testing.T) { TestingT(t) }
 
 var _ = Suite(&S{})
 
-type S struct{}
+type S struct {
+	ldapSettings *ldap.Settings
+}
 
 type smsTest struct {
 	target       string
@@ -97,7 +99,10 @@ var smsTests = []smsTest{{
 }}
 
 func (s *S) SetUpSuite(c *C) {
-	ldap.TestDial = func(s *ldap.Settings) (ldap.Conn, error) { return &ldapConn{s}, nil }
+	ldap.TestDial = func(settings *ldap.Settings) (ldap.Conn, error) {
+		s.ldapSettings = settings
+		return &ldapConn{settings}, nil
+	}
 	mup.SetLogger(c)
 	mup.SetDebug(true)
 }
@@ -123,6 +128,7 @@ func (s *S) TestSMS(c *C) {
 		}
 		test.settings["aqlgateway"] = server.URL() + "/gateway"
 		test.settings["aqlproxy"] = server.URL() + "/proxy"
+		test.settings["ldap"] = "the-ldap-server"
 
 		tester := mup.StartPluginTest("aql", test.settings)
 		tester.SendAll(test.target, test.send)
@@ -145,6 +151,8 @@ func (s *S) TestSMS(c *C) {
 		if test.deletedKeys != nil {
 			c.Assert(server.deletedKeys, DeepEquals, test.deletedKeys)
 		}
+
+		c.Assert(s.ldapSettings.LDAP, Equals, "the-ldap-server")
 
 		if c.Failed() {
 			c.FailNow()
