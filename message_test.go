@@ -298,3 +298,11 @@ func (s *MessageSuite) TestMessageString(c *C) {
 		c.Assert(test.msg.String(), Equals, test.line)
 	}
 }
+
+
+func (s *MessageSuite) TestReplyTarget(c *C) {
+	msg1 := Message{MupNick: "mup", Nick: "fooer", Target: "mup"}
+	msg2 := Message{MupNick: "mup", Nick: "fooer", Target: "#chan"}
+	c.Assert(msg1.ReplyTarget(), Equals, "fooer")
+	c.Assert(msg2.ReplyTarget(), Equals, "#chan")
+}

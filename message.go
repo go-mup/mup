@@ -44,6 +44,17 @@ func (m *Message) String() string {
 	return cmd
 }
 
+func isChannel(name string) bool {
+	return name != "" && (name[0] == '#' || name[0] == '&') && !strings.ContainsAny(name, " ,\x07")
+}
+
+func (m *Message) ReplyTarget() string {
+	if m.Target == m.MupNick {
+		return m.Nick
+	}
+	return m.Target
+}
+
 func ParseMessage(mupnick, bang, line string) *Message {
 	m := &Message{MupNick: mupnick, Bang: bang}
 	i := 0

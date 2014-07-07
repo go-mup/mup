@@ -9,20 +9,40 @@ import (
 
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/tomb.v2"
+	"io/ioutil"
+	"labix.org/v2/mgo/bson"
 	"net/http"
-	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 func init() {
-	mup.RegisterPlugin("launchpad", startPlugin)
+	mup.RegisterPlugin("lpshowbugs", func(p *mup.Plugger) mup.Plugin {
+		return startPlugin(showBugsMode, p)
+	})
+	mup.RegisterPlugin("lptrackbugs", func(p *mup.Plugger) mup.Plugin {
+		return startPlugin(trackBugsMode, p)
+	})
+	mup.RegisterPlugin("lptrackmerges", func(p *mup.Plugger) mup.Plugin {
+		return startPlugin(trackBugsMode, p)
+	})
 }
 
 var httpClient = http.Client{Timeout: mup.NetworkTimeout}
 
+type lpPluginMode int
+
+const (
+	showBugsMode lpPluginMode = iota + 1
+	trackBugsMode
+	trackMergesMode
+)
+
 type lpPlugin struct {
+	mode lpPluginMode
+
 	mu       sync.Mutex
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
@@ -31,31 +51,61 @@ type lpPlugin struct {
 		OAuthAccessToken string
 		OAuthSecretToken string
 
-		BaseURL       string
-		HandleTimeout time.Duration
+		BaseURL   string
+		Project   string
+		Options   string
+		PrefixNew string
+		PrefixOld string
+
+		HandleTimeout bson.Duration
+		PollDelay     bson.Duration
 	}
 }
 
 const (
-	defaultHandleTimeout = 500 * time.Millisecond
-	defaultBaseURL       = "https://api.launchpad.net/1.0/"
+	defaultHandleTimeout    = 500 * time.Millisecond
+	defaultBaseURL          = "https://api.launchpad.net/1.0/"
+	defaultBaseURLTrackBugs = "https://launchpad.net/"
+	defaultPollDelay        = 10 * time.Second
+	defaultPrefix           = "Bug #%d changed"
 )
 
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
+func startPlugin(mode lpPluginMode, plugger *mup.Plugger) mup.Plugin {
 	p := &lpPlugin{
+		mode:     mode,
 		plugger:  plugger,
 		messages: make(chan *lpMessage),
 	}
 	plugger.Settings(&p.settings)
-	if p.settings.HandleTimeout == 0 {
-		p.settings.HandleTimeout = defaultHandleTimeout
-	} else {
-		p.settings.HandleTimeout *= time.Millisecond
+	if p.settings.HandleTimeout.Duration == 0 {
+		p.settings.HandleTimeout.Duration = defaultHandleTimeout
+	}
+	if p.settings.PollDelay.Duration == 0 {
+		p.settings.PollDelay.Duration = defaultPollDelay
 	}
 	if p.settings.BaseURL == "" {
-		p.settings.BaseURL = defaultBaseURL
+		if mode == trackBugsMode {
+			p.settings.BaseURL = defaultBaseURLTrackBugs
+		} else {
+			p.settings.BaseURL = defaultBaseURL
+		}
 	}
-	p.tomb.Go(p.loop)
+	if p.settings.PrefixNew == "" {
+		p.settings.PrefixNew = defaultPrefix
+	}
+	if p.settings.PrefixOld == "" {
+		p.settings.PrefixOld = defaultPrefix
+	}
+	switch p.mode {
+	case showBugsMode:
+		p.tomb.Go(p.loop)
+	case trackBugsMode:
+		p.tomb.Go(p.pollBugs)
+	case trackMergesMode:
+		p.tomb.Go(p.pollMerges)
+	default:
+		panic("internal error: unknown launchpad plugin mode")
+	}
 	return p
 }
 
@@ -70,13 +120,16 @@ type lpMessage struct {
 }
 
 func (p *lpPlugin) Handle(msg *mup.Message) error {
+	if p.mode != showBugsMode {
+		return nil
+	}
 	bmsg := &lpMessage{msg, parseBugs(msg.Text)}
 	if len(bmsg.bugs) == 0 {
 		return nil
 	}
 	select {
 	case p.messages <- bmsg:
-	case <-time.After(p.settings.HandleTimeout):
+	case <-time.After(p.settings.HandleTimeout.Duration):
 		p.plugger.Replyf(msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
 	}
 	return nil
@@ -99,7 +152,7 @@ func (p *lpPlugin) loop() error {
 
 func (p *lpPlugin) handle(bmsg *lpMessage) error {
 	for _, id := range bmsg.bugs {
-		_ = p.showBug(bmsg.msg, id)
+		_ = p.showBug(bmsg.msg.Account, bmsg.msg.ReplyTarget(), id, "")
 	}
 	return nil
 }
@@ -120,18 +173,23 @@ type lpBugEntry struct {
 	AssigneeLink string `json:"assignee_link"`
 }
 
-func (p *lpPlugin) showBug(msg *mup.Message, bugId int) error {
+func (p *lpPlugin) showBug(account, target string, bugId int, prefix string) error {
 	var bug lpBug
 	var tasks lpBugTasks
-	err := p.request("/bugs/"+strconv.Itoa(bugId), nil, &bug)
+	err := p.request("/bugs/"+strconv.Itoa(bugId), &bug)
 	if err != nil {
 		return err
 	}
-	err = p.request(bug.TasksLink, nil, &tasks)
-	if err != nil {
-		return err
+	if bug.TasksLink != "" {
+		err = p.request(bug.TasksLink, &tasks)
+		if err != nil {
+			return err
+		}
 	}
-	return p.plugger.Replyf(msg, "Bug #%d: %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
+	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
+		prefix = "Bug #%d"
+	}
+	return p.plugger.Sendf(account, target, prefix + ": %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
 }
 
 func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
@@ -160,16 +218,32 @@ func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
 	return buf.String()
 }
 
-func (p *lpPlugin) request(url string, form url.Values, result interface{}) error {
+func (p *lpPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = p.settings.BaseURL + url
 	}
-	resp, err := httpClient.Get(url + "?" + form.Encode())
+	if p.settings.Options != "" {
+		if strings.Contains(url, "?") {
+			url += "&" + p.settings.Options
+		} else {
+			url += "?" + p.settings.Options
+		}
+	}
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		mup.Logf("Cannot perform Launchpad request: %v", err)
 		return fmt.Errorf("cannot perform Launchpad request: %v", err)
 	}
 	defer resp.Body.Close()
+	if strings.Contains(url, "/+bugs-text") {
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			mup.Logf("Cannot read Launchpad response: %v", err)
+			return fmt.Errorf("cannot read Launchpad response: %v", err)
+		}
+		*(result.(*[]int)) = parseShowBugs(string(data))
+		return nil
+	}
 	err = json.NewDecoder(resp.Body).Decode(result)
 	if err != nil {
 		mup.Logf("Cannot decode Launchpad response: %v", err)
@@ -189,9 +263,79 @@ func parseBugs(text string) []int {
 		}
 		id, err := strconv.Atoi(s)
 		if err != nil {
-			panic("bug id not an int, which must never happen; regexp is broken")
+			panic("bug id not an int, which must never happen (regexp is broken)")
 		}
 		bugs = append(bugs, id)
 	}
 	return bugs
+}
+
+func parseShowBugs(data string) []int {
+	var bugs []int
+	for _, s := range strings.Fields(data) {
+		id, err := strconv.Atoi(s)
+		if err != nil {
+			continue
+		}
+		bugs = append(bugs, id)
+	}
+	sort.Ints(bugs)
+	return bugs
+}
+
+func (p *lpPlugin) pollBugs() error {
+	var oldBugs []int
+	var first = true
+	for {
+		select {
+		case <-time.After(p.settings.PollDelay.Duration):
+		case <-p.tomb.Dying():
+			return nil
+		}
+
+		var newBugs []int
+		err := p.request("/"+p.settings.Project+"/+bugs-text", &newBugs)
+		if err != nil {
+			continue
+		}
+
+		if first {
+			first = false
+			oldBugs = newBugs
+			continue
+		}
+
+		var o, n int
+		for o < len(oldBugs) || n < len(newBugs) {
+			var prefix string
+			var bugId int
+			switch {
+			case o == len(oldBugs) || n < len(newBugs) && newBugs[n] < oldBugs[o]:
+				prefix = p.settings.PrefixNew
+				bugId = newBugs[n]
+				n++
+			case n == len(newBugs) || o < len(oldBugs) && oldBugs[o] < newBugs[n]:
+				prefix = p.settings.PrefixOld
+				bugId = oldBugs[o]
+				o++
+			default:
+				o++
+				n++
+				continue
+			}
+
+			// TODO Support plugin targets.
+			p.showBug("canonical", "#mup-test", bugId, prefix)
+		}
+
+		oldBugs = newBugs
+	}
+	return nil
+}
+
+func (p *lpPlugin) pollMerges() error {
+	for {
+		time.Sleep(p.settings.PollDelay.Duration)
+	}
+	return nil
 }
