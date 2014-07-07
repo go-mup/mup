@@ -50,11 +50,23 @@ var lpTests = []lpTest{
 		bugsForm: url.Values{
 			"foo": {"bar"},
 		},
-		recv:   []string{
+		recv: []string{
 			"PRIVMSG #mup-test :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
 			"PRIVMSG #mup-test :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
 			"PRIVMSG #mup-test :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
 			"PRIVMSG #mup-test :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
+		},
+	}, {
+		plugin: "lptrackmerges",
+		settings: bson.M{
+			"project":   "some-project",
+			"polldelay": "50ms",
+		},
+		recv: []string{
+			"PRIVMSG #mup-test :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"PRIVMSG #mup-test :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
+			"PRIVMSG #mup-test :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"PRIVMSG #mup-test :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
 		},
 	},
 }
@@ -100,9 +112,11 @@ type lpServer struct {
 
 	bugForm url.Values
 
-	bugsText [][]int
 	bugsForm url.Values
+	bugsText [][]int
+	bugsResp int
 
+	mergesResp int
 }
 
 func (s *lpServer) Start() {
@@ -124,6 +138,8 @@ func (s *lpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		s.serveBug(w, req)
 	case strings.HasPrefix(req.URL.Path, "/some-project/+bugs-text"):
 		s.serveBugsText(w, req)
+	case strings.HasPrefix(req.URL.Path, "/some-project") && req.FormValue("ws.op") == "getMergeProposals":
+		s.serveMerges(w, req)
 	default:
 		panic("got unexpected request for " + req.URL.Path + " in test lpServer")
 	}
@@ -161,17 +177,39 @@ func (s *lpServer) serveBug(w http.ResponseWriter, req *http.Request) {
 
 func (s *lpServer) serveBugsText(w http.ResponseWriter, req *http.Request) {
 	s.bugsForm = req.Form
-	for i, bugs := range s.bugsText {
-		if bugs == nil {
-			continue
-		}
-		if i < len(s.bugsText)-1 {
-			s.bugsText[i] = nil
-		}
-		for _, bugId := range bugs {
-			w.Write([]byte(strconv.Itoa(bugId)))
-			w.Write([]byte{'\n'})
-		}
-		break
+	for _, bugId := range s.bugsText[s.bugsResp] {
+		w.Write([]byte(strconv.Itoa(bugId)))
+		w.Write([]byte{'\n'})
 	}
+	if s.bugsResp+1 < len(s.bugsText) {
+		s.bugsResp++
+	}
+}
+
+// Merge proposal changed [needs review]: %s <%s>
+
+func (s *lpServer) serveMerges(w http.ResponseWriter, req *http.Request) {
+	e := []string{
+		`{"queue_status": "Needs Review", "self_link": "http://foo/~user/+merge/999", "description": "Ignored."}`,
+		`{"queue_status": "Needs Review", "self_link": "http://foo/~user/+merge/111", "description": "Branch description."}`,
+		`{"queue_status": "Approved", "self_link": "http://foo/~user/+merge/111", "description": "Branch description. Foo."}`,
+		`{"queue_status": "Merged", "self_link": "http://foo/~user/+merge/333", "description": "Branch description.\nFoo."}`,
+		`{"queue_status": "Rejected", "self_link": "http://foo/~user/+merge/444",
+		  "description": "Branch description with a very long first line that never ends and continues until being broken up."}`,
+	}
+	var entries []string
+	switch s.mergesResp {
+	case 0:
+		entries = []string{e[0]}
+		s.mergesResp++
+	case 1:
+		entries = []string{e[1]}
+		s.mergesResp++
+	case 2:
+		entries = []string{e[1], e[3]}
+		s.mergesResp++
+	case 3:
+		entries = []string{e[2], e[3], e[4]}
+	}
+	w.Write([]byte(`{"entries": [` + strings.Join(entries, ",") + `]}`))
 }

@@ -26,7 +26,7 @@ func init() {
 		return startPlugin(trackBugsMode, p)
 	})
 	mup.RegisterPlugin("lptrackmerges", func(p *mup.Plugger) mup.Plugin {
-		return startPlugin(trackBugsMode, p)
+		return startPlugin(trackMergesMode, p)
 	})
 }
 
@@ -189,7 +189,7 @@ func (p *lpPlugin) showBug(account, target string, bugId int, prefix string) err
 	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
 		prefix = "Bug #%d"
 	}
-	return p.plugger.Sendf(account, target, prefix + ": %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
+	return p.plugger.Sendf(account, target, prefix+": %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
 }
 
 func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
@@ -333,9 +333,83 @@ func (p *lpPlugin) pollBugs() error {
 	return nil
 }
 
+type lpMerges struct {
+	Entries []lpMergeEntry
+}
+
+type lpMergeEntry struct {
+	SelfLink    string `json:"self_link"`
+	Status      string `json:"queue_status"`
+	Description string `json:"description"`
+}
+
+func (e *lpMergeEntry) Id() (id int, ok bool) {
+	i := strings.LastIndex(e.SelfLink, "/")
+	if i < 0 {
+		return 0, false
+	}
+	id, err := strconv.Atoi(e.SelfLink[i+1:])
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+func (e *lpMergeEntry) URL() (url string, ok bool) {
+	i := strings.Index(e.SelfLink, "~")
+	if i < 0 {
+		return "", false
+	}
+	return "https://launchpad.net/" + e.SelfLink[i:], true
+}
+
 func (p *lpPlugin) pollMerges() error {
+	oldMerges := make(map[int]string)
+	first := true
 	for {
-		time.Sleep(p.settings.PollDelay.Duration)
+		select {
+		case <-time.After(p.settings.PollDelay.Duration):
+		case <-p.tomb.Dying():
+			return nil
+		}
+
+		var newMerges lpMerges
+		err := p.request("/"+p.settings.Project+"?ws.op=getMergeProposals", &newMerges)
+		if err != nil {
+			continue
+		}
+
+		for _, merge := range newMerges.Entries {
+			id, ok := merge.Id()
+			if !ok || oldMerges[id] == merge.Status {
+				continue
+			}
+			oldMerges[id] = merge.Status
+			url, ok := merge.URL()
+			if !ok || first {
+				continue
+			}
+
+			// TODO Support plugin targets.
+			p.plugger.Sendf("canonical", "#mup-test", "Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
+		}
+		first = false
 	}
 	return nil
+}
+
+func firstSentence(s string) string {
+	if i := strings.Index(s, ". "); i > 0 {
+		return s[:i+1]
+	}
+	if i := strings.Index(s, "\n"); i > 0 {
+		return s[:i]
+	}
+	if len(s) > 80 {
+		if i := strings.LastIndex(s[:80], " "); i > 0 {
+			return s[:i] + " (...)"
+		}
+		return s[:80] + "(...)"
+	}
+	return s
 }
