@@ -12,7 +12,7 @@ func newTestPlugger(sent *[]string, settings func(result interface{})) *Plugger 
 		*sent = append(*sent, "["+msg.Account+"] "+msg.String())
 		return nil
 	}
-	return newPlugger(send, settings)
+	return newPlugger("plugin:name", send, settings)
 }
 
 type PluggerSuite struct {
@@ -33,6 +33,10 @@ func parse(line string) *Message {
 	msg := ParseMessage("mup", "!", line)
 	msg.Account = "origin"
 	return msg
+}
+
+func (s *PluggerSuite) TestPluginName(c *C) {
+	c.Assert(s.plugger.PluginName(), Equals, "plugin:name")
 }
 
 func (s *PluggerSuite) TestReplyfPrivate(c *C) {

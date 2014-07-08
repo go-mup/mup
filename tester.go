@@ -3,6 +3,7 @@ package mup
 import (
 	"fmt"
 	"labix.org/v2/mgo/bson"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,14 +19,18 @@ type PluginTester struct {
 }
 
 func StartPluginTest(name string, settings interface{}) *PluginTester {
-	pluginFunc, ok := registeredPlugins[name]
+	pluginName := name
+	if i := strings.Index(pluginName, ":"); i >= 0 {
+		pluginName = pluginName[:i]
+	}
+	pluginFunc, ok := registeredPlugins[pluginName]
 	if !ok {
 		panic(fmt.Sprintf("plugin not registered: %q", name))
 	}
 	tester := &PluginTester{}
 	tester.cond.L = &tester.mu
 	tester.settings = settings
-	tester.plugger = newPlugger(tester.enqueueReply, tester.loadSettings)
+	tester.plugger = newPlugger(name, tester.enqueueReply, tester.loadSettings)
 	tester.plugin = pluginFunc(tester.plugger)
 	return tester
 }

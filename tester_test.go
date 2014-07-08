@@ -32,6 +32,17 @@ func (s *TesterSuite) TestSendfRecv(c *C) {
 	c.Check(tester.Recv(), Equals, "")
 }
 
+func (s *TesterSuite) TestUnknownPlugin(c *C) {
+	c.Assert(func() { mup.StartPluginTest("unknown", nil) }, PanicMatches, `plugin not registered: "unknown"`)
+}
+
+func (s *TesterSuite) TestPluginLabel(c *C) {
+	tester := mup.StartPluginTest("echo:label", nil)
+	tester.Sendf("mup", "echo Hi there")
+	tester.Stop()
+	c.Assert(tester.Recv(), Equals, "PRIVMSG nick :Hi there")
+}
+
 func (s *TesterSuite) TestSettings(c *C) {
 	tester := mup.StartPluginTest("echo", bson.M{"command": "myecho"})
 	tester.Sendf("mup", "myecho Hi there")

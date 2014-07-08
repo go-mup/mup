@@ -19,15 +19,9 @@ import (
 )
 
 func init() {
-	mup.RegisterPlugin("lpshowbugs", func(p *mup.Plugger) mup.Plugin {
-		return startPlugin(showBugsMode, p)
-	})
-	mup.RegisterPlugin("lptrackbugs", func(p *mup.Plugger) mup.Plugin {
-		return startPlugin(trackBugsMode, p)
-	})
-	mup.RegisterPlugin("lptrackmerges", func(p *mup.Plugger) mup.Plugin {
-		return startPlugin(trackMergesMode, p)
-	})
+	mup.RegisterPlugin("lpshowbugs", startPlugin)
+	mup.RegisterPlugin("lptrackbugs", startPlugin)
+	mup.RegisterPlugin("lptrackmerges", startPlugin)
 }
 
 var httpClient = http.Client{Timeout: mup.NetworkTimeout}
@@ -39,6 +33,12 @@ const (
 	trackBugsMode
 	trackMergesMode
 )
+
+var pluginModes = map[string]lpPluginMode{
+	"lpshowbugs": showBugsMode,
+	"lptrackbugs": trackBugsMode,
+	"lptrackmerges": trackMergesMode,
+}
 
 type lpPlugin struct {
 	mode lpPluginMode
@@ -70,7 +70,11 @@ const (
 	defaultPrefix           = "Bug #%d changed"
 )
 
-func startPlugin(mode lpPluginMode, plugger *mup.Plugger) mup.Plugin {
+func startPlugin(plugger *mup.Plugger) mup.Plugin {
+	mode := pluginModes[strings.SplitN(plugger.PluginName(), ":", 2)[0]]
+	if mode == 0 {
+		panic("launchpad plugin used under unknown name: " + plugger.PluginName())
+	}
 	p := &lpPlugin{
 		mode:     mode,
 		plugger:  plugger,

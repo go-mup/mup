@@ -5,15 +5,21 @@ import (
 )
 
 type Plugger struct {
+	pluginName   string
 	sendMessage  func(*Message) error
 	loadSettings func(result interface{})
 }
 
-func newPlugger(sendMessage func(msg *Message) error, loadSettings func(result interface{})) *Plugger {
+func newPlugger(pluginName string, sendMessage func(msg *Message) error, loadSettings func(result interface{})) *Plugger {
 	return &Plugger{
+		pluginName:   pluginName,
 		sendMessage:  sendMessage,
 		loadSettings: loadSettings,
 	}
+}
+
+func (p *Plugger) PluginName() string {
+	return p.pluginName
 }
 
 func (p *Plugger) Settings(result interface{}) {

@@ -228,7 +228,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandler, error) {
 			info.Settings.Unmarshal(result)
 		}
 	}
-	plugger := newPlugger(m.sendMessage, loadSettings)
+	plugger := newPlugger(info.Name, m.sendMessage, loadSettings)
 	plugin := newPlugin(plugger)
 	handler := &pluginHandler{
 		info:    *info,
