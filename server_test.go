@@ -2,10 +2,10 @@ package mup
 
 import (
 	"time"
+	"strings"
 
 	. "gopkg.in/check.v1"
 	"labix.org/v2/mgo"
-	"strings"
 )
 
 type ServerSuite struct {
@@ -16,8 +16,6 @@ type ServerSuite struct {
 	config  *Config
 	server  *Server
 	lserver *LineServer
-
-	c *C
 }
 
 var _ = Suite(&ServerSuite{})
@@ -55,19 +53,18 @@ func (s *ServerSuite) SetUpTest(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	s.c = c
-	s.RestartServer()
+	s.RestartServer(c)
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
-	s.StopServer()
+	s.StopServer(c)
 	s.LineServerSuite.TearDownTest(c)
 	s.session.Close()
 	s.config.Database.Session.Close()
 	s.MgoSuite.TearDownTest(c)
 }
 
-func (s *ServerSuite) StopServer() {
+func (s *ServerSuite) StopServer(c *C) {
 	if s.lserver != nil {
 		s.lserver.Close()
 		s.lserver = nil
@@ -78,49 +75,49 @@ func (s *ServerSuite) StopServer() {
 	}
 }
 
-func (s *ServerSuite) RestartServer() {
-	s.StopServer()
+func (s *ServerSuite) RestartServer(c *C) {
+	s.StopServer(c)
 	n := s.NextLineServer()
 	var err error
 	s.server, err = Start(s.config)
-	s.c.Assert(err, IsNil)
+	c.Assert(err, IsNil)
 	s.lserver = s.LineServer(n)
-	s.ReadUser()
+	s.ReadUser(c)
 }
 
-func (s *ServerSuite) ReadUser() {
-	s.ReadLine("PASS password")
-	s.ReadLine("NICK mup")
-	s.ReadLine("USER mup 0 0 :Mup Pet")
+func (s *ServerSuite) ReadUser(c *C) {
+	s.ReadLine(c, "PASS password")
+	s.ReadLine(c, "NICK mup")
+	s.ReadLine(c, "USER mup 0 0 :Mup Pet")
 }
 
-func (s *ServerSuite) SendWelcome() {
-	s.SendLine(":n.net 001 mup :Welcome!")
+func (s *ServerSuite) SendWelcome(c *C) {
+	s.SendLine(c, ":n.net 001 mup :Welcome!")
 }
 
-func (s *ServerSuite) Handshake() {
-	s.ReadUser()
-	s.SendWelcome()
+func (s *ServerSuite) Handshake(c *C) {
+	s.ReadUser(c)
+	s.SendWelcome(c)
 }
 
-func (s *ServerSuite) SendLine(line string) {
+func (s *ServerSuite) SendLine(c *C, line string) {
 	s.lserver.SendLine(line)
 }
 
-func (s *ServerSuite) ReadLine(line string) {
-	s.c.Assert(s.lserver.ReadLine(), Equals, line)
+func (s *ServerSuite) ReadLine(c *C, line string) {
+	c.Assert(s.lserver.ReadLine(), Equals, line)
 
 	// Confirm read message.
 	if strings.HasPrefix(line, "PRIVMSG ") {
 		ping := s.lserver.ReadLine()
-		s.c.Assert(ping, Matches, "PING :sent:.*")
+		c.Assert(ping, Matches, "PING :sent:.*")
 		s.lserver.SendLine("PONG " + ping[5:])
 	}
 }
 
-func (s *ServerSuite) Roundtrip() {
+func (s *ServerSuite) Roundtrip(c *C) {
 	s.lserver.SendLine("PING :roundtrip")
-	s.c.Assert(s.lserver.ReadLine(), Equals, "PONG :roundtrip")
+	c.Assert(s.lserver.ReadLine(), Equals, "PONG :roundtrip")
 }
 
 func (s *ServerSuite) TestConnect(c *C) {
@@ -128,42 +125,42 @@ func (s *ServerSuite) TestConnect(c *C) {
 }
 
 func (s *ServerSuite) TestNickInUse(c *C) {
-	s.SendLine(":n.net 433 * mup :Nickname is already in use.")
-	s.ReadLine("NICK mup_")
-	s.SendLine(":n.net 433 * mup_ :Nickname is already in use.")
-	s.ReadLine("NICK mup__")
+	s.SendLine(c, ":n.net 433 * mup :Nickname is already in use.")
+	s.ReadLine(c, "NICK mup_")
+	s.SendLine(c, ":n.net 433 * mup_ :Nickname is already in use.")
+	s.ReadLine(c, "NICK mup__")
 }
 
 func (s *ServerSuite) TestPingPong(c *C) {
-	s.SendLine("PING :foo")
-	s.ReadLine("PONG :foo")
+	s.SendLine(c, "PING :foo")
+	s.ReadLine(c, "PONG :foo")
 }
 
 func (s *ServerSuite) TestPingPongPostAuth(c *C) {
-	s.SendWelcome()
-	s.SendLine("PING :foo")
-	s.ReadLine("PONG :foo")
+	s.SendWelcome(c)
+	s.SendLine(c, "PING :foo")
+	s.ReadLine(c, "PONG :foo")
 }
 
 func (s *ServerSuite) TestQuit(c *C) {
 	s.server.Stop()
-	s.ReadLine("<LineServer closed: <nil>>")
+	s.ReadLine(c, "<LineServer closed: <nil>>")
 }
 
 func (s *ServerSuite) TestQuitPostAuth(c *C) {
-	s.SendWelcome()
-	s.Roundtrip()
+	s.SendWelcome(c)
+	s.Roundtrip(c)
 	stopped := make(chan error)
 	go func() {
 		stopped <- s.server.Stop()
 	}()
-	s.ReadLine("QUIT :brb")
+	s.ReadLine(c, "QUIT :brb")
 	s.lserver.Close()
 	c.Assert(<-stopped, IsNil)
 }
 
 func (s *ServerSuite) TestJoinChannel(c *C) {
-	s.SendWelcome()
+	s.SendWelcome(c)
 
 	accounts := s.Session.DB("").C("accounts")
 	err := accounts.Update(
@@ -173,11 +170,11 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
-	s.ReadLine("JOIN #c1,#c2")
+	s.ReadLine(c, "JOIN #c1,#c2")
 
 	// Confirm it joined both channels.
-	s.SendLine(":mup!~mup@10.0.0.1 JOIN #c1")
-	s.SendLine(":mup!~mup@10.0.0.1 JOIN #c2")
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c1")
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c2")
 
 	err = accounts.Update(
 		M{"name": "testserver"},
@@ -186,13 +183,13 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
-	s.ReadLine("JOIN #c3")
-	s.ReadLine("PART #c2")
+	s.ReadLine(c, "JOIN #c3")
+	s.ReadLine(c, "PART #c2")
 
 	// Do not confirm, forcing it to retry.
 	s.server.RefreshAccounts()
-	s.ReadLine("JOIN #c3")
-	s.ReadLine("PART #c2")
+	s.ReadLine(c, "JOIN #c3")
+	s.ReadLine(c, "PART #c2")
 }
 
 func waitFor(condition func() bool) {
@@ -208,9 +205,9 @@ func waitFor(condition func() bool) {
 }
 
 func (s *ServerSuite) TestIncoming(c *C) {
-	s.SendWelcome()
-	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
-	s.Roundtrip()
+	s.SendWelcome(c)
+	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
+	s.Roundtrip(c)
 	time.Sleep(100 * time.Millisecond)
 
 	var msg Message
@@ -238,7 +235,7 @@ func (s *ServerSuite) TestIncoming(c *C) {
 
 func (s *ServerSuite) TestOutgoing(c *C) {
 	// Stop default server to test the behavior of outgoing messages on start up.
-	s.StopServer()
+	s.StopServer(c)
 
 	accounts := s.Session.DB("").C("accounts")
 	err := accounts.Update(
@@ -255,14 +252,14 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	s.RestartServer()
-	s.SendWelcome()
+	s.RestartServer(c)
+	s.SendWelcome(c)
 
 	// The initial JOINs is sent before any messages.
-	s.ReadLine("JOIN #test")
+	s.ReadLine(c, "JOIN #test")
 
 	// Then the message and the PING asking for confirmation, handled by ReadLine.
-	s.ReadLine("PRIVMSG someone :Hello there!")
+	s.ReadLine(c, "PRIVMSG someone :Hello there!")
 
 	// Send another message with the server running.
 	err = outgoing.Insert(&Message{
@@ -275,8 +272,8 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	// Do not use the s.ReadLine helper as the message won't be confirmed.
 	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
-	s.RestartServer()
-	s.SendWelcome()
+	s.RestartServer(c)
+	s.SendWelcome(c)
 
 	// The unconfirmed message is resent.
 	c.Assert(s.lserver.ReadLine(), Equals, "JOIN #test")
@@ -285,37 +282,37 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 }
 
 func (s *ServerSuite) TestPlugin(c *C) {
-	s.SendWelcome()
+	s.SendWelcome(c)
 
-	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A1")
-	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B1")
-	s.Roundtrip()
+	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoA A1")
+	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoB B1")
+	s.Roundtrip(c)
 
 	plugins := s.Session.DB("").C("plugins")
 	err := plugins.Insert(M{"name": "echo:A", "settings": M{"command": "echoA"}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
-	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A2")
-	s.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B2")
+	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoA A2")
+	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoB B2")
 
-	s.ReadLine("PRIVMSG somenick :A1")
-	s.ReadLine("PRIVMSG somenick :A2")
+	s.ReadLine(c, "PRIVMSG somenick :A1")
+	s.ReadLine(c, "PRIVMSG somenick :A2")
 
 	err = plugins.Insert(M{"name": "echo:B", "settings": M{"command": "echoB"}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
-	s.ReadLine("PRIVMSG somenick :B1")
-	s.ReadLine("PRIVMSG somenick :B2")
-	s.Roundtrip()
+	s.ReadLine(c, "PRIVMSG somenick :B1")
+	s.ReadLine(c, "PRIVMSG somenick :B2")
+	s.Roundtrip(c)
 
-	s.RestartServer()
-	s.SendWelcome()
+	s.RestartServer(c)
+	s.SendWelcome(c)
 
 	s.lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A3")
 	s.lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B3")
 
-	s.ReadLine("PRIVMSG somenick :A3")
-	s.ReadLine("PRIVMSG somenick :B3")
+	s.ReadLine(c, "PRIVMSG somenick :A3")
+	s.ReadLine(c, "PRIVMSG somenick :B3")
 }
