@@ -120,7 +120,7 @@ func (m *pluginManager) loop() error {
 				continue
 			}
 			for name, handler := range m.plugins {
-				if handler.info.LastId >= msg.Id {
+				if handler.info.LastId >= msg.Id || handler.plugger.Target(msg) == nil {
 					continue
 				}
 				handler.info.LastId = msg.Id

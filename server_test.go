@@ -47,7 +47,7 @@ func (s *ServerSuite) SetUpTest(c *C) {
 	}
 
 	err = s.config.Database.C("accounts").Insert(M{
-		"name":     "testserver",
+		"name":     "one",
 		"host":     s.Addr.String(),
 		"password": "password",
 	})
@@ -164,7 +164,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 
 	accounts := s.Session.DB("").C("accounts")
 	err := accounts.Update(
-		M{"name": "testserver"},
+		M{"name": "one"},
 		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}}}},
 	)
 	c.Assert(err, IsNil)
@@ -177,7 +177,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c2")
 
 	err = accounts.Update(
-		M{"name": "testserver"},
+		M{"name": "one"},
 		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c3"}}}},
 	)
 	c.Assert(err, IsNil)
@@ -206,7 +206,7 @@ func waitFor(condition func() bool) {
 
 func (s *ServerSuite) TestIncoming(c *C) {
 	s.SendWelcome(c)
-	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :Hello mup!")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :Hello mup!")
 	s.Roundtrip(c)
 	time.Sleep(100 * time.Millisecond)
 
@@ -217,11 +217,11 @@ func (s *ServerSuite) TestIncoming(c *C) {
 
 	msg.Id = ""
 	c.Assert(msg, DeepEquals, Message{
-		Account: "testserver",
-		Prefix:  "somenick!~someuser@somehost",
-		Nick:    "somenick",
-		User:    "~someuser",
-		Host:    "somehost",
+		Account: "one",
+		Prefix:  "nick!~user@host",
+		Nick:    "nick",
+		User:    "~user",
+		Host:    "host",
 		Cmd:     "PRIVMSG",
 		Params:  []string{"mup", ":Hello mup!"},
 		Target:  "mup",
@@ -239,14 +239,14 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 
 	accounts := s.Session.DB("").C("accounts")
 	err := accounts.Update(
-		M{"name": "testserver"},
+		M{"name": "one"},
 		M{"$set": M{"channels": []M{{"name": "#test"}}}},
 	)
 	c.Assert(err, IsNil)
 
 	outgoing := s.Session.DB("").C("outgoing")
 	err = outgoing.Insert(&Message{
-		Account: "testserver",
+		Account: "one",
 		Target:  "someone",
 		Text:    "Hello there!",
 	})
@@ -263,7 +263,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 
 	// Send another message with the server running.
 	err = outgoing.Insert(&Message{
-		Account: "testserver",
+		Account: "one",
 		Target:  "someone",
 		Text:    "Hello again!",
 	})
@@ -284,35 +284,60 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 func (s *ServerSuite) TestPlugin(c *C) {
 	s.SendWelcome(c)
 
-	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoA A1")
-	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoB B1")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoA A1")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoB B1")
 	s.Roundtrip(c)
 
 	plugins := s.Session.DB("").C("plugins")
-	err := plugins.Insert(M{"name": "echo:A", "settings": M{"command": "echoA"}})
+	err := plugins.Insert(M{"name": "echo:A", "settings": M{"command": "echoA"}, "targets": []M{{"account": "one"}}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
-	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoA A2")
-	s.SendLine(c, ":somenick!~someuser@somehost PRIVMSG mup :echoB B2")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoA A2")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoB B2")
 
-	s.ReadLine(c, "PRIVMSG somenick :A1")
-	s.ReadLine(c, "PRIVMSG somenick :A2")
+	s.ReadLine(c, "PRIVMSG nick :A1")
+	s.ReadLine(c, "PRIVMSG nick :A2")
 
-	err = plugins.Insert(M{"name": "echo:B", "settings": M{"command": "echoB"}})
+	err = plugins.Insert(M{"name": "echo:B", "settings": M{"command": "echoB"}, "targets": []M{{"account": "one"}}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
-	s.ReadLine(c, "PRIVMSG somenick :B1")
-	s.ReadLine(c, "PRIVMSG somenick :B2")
+	s.ReadLine(c, "PRIVMSG nick :B1")
+	s.ReadLine(c, "PRIVMSG nick :B2")
 	s.Roundtrip(c)
 
 	s.RestartServer(c)
 	s.SendWelcome(c)
 
-	s.lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoA A3")
-	s.lserver.SendLine(":somenick!~someuser@somehost PRIVMSG mup :echoB B3")
+	s.lserver.SendLine(":nick!~user@host PRIVMSG mup :echoA A3")
+	s.lserver.SendLine(":nick!~user@host PRIVMSG mup :echoB B3")
 
-	s.ReadLine(c, "PRIVMSG somenick :A3")
-	s.ReadLine(c, "PRIVMSG somenick :B3")
+	s.ReadLine(c, "PRIVMSG nick :A3")
+	s.ReadLine(c, "PRIVMSG nick :B3")
+}
+
+func (s *ServerSuite) TestPluginTarget(c *C) {
+	s.SendWelcome(c)
+
+	plugins := s.Session.DB("").C("plugins")
+	err := plugins.Insert(
+		M{"name": "echo:A", "settings": M{"command": "echoA"}, "targets": []M{{"account": "one", "target": "#chan1"}}},
+		M{"name": "echo:B", "settings": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "#chan2"}}},
+		M{"name": "echo:C", "settings": M{"command": "echoC"}, "targets": []M{{"account": "one"}}},
+	)
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan1 :mup: echoA A1")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan2 :mup: echoA A2")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan1 :mup: echoB B1")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan2 :mup: echoB B2")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan1 :mup: echoC C1")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan2 :mup: echoC C2")
+
+	s.ReadLine(c, "PRIVMSG #chan1 :nick: A1")
+	s.ReadLine(c, "PRIVMSG #chan2 :nick: B2")
+	s.ReadLine(c, "PRIVMSG #chan1 :nick: C1")
+	s.ReadLine(c, "PRIVMSG #chan2 :nick: C2")
 }
