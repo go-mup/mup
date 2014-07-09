@@ -35,7 +35,9 @@ var echoTests = []echoTest{
 func (s *EchoSuite) TestEcho(c *C) {
 	for i, test := range echoTests {
 		c.Logf("Testing message #%d: %s", i, test.send)
-		tester := mup.StartPluginTest("echo", test.settings)
+		tester := mup.NewTest("echo")
+		tester.SetSettings(test.settings)
+		tester.Start()
 		tester.Sendf(test.target, test.send)
 		tester.Stop()
 		c.Assert(tester.Recv(), Equals, test.recv)

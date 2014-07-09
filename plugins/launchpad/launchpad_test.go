@@ -92,7 +92,9 @@ func (s *S) TestLaunchpad(c *C) {
 			test.settings = bson.M{}
 		}
 		test.settings["baseurl"] = server.URL()
-		tester := mup.StartPluginTest(test.plugin, test.settings)
+		tester := mup.NewTest(test.plugin)
+		tester.SetSettings(test.settings)
+		tester.Start()
 		tester.SendAll(test.target, test.send)
 		if test.settings["polldelay"] != "" {
 			time.Sleep(250 * time.Millisecond)

@@ -71,9 +71,9 @@ const (
 )
 
 func startPlugin(plugger *mup.Plugger) mup.Plugin {
-	mode := pluginModes[strings.SplitN(plugger.PluginName(), ":", 2)[0]]
+	mode := pluginModes[strings.SplitN(plugger.Name(), ":", 2)[0]]
 	if mode == 0 {
-		panic("launchpad plugin used under unknown name: " + plugger.PluginName())
+		panic("launchpad plugin used under unknown name: " + plugger.Name())
 	}
 	p := &lpPlugin{
 		mode:     mode,

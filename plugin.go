@@ -26,6 +26,7 @@ type pluginInfo struct {
 	Name     string
 	LastId   bson.ObjectId `bson:",omitempty"`
 	Settings bson.Raw
+	Targets  bson.Raw
 	State    bson.Raw
 }
 
@@ -213,22 +214,22 @@ const (
 	rollbackText    = "<rollback>"
 )
 
-func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandler, error) {
-	pluginName := info.Name
+func pluginKey(pluginName string) string {
 	if i := strings.Index(pluginName, ":"); i >= 0 {
-		pluginName = pluginName[:i]
+		return pluginName[:i]
 	}
-	newPlugin, ok := registeredPlugins[pluginName]
+	return pluginName
+}
+
+func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandler, error) {
+	newPlugin, ok := registeredPlugins[pluginKey(info.Name)]
 	if !ok {
-		Logf("Enabled plugin is not registered: %s", info.Name)
-		return nil, fmt.Errorf("plugin %q not registered", info.Name)
+		Logf("Plugin is not registered: %s", pluginKey(info.Name))
+		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
-	loadSettings := func(result interface{}) {
-		if info.Settings.Data != nil {
-			info.Settings.Unmarshal(result)
-		}
-	}
-	plugger := newPlugger(info.Name, m.sendMessage, loadSettings)
+	plugger := newPlugger(info.Name, m.sendMessage)
+	plugger.setSettings(info.Settings)
+	plugger.setTargets(info.Targets)
 	plugin := newPlugin(plugger)
 	handler := &pluginHandler{
 		info:    *info,

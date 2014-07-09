@@ -3,39 +3,63 @@ package mup
 import (
 	"fmt"
 	"labix.org/v2/mgo/bson"
-	"strings"
 	"sync"
 	"time"
 )
 
-type PluginTester struct {
+type Tester struct {
 	mu       sync.Mutex
 	cond     sync.Cond
 	stopped  bool
 	plugin   Plugin
 	plugger  *Plugger
 	replies  []string
-	settings interface{}
 }
 
-func StartPluginTest(name string, settings interface{}) *PluginTester {
-	pluginName := name
-	if i := strings.Index(pluginName, ":"); i >= 0 {
-		pluginName = pluginName[:i]
-	}
-	pluginFunc, ok := registeredPlugins[pluginName]
+func NewTest(plugin string) *Tester {
+	_, ok := registeredPlugins[pluginKey(plugin)]
 	if !ok {
-		panic(fmt.Sprintf("plugin not registered: %q", name))
+		panic(fmt.Sprintf("plugin not registered: %q", pluginKey(plugin)))
 	}
-	tester := &PluginTester{}
-	tester.cond.L = &tester.mu
-	tester.settings = settings
-	tester.plugger = newPlugger(name, tester.enqueueReply, tester.loadSettings)
-	tester.plugin = pluginFunc(tester.plugger)
-	return tester
+	t := &Tester{}
+	t.cond.L = &t.mu
+	t.plugger = newPlugger(plugin, t.enqueueReply)
+	return t
 }
 
-func (t *PluginTester) enqueueReply(msg *Message) error {
+func (t *Tester) Plugger() *Plugger {
+	return t.plugger
+}
+
+func (t *Tester) Start() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.plugin != nil {
+		panic("Tester.Start called more than once")
+	}
+	t.plugin = registeredPlugins[pluginKey(t.plugger.Name())](t.plugger)
+	return nil
+}
+
+func (t *Tester) SetSettings(value interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.plugin != nil {
+		panic("Tester.SetSettings called after Start")
+	}
+	t.plugger.setSettings(marshalRaw(value))
+}
+
+func (t *Tester) SetTargets(value interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.plugin != nil {
+		panic("Tester.SetTargets called after Start")
+	}
+	t.plugger.setTargets(marshalRaw(value))
+}
+
+func (t *Tester) enqueueReply(msg *Message) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.stopped {
@@ -46,21 +70,23 @@ func (t *PluginTester) enqueueReply(msg *Message) error {
 	return nil
 }
 
-func (t *PluginTester) loadSettings(value interface{}) {
-	if t.settings == nil {
-		return
+func marshalRaw(value interface{}) bson.Raw {
+	if value == nil {
+		return emptyDoc
 	}
-	data, err := bson.Marshal(t.settings)
+	data, err := bson.Marshal(bson.D{{"value", value}})
 	if err != nil {
-		panic("cannot marshal provided settings: " + err.Error())
+		panic("cannot marshal provided value: " + err.Error())
 	}
-	err = bson.Unmarshal(data, value)
+	var raw struct { Value bson.Raw }
+	err = bson.Unmarshal(data, &raw)
 	if err != nil {
-		panic("cannot unmarshal provided settings: " + err.Error())
+		panic("cannot unmarshal provided value: " + err.Error())
 	}
+	return raw.Value
 }
 
-func (t *PluginTester) Stop() error {
+func (t *Tester) Stop() error {
 	err := t.plugin.Stop()
 	t.mu.Lock()
 	t.stopped = true
@@ -69,7 +95,7 @@ func (t *PluginTester) Stop() error {
 	return err
 }
 
-func (t *PluginTester) Recv() string {
+func (t *Tester) Recv() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	timeout := time.Now().Add(3 * time.Second)
@@ -85,7 +111,7 @@ func (t *PluginTester) Recv() string {
 	return reply
 }
 
-func (t *PluginTester) RecvAll() []string {
+func (t *Tester) RecvAll() []string {
 	t.mu.Lock()
 	replies := t.replies
 	t.replies = nil
@@ -93,7 +119,7 @@ func (t *PluginTester) RecvAll() []string {
 	return replies
 }
 
-func (t *PluginTester) Sendf(target, format string, args ...interface{}) error {
+func (t *Tester) Sendf(target, format string, args ...interface{}) error {
 	if target == "" {
 		target = "mup"
 	}
@@ -101,7 +127,7 @@ func (t *PluginTester) Sendf(target, format string, args ...interface{}) error {
 	return t.plugin.Handle(msg)
 }
 
-func (t *PluginTester) SendAll(target string, text []string) error {
+func (t *Tester) SendAll(target string, text []string) error {
 	for _, texti := range text {
 		err := t.Sendf(target, "%s", texti)
 		if err != nil {

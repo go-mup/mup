@@ -17,7 +17,8 @@ var _ = Suite(&TesterSuite{})
 type TesterSuite struct{}
 
 func (s *TesterSuite) TestSendfRecv(c *C) {
-	tester := mup.StartPluginTest("echo", nil)
+	tester := mup.NewTest("echo")
+	tester.Start()
 	tester.Sendf("mup", "echo Hi %s", "there")
 	c.Check(tester.Recv(), Equals, "PRIVMSG nick :Hi there")
 	tester.Sendf("mup", "echo Hi %s", "again")
@@ -33,32 +34,52 @@ func (s *TesterSuite) TestSendfRecv(c *C) {
 }
 
 func (s *TesterSuite) TestUnknownPlugin(c *C) {
-	c.Assert(func() { mup.StartPluginTest("unknown", nil) }, PanicMatches, `plugin not registered: "unknown"`)
+	c.Assert(func() { mup.NewTest("unknown").Start() }, PanicMatches, `plugin not registered: "unknown"`)
+}
+
+func (s *TesterSuite) TestPlugger(c *C) {
+	tester := mup.NewTest("echo")
+	c.Assert(tester.Plugger().Name(), Equals, "echo")
 }
 
 func (s *TesterSuite) TestPluginLabel(c *C) {
-	tester := mup.StartPluginTest("echo:label", nil)
+	tester := mup.NewTest("echo:label")
+	tester.Start()
+	c.Assert(tester.Plugger().Name(), Equals, "echo:label")
 	tester.Sendf("mup", "echo Hi there")
 	tester.Stop()
 	c.Assert(tester.Recv(), Equals, "PRIVMSG nick :Hi there")
 }
 
 func (s *TesterSuite) TestSettings(c *C) {
-	tester := mup.StartPluginTest("echo", bson.M{"command": "myecho"})
+	tester := mup.NewTest("echo")
+	tester.SetSettings(bson.M{"command": "myecho"})
+	tester.Start()
 	tester.Sendf("mup", "myecho Hi there")
 	tester.Stop()
 	c.Assert(tester.Recv(), Equals, "PRIVMSG nick :Hi there")
 }
 
+func (s *TesterSuite) TestTargets(c *C) {
+	tester := mup.NewTest("echo")
+	tester.SetTargets([]bson.M{{"account": "one", "target": "#one"}})
+	targets := tester.Plugger().Targets()
+	c.Assert(targets, HasLen, 1)
+	c.Assert(targets[0].Account, Equals, "one")
+	c.Assert(targets[0].Target, Equals, "#one")
+}
+
 func (s *TesterSuite) TestStop(c *C) {
-	tester := mup.StartPluginTest("echo", nil)
+	tester := mup.NewTest("echo")
+	tester.Start()
 	tester.Stop()
 	err := tester.Sendf("mup", "echo Hi there")
 	c.Assert(err, ErrorMatches, "plugin stopped")
 }
 
 func (s *TesterSuite) TestSendRecvAll(c *C) {
-	tester := mup.StartPluginTest("echo", nil)
+	tester := mup.NewTest("echo")
+	tester.Start()
 	tester.SendAll("mup", []string{"echo One", "echo Two"})
 	c.Assert(tester.RecvAll(), DeepEquals, []string{"PRIVMSG nick :One", "PRIVMSG nick :Two"})
 	c.Assert(tester.RecvAll(), IsNil)
@@ -69,7 +90,9 @@ func (s *TesterSuite) TestSendRecvAll(c *C) {
 }
 
 func (s *TesterSuite) TestSendError(c *C) {
-	tester := mup.StartPluginTest("echo", bson.M{"error": "Error message."})
+	tester := mup.NewTest("echo")
+	tester.SetSettings(bson.M{"error": "Error message."})
+	tester.Start()
 	err := tester.Sendf("mup", "echo foo")
 	tester.Stop()
 	c.Assert(err, ErrorMatches, "Error message.")
