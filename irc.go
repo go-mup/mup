@@ -26,7 +26,7 @@ const (
 )
 
 type accountInfo struct {
-	Name        string
+	Name        string `bson:"_id"`
 	Host        string
 	TLS         bool
 	TLSInsecure bool

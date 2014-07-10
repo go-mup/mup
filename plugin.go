@@ -24,7 +24,7 @@ func RegisterPlugin(name string, startPlugin func(*Plugger) Plugin) {
 }
 
 type pluginInfo struct {
-	Name    string
+	Name    string        `bson:"_id"`
 	LastId  bson.ObjectId `bson:",omitempty"`
 	Config  bson.Raw
 	Targets bson.Raw
@@ -129,7 +129,7 @@ func (m *pluginManager) loop() error {
 				if err != nil {
 					logf("Plugin %q failed to handle message: %s: %v", name, msg, err)
 				}
-				err = plugins.Update(bson.D{{"name", name}}, bson.D{{"$set", bson.D{{"lastid", msg.Id}}}})
+				err = plugins.UpdateId(name, bson.D{{"$set", bson.D{{"lastid", msg.Id}}}})
 				if err != nil {
 					logf("Cannot update last message id for plugin %q: %v", name, err)
 					// TODO How to recover properly from this?

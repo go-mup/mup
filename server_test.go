@@ -46,11 +46,7 @@ func (s *ServerSuite) SetUpTest(c *C) {
 		Refresh:  -1, // Manual refreshing for testing.
 	}
 
-	err = s.config.Database.C("accounts").Insert(M{
-		"name":     "one",
-		"host":     s.Addr.String(),
-		"password": "password",
-	})
+	err = s.config.Database.C("accounts").Insert(M{"_id": "one", "host": s.Addr.String(), "password": "password"})
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
@@ -163,10 +159,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendWelcome(c)
 
 	accounts := s.Session.DB("").C("accounts")
-	err := accounts.Update(
-		M{"name": "one"},
-		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}}}},
-	)
+	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}}}})
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
@@ -176,10 +169,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c1")
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c2")
 
-	err = accounts.Update(
-		M{"name": "one"},
-		M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c3"}}}},
-	)
+	err = accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c3"}}}})
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
@@ -238,10 +228,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.StopServer(c)
 
 	accounts := s.Session.DB("").C("accounts")
-	err := accounts.Update(
-		M{"name": "one"},
-		M{"$set": M{"channels": []M{{"name": "#test"}}}},
-	)
+	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#test"}}}})
 	c.Assert(err, IsNil)
 
 	outgoing := s.Session.DB("").C("outgoing")
@@ -255,7 +242,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.RestartServer(c)
 	s.SendWelcome(c)
 
-	// The initial JOINs is sent before any messages.
+	// The initial JOINs are sent before any messages.
 	s.ReadLine(c, "JOIN #test")
 
 	// Then the message and the PING asking for confirmation, handled by ReadLine.
@@ -289,7 +276,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.Roundtrip(c)
 
 	plugins := s.Session.DB("").C("plugins")
-	err := plugins.Insert(M{"name": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one"}}})
+	err := plugins.Insert(M{"_id": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one"}}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
@@ -299,7 +286,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.ReadLine(c, "PRIVMSG nick :A1")
 	s.ReadLine(c, "PRIVMSG nick :A2")
 
-	err = plugins.Insert(M{"name": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one"}}})
+	err = plugins.Insert(M{"_id": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one"}}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
@@ -322,9 +309,9 @@ func (s *ServerSuite) TestPluginTarget(c *C) {
 
 	plugins := s.Session.DB("").C("plugins")
 	err := plugins.Insert(
-		M{"name": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one", "target": "#chan1"}}},
-		M{"name": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "#chan2"}}},
-		M{"name": "echo:C", "config": M{"command": "echoC"}, "targets": []M{{"account": "one"}}},
+		M{"_id": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one", "target": "#chan1"}}},
+		M{"_id": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "#chan2"}}},
+		M{"_id": "echo:C", "config": M{"command": "echoC"}, "targets": []M{{"account": "one"}}},
 	)
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
@@ -347,20 +334,20 @@ func (s *ServerSuite) TestPluginUpdates(c *C) {
 
 	plugins := s.Session.DB("").C("plugins")
 	err := plugins.Insert(
-		M{"name": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one"}}},
-		M{"name": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "none"}}},
-		M{"name": "echo:C", "config": M{"command": "echoC"}, "targets": []M{{"account": "one", "target": "#chan"}}},
-		M{"name": "echo:D", "config": M{"command": "echoD"}, "targets": []M{{"account": "one", "target": "#chan"}}},
+		M{"_id": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one"}}},
+		M{"_id": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "none"}}},
+		M{"_id": "echo:C", "config": M{"command": "echoC"}, "targets": []M{{"account": "one", "target": "#chan"}}},
+		M{"_id": "echo:D", "config": M{"command": "echoD"}, "targets": []M{{"account": "one", "target": "#chan"}}},
 	)
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
-	err = plugins.Remove(M{"name": "echo:A"})
+	err = plugins.Remove(M{"_id": "echo:A"})
 	c.Assert(err, IsNil)
-	err = plugins.Update(M{"name": "echo:B"}, M{"$set": M{"targets.0.target": "#chan"}})
+	err = plugins.UpdateId("echo:B", M{"$set": M{"targets.0.target": "#chan"}})
 	c.Assert(err, IsNil)
-	err = plugins.Update(M{"name": "echo:D"}, M{"$set": M{"config.command": "echoE"}})
+	err = plugins.UpdateId("echo:D", M{"$set": M{"config.command": "echoE"}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)

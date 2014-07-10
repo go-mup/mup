@@ -109,7 +109,7 @@ func (am *accountManager) loop() error {
 				if strings.HasPrefix(msg.Text, "sent:") {
 					// TODO Ensure it's a valid ObjectId.
 					lastId := bson.ObjectIdHex(msg.Text[5:])
-					err := accounts.Update(bson.D{{"name", msg.Account}}, bson.D{{"$set", bson.D{{"lastid", lastId}}}})
+					err := accounts.UpdateId(msg.Account, bson.D{{"$set", bson.D{{"lastid", lastId}}}})
 					if err != nil {
 						logf("Cannot update account with last sent message id: %v", err)
 						am.tomb.Kill(err)
