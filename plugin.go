@@ -1,6 +1,7 @@
 package mup
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 
@@ -150,6 +151,10 @@ func (m *pluginManager) loop() error {
 	return nil
 }
 
+func pluginChanged(a, b *pluginInfo) bool {
+	return !bytes.Equal(a.Settings.Data, b.Settings.Data) || !bytes.Equal(a.Targets.Data, b.Targets.Data)
+}
+
 func (m *pluginManager) handleRefresh() {
 	var infos []pluginInfo
 	err := m.database.C("plugins").Find(nil).All(&infos)
@@ -159,28 +164,55 @@ func (m *pluginManager) handleRefresh() {
 		return
 	}
 
-	// TODO Stop and remove all plugins that were removed or changed.
-
-	// Add all plugins that are new or were changed.
+	// Start new plugins, and stop/restart updated ones.
+	var known = len(m.plugins)
+	var found int
 	var rollbackId bson.ObjectId
 	for i := range infos {
 		info := &infos[i]
-		if handler, ok := m.plugins[info.Name]; !ok {
-			Logf("Starting %q plugin", info.Name)
-			handler, err = m.startPlugin(info)
-			Logf("Plugin %q started.", info.Name)
-			if err != nil {
-				Logf("Cannot start %q plugin: %v", info.Name, err)
+		if handler, ok := m.plugins[info.Name]; ok {
+			found++
+			if !pluginChanged(&handler.info, info) {
 				continue
 			}
-			m.plugins[info.Name] = handler
-
-			if rollbackId == "" || rollbackId > handler.info.LastId {
-				rollbackId = handler.info.LastId
+			Logf("Plugin %q settings or targets changed. Stopping and restarting it.", info.Name)
+			err := handler.plugin.Stop()
+			if err != nil {
+				Logf("Plugin %q stopped with an error: %v", info.Name, err)
 			}
-
+			delete(m.plugins, info.Name)
+		} else {
+			Logf("Plugin %q starting.", info.Name)
 		}
-		// TODO The changed bit.
+
+		handler, err := m.startPlugin(info)
+		if err != nil {
+			Logf("Plugin %q failed to start: %v", info.Name, err)
+			continue
+		}
+		m.plugins[info.Name] = handler
+		if rollbackId == "" || rollbackId > handler.info.LastId {
+			rollbackId = handler.info.LastId
+		}
+	}
+
+	// If there are known plugins that were not observed in the current
+	// set of plugins, they must be stopped and removed.
+	if known != found {
+	NextPlugin:
+		for name, handler := range m.plugins {
+			for i := range infos {
+				if infos[i].Name == name {
+					continue NextPlugin
+				}
+			}
+			Logf("Plugin %q removed. Stopping it.", handler.info.Name)
+			err := handler.plugin.Stop()
+			if err != nil {
+				Logf("Plugin %q stopped with an error: %v", handler.info.Name, err)
+			}
+			delete(m.plugins, name)
+		}
 	}
 
 	// If the last id observed by a plugin is older than the current

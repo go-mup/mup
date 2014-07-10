@@ -341,3 +341,39 @@ func (s *ServerSuite) TestPluginTarget(c *C) {
 	s.ReadLine(c, "PRIVMSG #chan1 :nick: C1")
 	s.ReadLine(c, "PRIVMSG #chan2 :nick: C2")
 }
+
+func (s *ServerSuite) TestPluginUpdates(c *C) {
+	s.SendWelcome(c)
+
+	plugins := s.Session.DB("").C("plugins")
+	err := plugins.Insert(
+		M{"name": "echo:A", "settings": M{"command": "echoA"}, "targets": []M{{"account": "one"}}},
+		M{"name": "echo:B", "settings": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "none"}}},
+		M{"name": "echo:C", "settings": M{"command": "echoC"}, "targets": []M{{"account": "one", "target": "#chan"}}},
+		M{"name": "echo:D", "settings": M{"command": "echoD"}, "targets": []M{{"account": "one", "target": "#chan"}}},
+	)
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+	s.Roundtrip(c)
+
+	err = plugins.Remove(M{"name": "echo:A"})
+	c.Assert(err, IsNil)
+	err = plugins.Update(M{"name": "echo:B"}, M{"$set": M{"targets.0.target": "#chan"}})
+	c.Assert(err, IsNil)
+	err = plugins.Update(M{"name": "echo:D"}, M{"$set": M{"settings.command": "echoE"}})
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+	s.Roundtrip(c)
+
+	time.Sleep(500 * time.Millisecond)
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan :mup: echoA A")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan :mup: echoB B")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan :mup: echoC C")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan :mup: echoD D")
+	s.SendLine(c, ":nick!~user@host PRIVMSG #chan :mup: echoE E")
+
+	s.ReadLine(c, "PRIVMSG #chan :nick: B")
+	s.ReadLine(c, "PRIVMSG #chan :nick: C")
+	s.ReadLine(c, "PRIVMSG #chan :nick: E")
+}
