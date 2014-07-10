@@ -86,7 +86,7 @@ var smsTests = []smsTest{{
 	},
 	settings: bson.M{
 		"aqlkeyword": "yo",
-		"polldelay":  100,
+		"polldelay":  "100ms",
 	},
 	messages: []aqlMessage{
 		{Key: 12, Message: "mup One", Sender: "+99"},

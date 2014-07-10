@@ -57,8 +57,8 @@ type lpPlugin struct {
 		PrefixNew string
 		PrefixOld string
 
-		HandleTimeout bson.Duration
-		PollDelay     bson.Duration
+		HandleTimeout bson.DurationString
+		PollDelay     bson.DurationString
 	}
 }
 

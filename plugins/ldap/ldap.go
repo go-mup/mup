@@ -10,6 +10,7 @@ import (
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
 	"gopkg.in/tomb.v2"
+	"labix.org/v2/mgo/bson"
 )
 
 func init() {
@@ -26,16 +27,19 @@ type ldapPlugin struct {
 	settings struct {
 		ldap.Settings `bson:",inline"`
 		Command       string
-		HandleTimeout time.Duration
+		HandleTimeout bson.DurationString
 	}
 }
 
-const ldapDefaultCommand = "poke"
+const (
+	defaultCommand = "poke"
+	defaultHandleTimeout = 500 * time.Millisecond
+)
 
 func startPlugin(plugger *mup.Plugger) mup.Plugin {
 	p := &ldapPlugin{
 		plugger:  plugger,
-		prefix:   ldapDefaultCommand,
+		prefix:   defaultCommand,
 		messages: make(chan *mup.Message),
 	}
 	plugger.Settings(&p.settings)
@@ -43,10 +47,9 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		p.prefix = p.settings.Command
 	}
 	p.prefix += " "
-	if p.settings.HandleTimeout == 0 {
-		p.settings.HandleTimeout = 500
+	if p.settings.HandleTimeout.Duration == 0 {
+		p.settings.HandleTimeout.Duration = defaultHandleTimeout
 	}
-	p.settings.HandleTimeout *= time.Millisecond
 	p.tomb.Go(p.loop)
 	return p
 }
@@ -62,7 +65,7 @@ func (p *ldapPlugin) Handle(msg *mup.Message) error {
 	}
 	select {
 	case p.messages <- msg:
-	case <-time.After(p.settings.HandleTimeout):
+	case <-time.After(p.settings.HandleTimeout.Duration):
 		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
 		p.mu.Lock()
 		err := p.err

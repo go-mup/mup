@@ -9,6 +9,7 @@ import (
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/ldap"
+	"labix.org/v2/mgo/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -21,7 +22,7 @@ var ldapTests = []struct {
 	target   string
 	send     []string
 	recv     []string
-	settings interface{}
+	settings bson.M
 }{
 	{
 		"mup",
@@ -35,7 +36,7 @@ var ldapTests = []struct {
 			"PRIVMSG nick :The LDAP server seems a bit sluggish right now. Please try again soon.",
 			"PRIVMSG nick :Cannot find anyone matching this. :-(",
 		},
-		map[string]int{"handletimeout": 100},
+		bson.M{"handletimeout": "100ms"},
 	}, {
 		"mup",
 		[]string{"poke tesla"},

@@ -15,6 +15,7 @@ import (
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
 	"gopkg.in/tomb.v2"
+	"labix.org/v2/mgo/bson"
 )
 
 func init() {
@@ -42,8 +43,8 @@ type aqlPlugin struct {
 		AQLKeyword string
 		AQLGateway string
 
-		HandleTimeout time.Duration
-		PollDelay     time.Duration
+		HandleTimeout bson.DurationString
+		PollDelay     bson.DurationString
 	}
 }
 
@@ -65,15 +66,11 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		p.prefix = p.settings.Command
 	}
 	p.prefix += " "
-	if p.settings.HandleTimeout == 0 {
-		p.settings.HandleTimeout = defaultHandleTimeout
-	} else {
-		p.settings.HandleTimeout *= time.Millisecond
+	if p.settings.HandleTimeout.Duration == 0 {
+		p.settings.HandleTimeout.Duration = defaultHandleTimeout
 	}
-	if p.settings.PollDelay == 0 {
-		p.settings.HandleTimeout = defaultPollDelay
-	} else {
-		p.settings.PollDelay *= time.Millisecond
+	if p.settings.PollDelay.Duration == 0 {
+		p.settings.PollDelay.Duration = defaultPollDelay
 	}
 	if p.settings.AQLGateway == "" {
 		p.settings.AQLGateway = "https://gw.aql.com/sms/sms_gw.php"
@@ -94,7 +91,7 @@ func (p *aqlPlugin) Handle(msg *mup.Message) error {
 	}
 	select {
 	case p.messages <- msg:
-	case <-time.After(p.settings.HandleTimeout):
+	case <-time.After(p.settings.HandleTimeout.Duration):
 		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
 		p.mu.Lock()
 		err := p.err
@@ -274,7 +271,7 @@ func (p *aqlPlugin) poll() error {
 		"keyword": []string{p.settings.AQLKeyword},
 	}
 	for {
-		time.Sleep(p.settings.PollDelay)
+		time.Sleep(p.settings.PollDelay.Duration)
 		if !p.tomb.Alive() {
 			return nil
 		}
