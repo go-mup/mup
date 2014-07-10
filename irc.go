@@ -45,6 +45,8 @@ type channelInfo struct {
 // Plugins are encouraged to use that same value internally for consistent behavior.
 var NetworkTimeout = 15 * time.Second
 
+const nickChangeDelay = 30 * time.Second
+
 type ircClient struct {
 	info accountInfo
 	conn net.Conn
@@ -52,8 +54,9 @@ type ircClient struct {
 	ircR *ircReader
 	ircW *ircWriter
 
-	activeNick     string
 	activeChannels []string
+	activeNick     string
+	nextNickChange time.Time
 
 	requests chan interface{}
 	stopAuth chan bool
@@ -393,6 +396,16 @@ Outer2:
 		err := c.ircW.Sendf("PART %s", strings.Join(parts, ","))
 		if err != nil {
 			return err
+		}
+	}
+	if c.activeNick != c.info.Nick {
+		now := time.Now()
+		if c.nextNickChange.Before(now) {
+			c.nextNickChange = now.Add(nickChangeDelay)
+			err := c.ircW.Sendf("NICK %s", c.info.Nick)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil

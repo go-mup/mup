@@ -125,6 +125,11 @@ func (s *ServerSuite) TestNickInUse(c *C) {
 	s.ReadLine(c, "NICK mup_")
 	s.SendLine(c, ":n.net 433 * mup_ :Nickname is already in use.")
 	s.ReadLine(c, "NICK mup__")
+
+	s.SendLine(c, ":n.net 001 mup__ :Welcome!")
+	s.server.RefreshAccounts()
+
+	s.ReadLine(c, "NICK mup")
 }
 
 func (s *ServerSuite) TestPingPong(c *C) {
