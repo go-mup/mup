@@ -287,6 +287,9 @@ var stringTests = []struct {
 	}, {
 		Message{Cmd: "PING", Text: "hi"},
 		"PING :hi",
+	}, {
+		Message{Cmd: "A\rB\n", Target: "\rC\nD", Text: "E\rF\nG\x00"},
+		"A_B_ _C_D :E_F_G_",
 	},
 }
 

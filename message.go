@@ -25,23 +25,37 @@ type Message struct {
 }
 
 func (m *Message) String() string {
-	cmd := m.Cmd
-	if cmd == "" {
-		cmd = "PRIVMSG"
+	line := m.Cmd
+	if line == "" {
+		line = "PRIVMSG"
 	}
 	if len(m.Prefix) > 0 {
-		cmd = fmt.Sprint(":", m.Prefix, " ", m.Cmd)
+		line = fmt.Sprint(":", m.Prefix, " ", m.Cmd)
 	} else if len(m.Nick) > 0 || len(m.User) > 0 || len(m.Host) > 0 {
-		cmd = fmt.Sprint(":", m.Nick, "!", m.User, "@", m.Host, " ", m.Cmd)
+		line = fmt.Sprint(":", m.Nick, "!", m.User, "@", m.Host, " ", m.Cmd)
 	}
 	if len(m.Params) > 0 {
-		return fmt.Sprint(cmd, " ", strings.Join(m.Params, " "))
+		line = fmt.Sprint(line, " ", strings.Join(m.Params, " "))
 	} else if m.Target != "" {
-		return fmt.Sprint(cmd, " ", m.Target, " :", m.Text)
+		line = fmt.Sprint(line, " ", m.Target, " :", m.Text)
 	} else if m.Text != "" {
-		return fmt.Sprint(cmd, " :", m.Text)
+		line = fmt.Sprint(line, " :", m.Text)
 	}
-	return cmd
+	return escapeLine(line)
+}
+
+func escapeLine(line string) string {
+	if !strings.ContainsAny(line, "\r\n\x00") {
+		return line
+	}
+	buf := []byte(line)
+	for i, c := range buf {
+		switch c {
+		case '\r', '\n', '\x00':
+			buf[i] = '_'
+		}
+	}
+	return string(buf)
 }
 
 func isChannel(name string) bool {
