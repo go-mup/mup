@@ -83,8 +83,20 @@ func (p *Plugger) Targets() []PluginTarget {
 func (p *Plugger) Target(msg *Message) *PluginTarget {
 	for i := range p.targets {
 		t := &p.targets[i]
-		if t.Account == msg.Account && (t.Target == msg.Target || t.Target == "") {
+		if t.Account != msg.Account {
+			continue
+		}
+		if t.Target == "" {
 			return t
+		}
+		if isChannel(t.Target) {
+			if t.Target == msg.Target {
+				return t
+			}
+		} else {
+			if t.Target == msg.Nick {
+				return t
+			}
 		}
 	}
 	return nil

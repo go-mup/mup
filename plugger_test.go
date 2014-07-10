@@ -109,11 +109,13 @@ func (s *PluggerSuite) TestTargets(c *C) {
 	c.Assert(targets[2].Target, Equals, "")
 
 	c.Assert(p.Target(&Message{Account: "one", Target: "#chan"}), Equals, &targets[0])
-	c.Assert(p.Target(&Message{Account: "two", Target: "nick"}), Equals, &targets[1])
+	c.Assert(p.Target(&Message{Account: "two", Nick: "nick"}), Equals, &targets[1])
 	c.Assert(p.Target(&Message{Account: "one", Target: "#chan"}), Equals, &targets[0])
-	c.Assert(p.Target(&Message{Account: "three", Target: "nick"}), Equals, &targets[2])
+	c.Assert(p.Target(&Message{Account: "three", Nick: "nick"}), Equals, &targets[2])
 	c.Assert(p.Target(&Message{Account: "three", Target: "#chan"}), Equals, &targets[2])
-	c.Assert(p.Target(&Message{Account: "one", Target: "nick"}), IsNil)
+	c.Assert(p.Target(&Message{Account: "one", Nick: "nick"}), IsNil)
+	c.Assert(p.Target(&Message{Account: "one", Nick: "#chan"}), IsNil)
+	c.Assert(p.Target(&Message{Account: "two", Target: "nick"}), IsNil)
 	c.Assert(p.Target(&Message{Account: "two", Target: "#chan"}), IsNil)
 }
 
