@@ -148,7 +148,7 @@ var ldapFormat = []struct {
 func (p *ldapPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
 	query := ldap.EscapeFilter(strings.TrimSpace(msg.MupText[len(p.prefix):]))
 	search := ldap.Search{
-		Filter: fmt.Sprintf("(|(mozillaNickname=%s)(cn~=*%s*))", query, query),
+		Filter: fmt.Sprintf("(|(mozillaNickname=%s)(cn=*%s*))", query, query),
 		Attrs:  ldapAttributes,
 	}
 	result, err := conn.Search(&search)

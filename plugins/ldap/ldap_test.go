@@ -98,11 +98,11 @@ var ldapEntries = []ldap.Result{
 }
 
 var ldapResults = map[string][]ldap.Result{
-	"(|(mozillaNickname=tesla)(cn~=*tesla*))":               {ldapEntries[0]},
-	"(|(mozillaNickname=euler)(cn~=*euler*))":               {ldapEntries[1]},
-	"(|(mozillaNickname=eu)(cn~=*eu*))":                     {ldapEntries[1], ldapEntries[2]},
-	"(|(mozillaNickname=e)(cn~=*e*))":                       ldapEntries,
-	`(|(mozillaNickname=ri\c3\a9mann)(cn~=*ri\c3\a9mann*))`: {ldapEntries[3]},
+	"(|(mozillaNickname=tesla)(cn=*tesla*))":               {ldapEntries[0]},
+	"(|(mozillaNickname=euler)(cn=*euler*))":               {ldapEntries[1]},
+	"(|(mozillaNickname=eu)(cn=*eu*))":                     {ldapEntries[1], ldapEntries[2]},
+	"(|(mozillaNickname=e)(cn=*e*))":                       ldapEntries,
+	`(|(mozillaNickname=ri\c3\a9mann)(cn=*ri\c3\a9mann*))`: {ldapEntries[3]},
 }
 
 type ldapConn struct {
