@@ -19,10 +19,10 @@ var _ = Suite(&LDAPSuite{})
 type LDAPSuite struct{}
 
 var ldapTests = []struct {
-	target   string
-	send     []string
-	recv     []string
-	settings bson.M
+	target string
+	send   []string
+	recv   []string
+	config bson.M
 }{
 	{
 		"mup",
@@ -98,15 +98,15 @@ var ldapEntries = []ldap.Result{
 }
 
 var ldapResults = map[string][]ldap.Result{
-	"(|(mozillaNickname=tesla)(cn~=*tesla*))": {ldapEntries[0]},
-	"(|(mozillaNickname=euler)(cn~=*euler*))": {ldapEntries[1]},
-	"(|(mozillaNickname=eu)(cn~=*eu*))":       {ldapEntries[1], ldapEntries[2]},
-	"(|(mozillaNickname=e)(cn~=*e*))":         ldapEntries,
+	"(|(mozillaNickname=tesla)(cn~=*tesla*))":               {ldapEntries[0]},
+	"(|(mozillaNickname=euler)(cn~=*euler*))":               {ldapEntries[1]},
+	"(|(mozillaNickname=eu)(cn~=*eu*))":                     {ldapEntries[1], ldapEntries[2]},
+	"(|(mozillaNickname=e)(cn~=*e*))":                       ldapEntries,
 	`(|(mozillaNickname=ri\c3\a9mann)(cn~=*ri\c3\a9mann*))`: {ldapEntries[3]},
 }
 
 type ldapConn struct {
-	s *ldap.Settings
+	s *ldap.Config
 }
 
 func (l *ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
@@ -120,7 +120,7 @@ func (l *ldapConn) Ping() error  { return nil }
 func (l *ldapConn) Close() error { return nil }
 
 func (s *LDAPSuite) SetUpSuite(c *C) {
-	ldap.TestDial = func(s *ldap.Settings) (ldap.Conn, error) { return &ldapConn{s}, nil }
+	ldap.TestDial = func(s *ldap.Config) (ldap.Conn, error) { return &ldapConn{s}, nil }
 	mup.SetLogger(c)
 	mup.SetDebug(true)
 }
@@ -135,7 +135,7 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 	for i, test := range ldapTests {
 		c.Logf("Starting test %d with messages: %v", i, test.send)
 		tester := mup.NewTest("ldap")
-		tester.SetSettings(test.settings)
+		tester.SetConfig(test.config)
 		tester.Start()
 		err := tester.SendAll(test.target, test.send)
 		c.Assert(err, IsNil)

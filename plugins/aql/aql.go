@@ -32,8 +32,8 @@ type aqlPlugin struct {
 	messages chan *mup.Message
 	smses    chan *smsMessage
 	err      error
-	settings struct {
-		ldap.Settings `bson:",inline"`
+	config   struct {
+		ldap.Config `bson:",inline"`
 
 		Command    string
 		Account    string
@@ -51,7 +51,7 @@ type aqlPlugin struct {
 const (
 	defaultCommand       = "sms"
 	defaultHandleTimeout = 500 * time.Millisecond
-	defaultPollDelay     = 3 * time.Second
+	defaultPollDelay     = 10 * time.Second
 )
 
 func startPlugin(plugger *mup.Plugger) mup.Plugin {
@@ -61,19 +61,19 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		messages: make(chan *mup.Message),
 		smses:    make(chan *smsMessage),
 	}
-	plugger.Settings(&p.settings)
-	if p.settings.Command != "" {
-		p.prefix = p.settings.Command
+	plugger.Config(&p.config)
+	if p.config.Command != "" {
+		p.prefix = p.config.Command
 	}
 	p.prefix += " "
-	if p.settings.HandleTimeout.Duration == 0 {
-		p.settings.HandleTimeout.Duration = defaultHandleTimeout
+	if p.config.HandleTimeout.Duration == 0 {
+		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
-	if p.settings.PollDelay.Duration == 0 {
-		p.settings.PollDelay.Duration = defaultPollDelay
+	if p.config.PollDelay.Duration == 0 {
+		p.config.PollDelay.Duration = defaultPollDelay
 	}
-	if p.settings.AQLGateway == "" {
-		p.settings.AQLGateway = "https://gw.aql.com/sms/sms_gw.php"
+	if p.config.AQLGateway == "" {
+		p.config.AQLGateway = "https://gw.aql.com/sms/sms_gw.php"
 	}
 	p.tomb.Go(p.loop)
 	p.tomb.Go(p.poll)
@@ -91,7 +91,7 @@ func (p *aqlPlugin) Handle(msg *mup.Message) error {
 	}
 	select {
 	case p.messages <- msg:
-	case <-time.After(p.settings.HandleTimeout.Duration):
+	case <-time.After(p.config.HandleTimeout.Duration):
 		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
 		p.mu.Lock()
 		err := p.err
@@ -120,7 +120,7 @@ func (p *aqlPlugin) loop() error {
 }
 
 func (p *aqlPlugin) forward() error {
-	conn, err := ldap.Dial(&p.settings.Settings)
+	conn, err := ldap.Dial(&p.config.Config)
 	if err != nil {
 		p.plugger.Logf("%v", err)
 		return err
@@ -202,13 +202,13 @@ func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.R
 	// This API is documented at http://aql.com/sms/integrated/sms-api
 	mobile := trimPhone(receiver.Value("mobile"))
 	form := url.Values{
-		"username":    []string{p.settings.AQLUser},
-		"password":    []string{p.settings.AQLPass},
+		"username":    []string{p.config.AQLUser},
+		"password":    []string{p.config.AQLPass},
 		"destination": []string{mobile},
 		"originator":  []string{"+447766404142"},
 		"message":     []string{content},
 	}
-	resp, err := httpClient.PostForm(p.settings.AQLGateway, form)
+	resp, err := httpClient.PostForm(p.config.AQLGateway, form)
 	if err != nil {
 		return err
 	}
@@ -268,14 +268,14 @@ type smsMessage struct {
 
 func (p *aqlPlugin) poll() error {
 	form := url.Values{
-		"keyword": []string{p.settings.AQLKeyword},
+		"keyword": []string{p.config.AQLKeyword},
 	}
 	for {
-		time.Sleep(p.settings.PollDelay.Duration)
+		time.Sleep(p.config.PollDelay.Duration)
 		if !p.tomb.Alive() {
 			return nil
 		}
-		resp, err := httpClient.Get(p.settings.AQLProxy + "/retrieve?" + form.Encode())
+		resp, err := httpClient.Get(p.config.AQLProxy + "/retrieve?" + form.Encode())
 		if err != nil {
 			p.plugger.Logf("Cannot retrieve SMSes from AQL proxy: %v", err)
 			continue
@@ -334,11 +334,11 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 		}
 	}
 	msg := mup.Message{
-		Account: p.settings.Account,
+		Account: p.config.Account,
 		Target:  target,
 		Text:    fmt.Sprintf("[SMS] <%s> %s", sender, text),
 	}
-	p.plugger.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", p.settings.Account, sender, sms.Sender, target, text)
+	p.plugger.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", p.config.Account, sender, sms.Sender, target, text)
 	err = p.plugger.Send(&msg)
 	if err == nil {
 		p.tomb.Go(func() error {
@@ -347,17 +347,17 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 		})
 	}
 	if !strings.HasPrefix(sender, "+") {
-		p.plugger.Sendf(p.settings.Account, target, "Answer with: !sms %s <your message>", sender)
+		p.plugger.Sendf(p.config.Account, target, "Answer with: !sms %s <your message>", sender)
 	}
 	return nil
 }
 
 func (p *aqlPlugin) deleteSMS(sms *smsMessage) error {
 	form := url.Values{
-		"keyword": []string{p.settings.AQLKeyword},
+		"keyword": []string{p.config.AQLKeyword},
 		"keys":    []string{strconv.Itoa(sms.Key)},
 	}
-	resp, err := httpClient.PostForm(p.settings.AQLProxy+"/delete", form)
+	resp, err := httpClient.PostForm(p.config.AQLProxy+"/delete", form)
 	if err != nil {
 		p.plugger.Logf("Cannot delete SMS message %s: %v", sms.Key, err)
 		return err

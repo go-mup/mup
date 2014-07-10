@@ -24,7 +24,7 @@ func Test(t *testing.T) { TestingT(t) }
 var _ = Suite(&S{})
 
 type S struct {
-	ldapSettings *ldap.Settings
+	ldapConfig *ldap.Config
 }
 
 type smsTest struct {
@@ -32,7 +32,7 @@ type smsTest struct {
 	send         []string
 	recv         []string
 	fail         bool
-	settings     bson.M
+	config       bson.M
 	messages     []aqlMessage
 	gatewayForm  url.Values
 	retrieveForm url.Values
@@ -52,7 +52,7 @@ var smsTests = []smsTest{{
 }, {
 	send: []string{"sms tésla Hey there"},
 	recv: []string{"PRIVMSG nick :SMS is on the way!"},
-	settings: bson.M{
+	config: bson.M{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
 	},
@@ -67,7 +67,7 @@ var smsTests = []smsTest{{
 	target: "#channel",
 	send:   []string{"mup: sms tesla Hey there"},
 	recv:   []string{"PRIVMSG #channel :nick: SMS is on the way!"},
-	settings: bson.M{
+	config: bson.M{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
 	},
@@ -84,7 +84,7 @@ var smsTests = []smsTest{{
 		"PRIVMSG #ch :[SMS] <tesla> Two",
 		"PRIVMSG #ch :Answer with: !sms tesla <your message>",
 	},
-	settings: bson.M{
+	config: bson.M{
 		"aqlkeyword": "yo",
 		"polldelay":  "100ms",
 	},
@@ -99,9 +99,9 @@ var smsTests = []smsTest{{
 }}
 
 func (s *S) SetUpSuite(c *C) {
-	ldap.TestDial = func(settings *ldap.Settings) (ldap.Conn, error) {
-		s.ldapSettings = settings
-		return &ldapConn{settings}, nil
+	ldap.TestDial = func(config *ldap.Config) (ldap.Conn, error) {
+		s.ldapConfig = config
+		return &ldapConn{config}, nil
 	}
 	mup.SetLogger(c)
 	mup.SetDebug(true)
@@ -123,15 +123,15 @@ func (s *S) TestSMS(c *C) {
 		}
 		server.Start()
 
-		if test.settings == nil {
-			test.settings = bson.M{}
+		if test.config == nil {
+			test.config = bson.M{}
 		}
-		test.settings["aqlgateway"] = server.URL() + "/gateway"
-		test.settings["aqlproxy"] = server.URL() + "/proxy"
-		test.settings["ldap"] = "the-ldap-server"
+		test.config["aqlgateway"] = server.URL() + "/gateway"
+		test.config["aqlproxy"] = server.URL() + "/proxy"
+		test.config["ldap"] = "the-ldap-server"
 
 		tester := mup.NewTest("aql")
-		tester.SetSettings(test.settings)
+		tester.SetConfig(test.config)
 		tester.Start()
 		tester.SendAll(test.target, test.send)
 
@@ -154,7 +154,7 @@ func (s *S) TestSMS(c *C) {
 			c.Assert(server.deletedKeys, DeepEquals, test.deletedKeys)
 		}
 
-		c.Assert(s.ldapSettings.LDAP, Equals, "the-ldap-server")
+		c.Assert(s.ldapConfig.LDAP, Equals, "the-ldap-server")
 
 		if c.Failed() {
 			c.FailNow()
@@ -163,7 +163,7 @@ func (s *S) TestSMS(c *C) {
 }
 
 type ldapConn struct {
-	s *ldap.Settings
+	s *ldap.Config
 }
 
 var nikolaTesla = ldap.Result{

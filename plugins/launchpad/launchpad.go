@@ -47,7 +47,7 @@ type lpPlugin struct {
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
 	messages chan *lpMessage
-	settings struct {
+	config   struct {
 		OAuthAccessToken string
 		OAuthSecretToken string
 
@@ -80,25 +80,25 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		plugger:  plugger,
 		messages: make(chan *lpMessage),
 	}
-	plugger.Settings(&p.settings)
-	if p.settings.HandleTimeout.Duration == 0 {
-		p.settings.HandleTimeout.Duration = defaultHandleTimeout
+	plugger.Config(&p.config)
+	if p.config.HandleTimeout.Duration == 0 {
+		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
-	if p.settings.PollDelay.Duration == 0 {
-		p.settings.PollDelay.Duration = defaultPollDelay
+	if p.config.PollDelay.Duration == 0 {
+		p.config.PollDelay.Duration = defaultPollDelay
 	}
-	if p.settings.BaseURL == "" {
+	if p.config.BaseURL == "" {
 		if mode == trackBugsMode {
-			p.settings.BaseURL = defaultBaseURLTrackBugs
+			p.config.BaseURL = defaultBaseURLTrackBugs
 		} else {
-			p.settings.BaseURL = defaultBaseURL
+			p.config.BaseURL = defaultBaseURL
 		}
 	}
-	if p.settings.PrefixNew == "" {
-		p.settings.PrefixNew = defaultPrefix
+	if p.config.PrefixNew == "" {
+		p.config.PrefixNew = defaultPrefix
 	}
-	if p.settings.PrefixOld == "" {
-		p.settings.PrefixOld = defaultPrefix
+	if p.config.PrefixOld == "" {
+		p.config.PrefixOld = defaultPrefix
 	}
 	switch p.mode {
 	case showBugsMode:
@@ -133,7 +133,7 @@ func (p *lpPlugin) Handle(msg *mup.Message) error {
 	}
 	select {
 	case p.messages <- bmsg:
-	case <-time.After(p.settings.HandleTimeout.Duration):
+	case <-time.After(p.config.HandleTimeout.Duration):
 		p.plugger.Replyf(msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
 	}
 	return nil
@@ -224,13 +224,13 @@ func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
 
 func (p *lpPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = p.settings.BaseURL + url
+		url = p.config.BaseURL + url
 	}
-	if p.settings.Options != "" {
+	if p.config.Options != "" {
 		if strings.Contains(url, "?") {
-			url += "&" + p.settings.Options
+			url += "&" + p.config.Options
 		} else {
-			url += "?" + p.settings.Options
+			url += "?" + p.config.Options
 		}
 	}
 	resp, err := httpClient.Get(url)
@@ -292,13 +292,13 @@ func (p *lpPlugin) pollBugs() error {
 	var first = true
 	for {
 		select {
-		case <-time.After(p.settings.PollDelay.Duration):
+		case <-time.After(p.config.PollDelay.Duration):
 		case <-p.tomb.Dying():
 			return nil
 		}
 
 		var newBugs []int
-		err := p.request("/"+p.settings.Project+"/+bugs-text", &newBugs)
+		err := p.request("/"+p.config.Project+"/+bugs-text", &newBugs)
 		if err != nil {
 			continue
 		}
@@ -315,11 +315,11 @@ func (p *lpPlugin) pollBugs() error {
 			var bugId int
 			switch {
 			case o == len(oldBugs) || n < len(newBugs) && newBugs[n] < oldBugs[o]:
-				prefix = p.settings.PrefixNew
+				prefix = p.config.PrefixNew
 				bugId = newBugs[n]
 				n++
 			case n == len(newBugs) || o < len(oldBugs) && oldBugs[o] < newBugs[n]:
-				prefix = p.settings.PrefixOld
+				prefix = p.config.PrefixOld
 				bugId = oldBugs[o]
 				o++
 			default:
@@ -372,13 +372,13 @@ func (p *lpPlugin) pollMerges() error {
 	first := true
 	for {
 		select {
-		case <-time.After(p.settings.PollDelay.Duration):
+		case <-time.After(p.config.PollDelay.Duration):
 		case <-p.tomb.Dying():
 			return nil
 		}
 
 		var newMerges lpMerges
-		err := p.request("/"+p.settings.Project+"?ws.op=getMergeProposals", &newMerges)
+		err := p.request("/"+p.config.Project+"?ws.op=getMergeProposals", &newMerges)
 		if err != nil {
 			continue
 		}

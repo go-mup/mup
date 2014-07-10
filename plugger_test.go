@@ -27,14 +27,14 @@ func (s *PluggerSuite) TearDownTest(c *C) {
 	SetDebug(false)
 }
 
-func (s *PluggerSuite) plugger(settings, targets interface{}) *Plugger {
+func (s *PluggerSuite) plugger(config, targets interface{}) *Plugger {
 	s.sent = nil
 	send := func(msg *Message) error {
 		s.sent = append(s.sent, "["+msg.Account+"] "+msg.String())
 		return nil
 	}
 	p := newPlugger("plugin:name", send)
-	p.setSettings(marshalRaw(settings))
+	p.setConfig(marshalRaw(config))
 	p.setTargets(marshalRaw(targets))
 	return p
 }
@@ -90,11 +90,11 @@ func (s *PluggerSuite) TestSend(c *C) {
 	c.Assert(s.sent, DeepEquals, []string{"[myaccount] TEST nick :query"})
 }
 
-func (s *PluggerSuite) TestSettings(c *C) {
+func (s *PluggerSuite) TestConfig(c *C) {
 	p := s.plugger(bson.M{"key": "value"}, nil)
-	var settings struct{ Key string }
-	p.Settings(&settings)
-	c.Assert(settings.Key, Equals, "value")
+	var config struct{ Key string }
+	p.Config(&config)
+	c.Assert(config.Key, Equals, "value")
 }
 
 func (s *PluggerSuite) TestTargets(c *C) {

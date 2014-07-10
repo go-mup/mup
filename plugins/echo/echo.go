@@ -9,10 +9,10 @@ import (
 )
 
 type echoPlugin struct {
-	plugger  *mup.Plugger
-	prefix   string
-	stopped  bool
-	settings struct {
+	plugger *mup.Plugger
+	prefix  string
+	stopped bool
+	config  struct {
 		Command string
 		Error   string
 	}
@@ -24,9 +24,9 @@ func init() {
 
 func startPlugin(plugger *mup.Plugger) mup.Plugin {
 	p := &echoPlugin{plugger: plugger, prefix: "echo "}
-	plugger.Settings(&p.settings)
-	if p.settings.Command != "" {
-		p.prefix = p.settings.Command + " "
+	plugger.Config(&p.config)
+	if p.config.Command != "" {
+		p.prefix = p.config.Command + " "
 	}
 	return p
 }
@@ -43,8 +43,8 @@ func (p *echoPlugin) Handle(msg *mup.Message) error {
 	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
 		return nil
 	}
-	if p.settings.Error != "" {
-		return errors.New(p.settings.Error)
+	if p.config.Error != "" {
+		return errors.New(p.config.Error)
 	}
 	return p.plugger.Replyf(msg, "%s", strings.TrimSpace(msg.MupText[len(p.prefix):]))
 }

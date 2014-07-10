@@ -24,15 +24,15 @@ type ldapPlugin struct {
 	prefix   string
 	messages chan *mup.Message
 	err      error
-	settings struct {
-		ldap.Settings `bson:",inline"`
+	config   struct {
+		ldap.Config   `bson:",inline"`
 		Command       string
 		HandleTimeout bson.DurationString
 	}
 }
 
 const (
-	defaultCommand = "poke"
+	defaultCommand       = "poke"
 	defaultHandleTimeout = 500 * time.Millisecond
 )
 
@@ -42,13 +42,13 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		prefix:   defaultCommand,
 		messages: make(chan *mup.Message),
 	}
-	plugger.Settings(&p.settings)
-	if p.settings.Command != "" {
-		p.prefix = p.settings.Command
+	plugger.Config(&p.config)
+	if p.config.Command != "" {
+		p.prefix = p.config.Command
 	}
 	p.prefix += " "
-	if p.settings.HandleTimeout.Duration == 0 {
-		p.settings.HandleTimeout.Duration = defaultHandleTimeout
+	if p.config.HandleTimeout.Duration == 0 {
+		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
 	p.tomb.Go(p.loop)
 	return p
@@ -65,7 +65,7 @@ func (p *ldapPlugin) Handle(msg *mup.Message) error {
 	}
 	select {
 	case p.messages <- msg:
-	case <-time.After(p.settings.HandleTimeout.Duration):
+	case <-time.After(p.config.HandleTimeout.Duration):
 		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
 		p.mu.Lock()
 		err := p.err
@@ -94,7 +94,7 @@ func (p *ldapPlugin) loop() error {
 }
 
 func (p *ldapPlugin) dial() error {
-	conn, err := ldap.Dial(&p.settings.Settings)
+	conn, err := ldap.Dial(&p.config.Config)
 	if err != nil {
 		p.plugger.Logf("%v", err)
 		return err

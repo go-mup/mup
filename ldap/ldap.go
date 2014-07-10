@@ -7,7 +7,7 @@ import (
 	"github.com/johnweldon/ldap"
 )
 
-type Settings struct {
+type Config struct {
 	LDAP     string
 	BaseDN   string
 	BindDN   string
@@ -57,30 +57,30 @@ type ldapConn struct {
 	baseDN string
 }
 
-var TestDial func(*Settings) (Conn, error)
+var TestDial func(*Config) (Conn, error)
 
-func Dial(settings *Settings) (Conn, error) {
+func Dial(config *Config) (Conn, error) {
 	if TestDial != nil {
-		return TestDial(settings)
+		return TestDial(config)
 	}
 	var conn *ldap.Conn
 	var err error
-	if strings.HasPrefix(settings.LDAP, "ldaps://") {
-		conn, err = ldap.DialTLS("tcp", settings.LDAP[8:], nil)
-	} else if strings.HasPrefix(settings.LDAP, "ldap://") {
-		conn, err = ldap.Dial("tcp", settings.LDAP[7:])
+	if strings.HasPrefix(config.LDAP, "ldaps://") {
+		conn, err = ldap.DialTLS("tcp", config.LDAP[8:], nil)
+	} else if strings.HasPrefix(config.LDAP, "ldap://") {
+		conn, err = ldap.Dial("tcp", config.LDAP[7:])
 	} else {
-		conn, err = ldap.Dial("tcp", settings.LDAP)
+		conn, err = ldap.Dial("tcp", config.LDAP)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot dial LDAP server: %v", err)
 	}
-	if err := conn.Bind(settings.BindDN, settings.BindPass); err != nil {
+	if err := conn.Bind(config.BindDN, config.BindPass); err != nil {
 		conn.Close()
-		s := strings.Replace(err.Error(), settings.BindPass, "********", -1)
+		s := strings.Replace(err.Error(), config.BindPass, "********", -1)
 		return nil, fmt.Errorf("cannot bind to LDAP server: %s", s)
 	}
-	return &ldapConn{conn, settings.BaseDN}, nil
+	return &ldapConn{conn, config.BaseDN}, nil
 }
 
 func (c *ldapConn) Close() error {
@@ -147,13 +147,13 @@ func EscapeFilter(filter string) string {
 	if escape == 0 {
 		return filter
 	}
-	buf := make([]byte, len(filter) + escape*2)
+	buf := make([]byte, len(filter)+escape*2)
 	for i, j := 0, 0; i < len(filter); i++ {
 		c := filter[i]
 		if mustEscape(c) {
 			buf[j+0] = '\\'
-			buf[j+1] = hex[c >> 4]
-			buf[j+2] = hex[c & 0xf]
+			buf[j+1] = hex[c>>4]
+			buf[j+2] = hex[c&0xf]
 			j += 3
 		} else {
 			buf[j] = c

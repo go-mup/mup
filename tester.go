@@ -41,13 +41,13 @@ func (t *Tester) Start() error {
 	return nil
 }
 
-func (t *Tester) SetSettings(value interface{}) {
+func (t *Tester) SetConfig(value interface{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.plugin != nil {
-		panic("Tester.SetSettings called after Start")
+		panic("Tester.SetConfig called after Start")
 	}
-	t.plugger.setSettings(marshalRaw(value))
+	t.plugger.setConfig(marshalRaw(value))
 }
 
 func (t *Tester) SetTargets(value interface{}) {

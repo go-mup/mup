@@ -51,9 +51,9 @@ func (s *TesterSuite) TestPluginLabel(c *C) {
 	c.Assert(tester.Recv(), Equals, "PRIVMSG nick :Hi there")
 }
 
-func (s *TesterSuite) TestSettings(c *C) {
+func (s *TesterSuite) TestConfig(c *C) {
 	tester := mup.NewTest("echo")
-	tester.SetSettings(bson.M{"command": "myecho"})
+	tester.SetConfig(bson.M{"command": "myecho"})
 	tester.Start()
 	tester.Sendf("mup", "myecho Hi there")
 	tester.Stop()
@@ -91,7 +91,7 @@ func (s *TesterSuite) TestSendRecvAll(c *C) {
 
 func (s *TesterSuite) TestSendError(c *C) {
 	tester := mup.NewTest("echo")
-	tester.SetSettings(bson.M{"error": "Error message."})
+	tester.SetConfig(bson.M{"error": "Error message."})
 	tester.Start()
 	err := tester.Sendf("mup", "echo foo")
 	tester.Stop()

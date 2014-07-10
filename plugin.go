@@ -24,11 +24,11 @@ func RegisterPlugin(name string, startPlugin func(*Plugger) Plugin) {
 }
 
 type pluginInfo struct {
-	Name     string
-	LastId   bson.ObjectId `bson:",omitempty"`
-	Settings bson.Raw
-	Targets  bson.Raw
-	State    bson.Raw
+	Name    string
+	LastId  bson.ObjectId `bson:",omitempty"`
+	Config  bson.Raw
+	Targets bson.Raw
+	State   bson.Raw
 }
 
 type pluginHandler struct {
@@ -152,7 +152,7 @@ func (m *pluginManager) loop() error {
 }
 
 func pluginChanged(a, b *pluginInfo) bool {
-	return !bytes.Equal(a.Settings.Data, b.Settings.Data) || !bytes.Equal(a.Targets.Data, b.Targets.Data)
+	return !bytes.Equal(a.Config.Data, b.Config.Data) || !bytes.Equal(a.Targets.Data, b.Targets.Data)
 }
 
 func (m *pluginManager) handleRefresh() {
@@ -175,7 +175,7 @@ func (m *pluginManager) handleRefresh() {
 			if !pluginChanged(&handler.info, info) {
 				continue
 			}
-			logf("Plugin %q settings or targets changed. Stopping and restarting it.", info.Name)
+			logf("Plugin %q config or targets changed. Stopping and restarting it.", info.Name)
 			err := handler.plugin.Stop()
 			if err != nil {
 				logf("Plugin %q stopped with an error: %v", info.Name, err)
@@ -260,7 +260,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandler, error) {
 		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
 	plugger := newPlugger(info.Name, m.sendMessage)
-	plugger.setSettings(info.Settings)
+	plugger.setConfig(info.Config)
 	plugger.setTargets(info.Targets)
 	plugin := newPlugin(plugger)
 	handler := &pluginHandler{

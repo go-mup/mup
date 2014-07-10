@@ -27,7 +27,7 @@ type lpTest struct {
 	target   string
 	send     []string
 	recv     []string
-	settings bson.M
+	config   bson.M
 	bugsText [][]int
 	bugsForm url.Values
 }
@@ -39,7 +39,7 @@ var lpTests = []lpTest{
 		recv:   []string{"PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>"},
 	}, {
 		plugin: "lptrackbugs",
-		settings: bson.M{
+		config: bson.M{
 			"project":   "some-project",
 			"polldelay": "50ms",
 			"prefixnew": "Bug #%d is new",
@@ -58,7 +58,7 @@ var lpTests = []lpTest{
 		},
 	}, {
 		plugin: "lptrackmerges",
-		settings: bson.M{
+		config: bson.M{
 			"project":   "some-project",
 			"polldelay": "50ms",
 		},
@@ -88,15 +88,15 @@ func (s *S) TestLaunchpad(c *C) {
 			bugsText: test.bugsText,
 		}
 		server.Start()
-		if test.settings == nil {
-			test.settings = bson.M{}
+		if test.config == nil {
+			test.config = bson.M{}
 		}
-		test.settings["baseurl"] = server.URL()
+		test.config["baseurl"] = server.URL()
 		tester := mup.NewTest(test.plugin)
-		tester.SetSettings(test.settings)
+		tester.SetConfig(test.config)
 		tester.Start()
 		tester.SendAll(test.target, test.send)
-		if test.settings["polldelay"] != "" {
+		if test.config["polldelay"] != "" {
 			time.Sleep(250 * time.Millisecond)
 		}
 		tester.Stop()

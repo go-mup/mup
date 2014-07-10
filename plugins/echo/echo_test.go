@@ -17,10 +17,10 @@ var _ = Suite(&EchoSuite{})
 type EchoSuite struct{}
 
 type echoTest struct {
-	target   string
-	send     string
-	recv     string
-	settings interface{}
+	target string
+	send   string
+	recv   string
+	config interface{}
 }
 
 var echoTests = []echoTest{
@@ -36,7 +36,7 @@ func (s *EchoSuite) TestEcho(c *C) {
 	for i, test := range echoTests {
 		c.Logf("Testing message #%d: %s", i, test.send)
 		tester := mup.NewTest("echo")
-		tester.SetSettings(test.settings)
+		tester.SetConfig(test.config)
 		tester.Start()
 		tester.Sendf(test.target, test.send)
 		tester.Stop()

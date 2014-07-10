@@ -6,21 +6,21 @@ import (
 )
 
 type Plugger struct {
-	name     string
-	send     func(*Message) error
-	settings bson.Raw
-	targets  []PluginTarget
+	name    string
+	send    func(*Message) error
+	config  bson.Raw
+	targets []PluginTarget
 }
 
 type PluginTarget struct {
 	Account string
 	Target  string
 
-	settings bson.Raw
+	config bson.Raw
 }
 
-func (t *PluginTarget) Settings(result interface{}) {
-	t.settings.Unmarshal(result)
+func (t *PluginTarget) Config(result interface{}) {
+	t.config.Unmarshal(result)
 }
 
 var emptyDoc = bson.Raw{3, []byte("\x05\x00\x00\x00\x00")}
@@ -32,11 +32,11 @@ func newPlugger(name string, send func(msg *Message) error) *Plugger {
 	}
 }
 
-func (p *Plugger) setSettings(settings bson.Raw) {
-	if settings.Kind == 0 {
-		p.settings = emptyDoc
+func (p *Plugger) setConfig(config bson.Raw) {
+	if config.Kind == 0 {
+		p.config = emptyDoc
 	} else {
-		p.settings = settings
+		p.config = config
 	}
 }
 
@@ -46,9 +46,9 @@ func (p *Plugger) setTargets(targets bson.Raw) {
 		return
 	}
 	var slice []struct {
-		Account  string
-		Target   string
-		Settings bson.Raw
+		Account string
+		Target  string
+		Config  bson.Raw
 	}
 	err := targets.Unmarshal(&slice)
 	if err != nil {
@@ -56,7 +56,7 @@ func (p *Plugger) setTargets(targets bson.Raw) {
 	}
 	p.targets = make([]PluginTarget, len(slice))
 	for i, item := range slice {
-		p.targets[i] = PluginTarget{item.Account, item.Target, item.Settings}
+		p.targets[i] = PluginTarget{item.Account, item.Target, item.Config}
 	}
 }
 
@@ -65,15 +65,15 @@ func (p *Plugger) Name() string {
 }
 
 func (p *Plugger) Logf(format string, args ...interface{}) {
-	logf("[" + p.name + "] " + format, args...)
+	logf("["+p.name+"] "+format, args...)
 }
 
 func (p *Plugger) Debugf(format string, args ...interface{}) {
-	debugf("[" + p.name + "] " + format, args...)
+	debugf("["+p.name+"] "+format, args...)
 }
 
-func (p *Plugger) Settings(result interface{}) {
-	p.settings.Unmarshal(result)
+func (p *Plugger) Config(result interface{}) {
+	p.config.Unmarshal(result)
 }
 
 func (p *Plugger) Targets() []PluginTarget {

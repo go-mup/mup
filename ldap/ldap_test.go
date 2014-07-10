@@ -17,7 +17,7 @@ type S struct{}
 //
 // http://www.forumsys.com/tutorials/integration-how-to/ldap/online-ldap-test-server
 
-var settings = &ldap.Settings{
+var config = &ldap.Config{
 	LDAP:     "ldap.forumsys.com:389",
 	BaseDN:   "dc=example,dc=com",
 	BindDN:   "cn=read-only-admin,dc=example,dc=com",
@@ -25,7 +25,7 @@ var settings = &ldap.Settings{
 }
 
 func (s *S) TestSearch(c *C) {
-	conn, err := ldap.Dial(settings)
+	conn, err := ldap.Dial(config)
 	c.Assert(err, IsNil)
 
 	search := &ldap.Search{
