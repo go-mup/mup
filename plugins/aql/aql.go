@@ -162,10 +162,8 @@ func (p *aqlPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
 	}
 	nick := fields[0]
 	text := fields[1]
-
-	// TODO Escape query.
 	search := &ldap.Search{
-		Filter: fmt.Sprintf("(mozillaNickname=%s)", nick),
+		Filter: fmt.Sprintf("(mozillaNickname=%s)", ldap.EscapeFilter(nick)),
 		Attrs:  []string{"mozillaNickname", "mobile"},
 	}
 	results, err := conn.Search(search)
@@ -197,7 +195,6 @@ func isChannel(name string) bool {
 }
 
 func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.Result) error {
-	// TODO Escape text.
 	var content string
 	if isChannel(msg.Target) {
 		content = fmt.Sprintf("%s %s> %s", msg.Target, msg.Nick, text)

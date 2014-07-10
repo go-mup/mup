@@ -54,7 +54,12 @@ var ldapTests = []struct {
 	}, {
 		"mup",
 		[]string{"poke e"},
-		[]string{"PRIVMSG nick :tesla is Nikola Tesla, euler is Leonhard Euler, euclid is Euclid of Alexandria, riemann is Bernhard Riemann, einstein is Albert Einstein, newton is Isaac Newton, galieleo is Galileo Galilei, plus 2 more people."},
+		[]string{"PRIVMSG nick :tesla is Nikola Tesla, euler is Leonhard Euler, euclid is Euclid of Alexandria, riemann is Bernhard Riemann, einstein is Albert Einstein, newton is Isaac Newton, galileo is Galileo Galilei, plus 2 more people."},
+		nil,
+	}, {
+		"mup",
+		[]string{"poke riémann"},
+		[]string{"PRIVMSG nick :riemann is Bernhard Riemann <riemann@example.com>"},
 		nil,
 	},
 }
@@ -86,17 +91,17 @@ var ldapEntries = []ldap.Result{
 	ldapResult("riemann", "Bernhard Riemann"),
 	ldapResult("einstein", "Albert Einstein"),
 	ldapResult("newton", "Isaac Newton"),
-	ldapResult("galieleo", "Galileo Galilei"),
+	ldapResult("galileo", "Galileo Galilei"),
 	ldapResult("jonvon", "Jon von Neumann"),
 	ldapResult("gauss", "Carl Friedrich Gauss"),
 }
 
 var ldapResults = map[string][]ldap.Result{
-	"(mozillaNickname=tesla)":                {ldapEntries[0]},
-	"(|(mozillaNickname=tesla)(cn=*tesla*))": {ldapEntries[0]},
-	"(|(mozillaNickname=euler)(cn=*euler*))": {ldapEntries[1]},
-	"(|(mozillaNickname=eu)(cn=*eu*))":       {ldapEntries[1], ldapEntries[2]},
-	"(|(mozillaNickname=e)(cn=*e*))":         ldapEntries,
+	"(|(mozillaNickname=tesla)(cn~=*tesla*))": {ldapEntries[0]},
+	"(|(mozillaNickname=euler)(cn~=*euler*))": {ldapEntries[1]},
+	"(|(mozillaNickname=eu)(cn~=*eu*))":       {ldapEntries[1], ldapEntries[2]},
+	"(|(mozillaNickname=e)(cn~=*e*))":         ldapEntries,
+	`(|(mozillaNickname=ri\c3\a9mann)(cn~=*ri\c3\a9mann*))`: {ldapEntries[3]},
 }
 
 type ldapConn struct {

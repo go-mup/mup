@@ -50,7 +50,7 @@ var smsTests = []smsTest{{
 	target: "#channel",
 	send:   []string{"sms tesla Ignore me."},
 }, {
-	send: []string{"sms tesla Hey there"},
+	send: []string{"sms tésla Hey there"},
 	recv: []string{"PRIVMSG nick :SMS is on the way!"},
 	settings: bson.M{
 		"aqluser": "myuser",
@@ -184,8 +184,9 @@ func ldapResult(nick, name string) ldap.Result {
 }
 
 var ldapResults = map[string][]ldap.Result{
-	"(mozillaNickname=tesla)": {nikolaTesla},
-	"(mobile=*5*5*)":          {nikolaTesla},
+	`(mozillaNickname=tesla)`:      {nikolaTesla},
+	`(mozillaNickname=t\c3\a9sla)`: {nikolaTesla},
+	"(mobile=*5*5*)":               {nikolaTesla},
 }
 
 func (l *ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {

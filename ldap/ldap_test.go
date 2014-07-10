@@ -57,3 +57,8 @@ func (s *S) TestSearch(c *C) {
 
 	c.Assert(results, HasLen, 2)
 }
+
+func (s *S) TestEscapeFilter(c *C) {
+	c.Assert(ldap.EscapeFilter("a\x00b(c)d*e\\f"), Equals, `a\00b\28c\29d\2ae\5cf`)
+	c.Assert(ldap.EscapeFilter("Lučić"), Equals, `Lu\c4\8di\c4\87`)
+}
