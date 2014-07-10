@@ -35,8 +35,8 @@ const (
 )
 
 var pluginModes = map[string]lpPluginMode{
-	"lpshowbugs": showBugsMode,
-	"lptrackbugs": trackBugsMode,
+	"lpshowbugs":    showBugsMode,
+	"lptrackbugs":   trackBugsMode,
 	"lptrackmerges": trackMergesMode,
 }
 
@@ -145,7 +145,7 @@ func (p *lpPlugin) loop() error {
 		case bmsg := <-p.messages:
 			err := p.handle(bmsg)
 			if err != nil {
-				mup.Logf("Error talking to Launchpad: %v")
+				p.plugger.Logf("Error talking to Launchpad: %v")
 			}
 		case <-p.tomb.Dying():
 			return nil
@@ -235,14 +235,14 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 	}
 	resp, err := httpClient.Get(url)
 	if err != nil {
-		mup.Logf("Cannot perform Launchpad request: %v", err)
+		p.plugger.Logf("Cannot perform Launchpad request: %v", err)
 		return fmt.Errorf("cannot perform Launchpad request: %v", err)
 	}
 	defer resp.Body.Close()
 	if strings.Contains(url, "/+bugs-text") {
 		data, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			mup.Logf("Cannot read Launchpad response: %v", err)
+			p.plugger.Logf("Cannot read Launchpad response: %v", err)
 			return fmt.Errorf("cannot read Launchpad response: %v", err)
 		}
 		*(result.(*[]int)) = parseShowBugs(string(data))
@@ -250,7 +250,7 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 	}
 	err = json.NewDecoder(resp.Body).Decode(result)
 	if err != nil {
-		mup.Logf("Cannot decode Launchpad response: %v", err)
+		p.plugger.Logf("Cannot decode Launchpad response: %v", err)
 		return fmt.Errorf("cannot decode Launchpad response: %v", err)
 	}
 	return nil

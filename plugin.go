@@ -50,7 +50,7 @@ type pluginManager struct {
 }
 
 func startPluginManager(config Config) (*pluginManager, error) {
-	Logf("Starting plugins...")
+	logf("Starting plugins...")
 	m := &pluginManager{
 		config:   config,
 		plugins:  make(map[string]*pluginHandler),
@@ -69,11 +69,11 @@ func startPluginManager(config Config) (*pluginManager, error) {
 type pluginRequestStop struct{}
 
 func (m *pluginManager) Stop() error {
-	Logf("Plugin manager stop requested. Waiting...")
+	logf("Plugin manager stop requested. Waiting...")
 	m.tomb.Kill(errStop)
 	err := m.tomb.Wait()
 	m.session.Close()
-	Logf("Plugin manager stopped (%v).", err)
+	logf("Plugin manager stopped (%v).", err)
 	if err != errStop {
 		return err
 	}
@@ -127,11 +127,11 @@ func (m *pluginManager) loop() error {
 				handler.info.LastId = msg.Id
 				err := handler.plugin.Handle(msg)
 				if err != nil {
-					Logf("Plugin %q failed to handle message: %s: %v", name, msg, err)
+					logf("Plugin %q failed to handle message: %s: %v", name, msg, err)
 				}
 				err = plugins.Update(bson.D{{"name", name}}, bson.D{{"$set", bson.D{{"lastid", msg.Id}}}})
 				if err != nil {
-					Logf("Cannot update last message id for plugin %q: %v", name, err)
+					logf("Cannot update last message id for plugin %q: %v", name, err)
 					// TODO How to recover properly from this?
 				}
 			}
@@ -160,7 +160,7 @@ func (m *pluginManager) handleRefresh() {
 	err := m.database.C("plugins").Find(nil).All(&infos)
 	if err != nil {
 		// TODO Reduce frequency of logged messages if the database goes down.
-		Logf("Cannot fetch server information from the database: %v", err)
+		logf("Cannot fetch server information from the database: %v", err)
 		return
 	}
 
@@ -175,19 +175,19 @@ func (m *pluginManager) handleRefresh() {
 			if !pluginChanged(&handler.info, info) {
 				continue
 			}
-			Logf("Plugin %q settings or targets changed. Stopping and restarting it.", info.Name)
+			logf("Plugin %q settings or targets changed. Stopping and restarting it.", info.Name)
 			err := handler.plugin.Stop()
 			if err != nil {
-				Logf("Plugin %q stopped with an error: %v", info.Name, err)
+				logf("Plugin %q stopped with an error: %v", info.Name, err)
 			}
 			delete(m.plugins, info.Name)
 		} else {
-			Logf("Plugin %q starting.", info.Name)
+			logf("Plugin %q starting.", info.Name)
 		}
 
 		handler, err := m.startPlugin(info)
 		if err != nil {
-			Logf("Plugin %q failed to start: %v", info.Name, err)
+			logf("Plugin %q failed to start: %v", info.Name, err)
 			continue
 		}
 		m.plugins[info.Name] = handler
@@ -206,10 +206,10 @@ func (m *pluginManager) handleRefresh() {
 					continue NextPlugin
 				}
 			}
-			Logf("Plugin %q removed. Stopping it.", handler.info.Name)
+			logf("Plugin %q removed. Stopping it.", handler.info.Name)
 			err := handler.plugin.Stop()
 			if err != nil {
-				Logf("Plugin %q stopped with an error: %v", handler.info.Name, err)
+				logf("Plugin %q stopped with an error: %v", handler.info.Name, err)
 			}
 			delete(m.plugins, name)
 		}
@@ -225,7 +225,7 @@ func (m *pluginManager) handleRefresh() {
 		// consumed by this goroutine after this method returns.
 		err := m.database.C("incoming").Insert(&Message{Cmd: cmdPong, Account: rollbackAccount, Text: rollbackText})
 		if err != nil {
-			Logf("Cannot insert wake up message in incoming queue: %v", err)
+			logf("Cannot insert wake up message in incoming queue: %v", err)
 			return
 		}
 
@@ -256,7 +256,7 @@ func pluginKey(pluginName string) string {
 func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandler, error) {
 	newPlugin, ok := registeredPlugins[pluginKey(info.Name)]
 	if !ok {
-		Logf("Plugin is not registered: %s", pluginKey(info.Name))
+		logf("Plugin is not registered: %s", pluginKey(info.Name))
 		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
 	plugger := newPlugger(info.Name, m.sendMessage)
@@ -303,7 +303,7 @@ NextTail:
 		for {
 			var msg *Message
 			for iter.Next(&msg) {
-				Debugf("[%s] Tail iterator got incoming message: %s", msg.Account, msg.String())
+				debugf("[%s] Tail iterator got incoming message: %s", msg.Account, msg.String())
 			DeliverMsg:
 				select {
 				case m.incoming <- msg:
@@ -311,7 +311,7 @@ NextTail:
 					msg = nil
 				case rollbackId := <-m.rollback:
 					if rollbackId < lastId {
-						Logf("Rolling back tail iterator to consider older incoming messages")
+						logf("Rolling back tail iterator to consider older incoming messages")
 						lastId = rollbackId
 						iter.Close()
 						continue NextTail
@@ -331,7 +331,7 @@ NextTail:
 
 		// Iterator is not valid anymore.
 		if err := iter.Close(); err != nil {
-			Logf("Error iterating over incoming collection: %v", err)
+			logf("Error iterating over incoming collection: %v", err)
 		}
 
 		// Only sleep if a stop was not requested. Speeds tests up a bit.

@@ -33,6 +33,7 @@ type aqlPlugin struct {
 	err      error
 	settings struct {
 		ldap.Settings `bson:",inline"`
+
 		Command    string
 		Account    string
 		AQLProxy   string
@@ -47,9 +48,9 @@ type aqlPlugin struct {
 }
 
 const (
-	defaultCommand   = "sms"
+	defaultCommand       = "sms"
 	defaultHandleTimeout = 500 * time.Millisecond
-	defaultPollDelay = 3 * time.Second
+	defaultPollDelay     = 3 * time.Second
 )
 
 func startPlugin(plugger *mup.Plugger) mup.Plugin {
@@ -124,7 +125,7 @@ func (p *aqlPlugin) loop() error {
 func (p *aqlPlugin) forward() error {
 	conn, err := ldap.Dial(&p.settings.Settings)
 	if err != nil {
-		mup.Logf("%v", err)
+		p.plugger.Logf("%v", err)
 		return err
 	}
 	defer conn.Close()
@@ -234,7 +235,7 @@ func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.R
 	status := data[:i]
 	credits := data[i+1 : j]
 	info := data[j+1:]
-	mup.Logf("SMS delivery result: from=%s to=%s mobile=%s status=%s credits=%s info=%s", msg.Nick, nick, mobile, status, credits, info)
+	p.plugger.Logf("SMS delivery result: from=%s to=%s mobile=%s status=%s credits=%s info=%s", msg.Nick, nick, mobile, status, credits, info)
 	if len(status) == 1 && (status[0] == '0' || status[0] == '1') {
 		p.plugger.Replyf(msg, "SMS is on the way!")
 	} else {
@@ -282,14 +283,14 @@ func (p *aqlPlugin) poll() error {
 		}
 		resp, err := httpClient.Get(p.settings.AQLProxy + "/retrieve?" + form.Encode())
 		if err != nil {
-			mup.Logf("Cannot retrieve SMSes from AQL proxy: %v", err)
+			p.plugger.Logf("Cannot retrieve SMSes from AQL proxy: %v", err)
 			continue
 		}
 		defer resp.Body.Close()
 		var smses []smsMessage
 		err = json.NewDecoder(resp.Body).Decode(&smses)
 		if err != nil {
-			mup.Logf("Cannot decode AQL proxy response: %v", err)
+			p.plugger.Logf("Cannot decode AQL proxy response: %v", err)
 			continue
 		}
 		for i := range smses {
@@ -311,7 +312,7 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 		fields[i] = strings.TrimSpace(fields[i])
 	}
 	if len(fields) != 2 || len(fields[0]) == 0 || len(fields[1]) == 0 {
-		mup.Logf("Received invalid SMS message text: %q", sms.Message)
+		p.plugger.Logf("Received invalid SMS message text: %q", sms.Message)
 		return nil
 	}
 	target := fields[0]
@@ -331,7 +332,7 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 	sender := sms.Sender
 	results, err := conn.Search(search)
 	if err != nil {
-		mup.Logf("Cannot search LDAP server for SMS sender: %v", err)
+		p.plugger.Logf("Cannot search LDAP server for SMS sender: %v", err)
 	} else if len(results) > 0 {
 		nick := results[0].Value("mozillaNickname")
 		if nick != "" {
@@ -343,7 +344,7 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 		Target:  target,
 		Text:    fmt.Sprintf("[SMS] <%s> %s", sender, text),
 	}
-	mup.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", p.settings.Account, sender, sms.Sender, target, text)
+	p.plugger.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", p.settings.Account, sender, sms.Sender, target, text)
 	err = p.plugger.Send(&msg)
 	if err == nil {
 		p.tomb.Go(func() error {
@@ -364,10 +365,10 @@ func (p *aqlPlugin) deleteSMS(sms *smsMessage) error {
 	}
 	resp, err := httpClient.PostForm(p.settings.AQLProxy+"/delete", form)
 	if err != nil {
-		mup.Logf("Cannot delete SMS message %s: %v", sms.Key, err)
+		p.plugger.Logf("Cannot delete SMS message %s: %v", sms.Key, err)
 		return err
 	}
-	mup.Logf("Delete accepted for %v.", sms.Key)
+	p.plugger.Logf("Delete accepted for %v.", sms.Key)
 	resp.Body.Close()
 	return nil
 }

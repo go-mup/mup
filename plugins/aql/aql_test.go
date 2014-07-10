@@ -48,7 +48,7 @@ var smsTests = []smsTest{{
 	fail: true,
 }, {
 	target: "#channel",
-	send: []string{"sms tesla Ignore me."},
+	send:   []string{"sms tesla Ignore me."},
 }, {
 	send: []string{"sms tesla Hey there"},
 	recv: []string{"PRIVMSG nick :SMS is on the way!"},

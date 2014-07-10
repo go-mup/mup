@@ -8,12 +8,12 @@ import (
 )
 
 type Tester struct {
-	mu       sync.Mutex
-	cond     sync.Cond
-	stopped  bool
-	plugin   Plugin
-	plugger  *Plugger
-	replies  []string
+	mu      sync.Mutex
+	cond    sync.Cond
+	stopped bool
+	plugin  Plugin
+	plugger *Plugger
+	replies []string
 }
 
 func NewTest(plugin string) *Tester {
@@ -78,7 +78,7 @@ func marshalRaw(value interface{}) bson.Raw {
 	if err != nil {
 		panic("cannot marshal provided value: " + err.Error())
 	}
-	var raw struct { Value bson.Raw }
+	var raw struct{ Value bson.Raw }
 	err = bson.Unmarshal(data, &raw)
 	if err != nil {
 		panic("cannot unmarshal provided value: " + err.Error())

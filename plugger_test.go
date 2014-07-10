@@ -8,13 +8,23 @@ import (
 var _ = Suite(&PluggerSuite{})
 
 type PluggerSuite struct {
-	sent    []string
+	sent []string
 }
 
 func parse(line string) *Message {
 	msg := ParseMessage("mup", "!", line)
 	msg.Account = "origin"
 	return msg
+}
+
+func (s *PluggerSuite) SetUpTest(c *C) {
+	SetLogger(c)
+	SetDebug(true)
+}
+
+func (s *PluggerSuite) TearDownTest(c *C) {
+	SetLogger(nil)
+	SetDebug(false)
 }
 
 func (s *PluggerSuite) plugger(settings, targets interface{}) *Plugger {
@@ -32,6 +42,22 @@ func (s *PluggerSuite) plugger(settings, targets interface{}) *Plugger {
 func (s *PluggerSuite) TestName(c *C) {
 	p := s.plugger(nil, nil)
 	c.Assert(p.Name(), Equals, "plugin:name")
+}
+
+func (s *PluggerSuite) TestLogf(c *C) {
+	p := s.plugger(nil, nil)
+	p.Logf("<%s>", "text")
+	c.Assert(c.GetTestLog(), Matches, `(?m).*\[plugin:name\] <text>.*`)
+}
+
+func (s *PluggerSuite) TestDebugf(c *C) {
+	p := s.plugger(nil, nil)
+	SetDebug(false)
+	p.Debugf("<%s>", "one")
+	SetDebug(true)
+	p.Debugf("<%s>", "two")
+	c.Assert(c.GetTestLog(), Matches, `(?m).*\[plugin:name\] <two>.*`)
+	c.Assert(c.GetTestLog(), Not(Matches), `(?m).*\[plugin:name\] <one>.*`)
 }
 
 func (s *PluggerSuite) TestReplyfPrivate(c *C) {

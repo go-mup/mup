@@ -299,7 +299,6 @@ func (s *MessageSuite) TestMessageString(c *C) {
 	}
 }
 
-
 func (s *MessageSuite) TestReplyTarget(c *C) {
 	msg1 := Message{MupNick: "mup", Nick: "fooer", Target: "mup"}
 	msg2 := Message{MupNick: "mup", Nick: "fooer", Target: "#chan"}

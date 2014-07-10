@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
 	"gopkg.in/niemeyer/mup.v0"
+	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
 
 	"labix.org/v2/mgo/bson"
 )

@@ -27,8 +27,8 @@ var emptyDoc = bson.Raw{3, []byte("\x05\x00\x00\x00\x00")}
 
 func newPlugger(name string, send func(msg *Message) error) *Plugger {
 	return &Plugger{
-		name:     name,
-		send:     send,
+		name: name,
+		send: send,
 	}
 }
 
@@ -62,6 +62,14 @@ func (p *Plugger) setTargets(targets bson.Raw) {
 
 func (p *Plugger) Name() string {
 	return p.name
+}
+
+func (p *Plugger) Logf(format string, args ...interface{}) {
+	logf("[" + p.name + "] " + format, args...)
+}
+
+func (p *Plugger) Debugf(format string, args ...interface{}) {
+	debugf("[" + p.name + "] " + format, args...)
 }
 
 func (p *Plugger) Settings(result interface{}) {
@@ -102,7 +110,7 @@ func (p *Plugger) Sendf(account, target, format string, args ...interface{}) err
 func (p *Plugger) Send(msg *Message) error {
 	err := p.send(msg)
 	if err != nil {
-		Logf("Cannot put message in outgoing queue: %v", err)
+		logf("Cannot put message in outgoing queue: %v", err)
 		return fmt.Errorf("cannot put message in outgoing queue: %v", err)
 	}
 	return nil

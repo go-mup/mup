@@ -28,18 +28,18 @@ func SetDebug(debug bool) {
 	globalDebug = debug
 }
 
-// Logf sends to the logger registered via SetLogger the string resulting
+// logf sends to the logger registered via SetLogger the string resulting
 // from running format and args through Sprintf.
-func Logf(format string, args ...interface{}) {
+func logf(format string, args ...interface{}) {
 	if globalLogger != nil {
 		globalLogger.Output(2, fmt.Sprintf(format, args...))
 	}
 }
 
-// Debugf sends to the logger registered via SetLogger the string resulting
+// debugf sends to the logger registered via SetLogger the string resulting
 // from running format and args through Sprintf, but only if debugging was
 // enabled via SetDebug.
-func Debugf(format string, args ...interface{}) {
+func debugf(format string, args ...interface{}) {
 	if globalDebug && globalLogger != nil {
 		globalLogger.Output(2, fmt.Sprintf(format, args...))
 	}

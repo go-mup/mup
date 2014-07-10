@@ -93,7 +93,7 @@ func (p *ldapPlugin) loop() error {
 func (p *ldapPlugin) dial() error {
 	conn, err := ldap.Dial(&p.settings.Settings)
 	if err != nil {
-		mup.Logf("%v", err)
+		p.plugger.Logf("%v", err)
 		return err
 	}
 	defer conn.Close()

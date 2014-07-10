@@ -1,8 +1,8 @@
 package mup
 
 import (
-	"time"
 	"strings"
+	"time"
 
 	. "gopkg.in/check.v1"
 	"labix.org/v2/mgo"
