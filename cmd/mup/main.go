@@ -11,6 +11,7 @@ import (
 	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/launchpad"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/ldap"
+	_ "gopkg.in/niemeyer/mup.v0/plugins/publishbot"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/sendraw"
 
 	"labix.org/v2/mgo"
