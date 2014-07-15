@@ -11,19 +11,19 @@ type Tester struct {
 	mu      sync.Mutex
 	cond    sync.Cond
 	stopped bool
-	plugin  Plugin
+	plugin  Stopper
 	plugger *Plugger
 	replies []string
 }
 
-func NewTest(plugin string) *Tester {
-	_, ok := registeredPlugins[pluginKey(plugin)]
+func NewTest(pluginName string) *Tester {
+	_, ok := registeredPlugins[pluginKey(pluginName)]
 	if !ok {
-		panic(fmt.Sprintf("plugin not registered: %q", pluginKey(plugin)))
+		panic(fmt.Sprintf("plugin not registered: %q", pluginKey(pluginName)))
 	}
 	t := &Tester{}
 	t.cond.L = &t.mu
-	t.plugger = newPlugger(plugin, t.enqueueReply)
+	t.plugger = newPlugger(pluginName, t.enqueueReply)
 	return t
 }
 
@@ -37,8 +37,10 @@ func (t *Tester) Start() error {
 	if t.plugin != nil {
 		panic("Tester.Start called more than once")
 	}
-	t.plugin = registeredPlugins[pluginKey(t.plugger.Name())](t.plugger)
-	return nil
+	spec := registeredPlugins[pluginKey(t.plugger.Name())]
+	var err error
+	t.plugin, err = spec.Start(t.plugger)
+	return err
 }
 
 func (t *Tester) SetConfig(value interface{}) {
@@ -124,7 +126,10 @@ func (t *Tester) Sendf(target, format string, args ...interface{}) error {
 		target = "mup"
 	}
 	msg := ParseIncoming("account", "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
-	return t.plugin.Handle(msg)
+	if h, ok := t.plugin.(MessageHandler); ok {
+		return h.HandleMessage(msg)
+	}
+	return nil
 }
 
 func (t *Tester) SendAll(target string, text []string) error {

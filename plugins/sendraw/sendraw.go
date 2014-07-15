@@ -6,6 +6,20 @@ import (
 	"gopkg.in/niemeyer/mup.v0"
 )
 
+var Plugin = mup.PluginSpec{
+	Name:  "sendraw",
+	Help:  `Exposes the sendraw command for raw IRC message sending.
+
+	This is an administration tool, and must be enabled with great care. People
+	with access can have the bot communicating arbitrarily with the server.
+	`,
+	Start: startPlugin,
+}
+
+func init() {
+	mup.RegisterPlugin(&Plugin)
+}
+
 type sendrawPlugin struct {
 	plugger *mup.Plugger
 	prefix  string
@@ -16,24 +30,20 @@ type sendrawPlugin struct {
 	}
 }
 
-func init() {
-	mup.RegisterPlugin("sendraw", startPlugin)
-}
-
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
+func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &sendrawPlugin{plugger: plugger, prefix: "sendraw "}
 	plugger.Config(&p.config)
 	if p.config.Command != "" {
 		p.prefix = p.config.Command + " "
 	}
-	return p
+	return p, nil
 }
 
 func (p *sendrawPlugin) Stop() error {
 	return nil
 }
 
-func (p *sendrawPlugin) Handle(msg *mup.Message) error {
+func (p *sendrawPlugin) HandleMessage(msg *mup.Message) error {
 	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
 		return nil
 	}

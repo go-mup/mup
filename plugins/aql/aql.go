@@ -18,8 +18,14 @@ import (
 	"labix.org/v2/mgo/bson"
 )
 
+var Plugin = mup.PluginSpec{
+	Name:  "aql",
+	Help:  "Integrates mup with AQL's SMS delivery system.",
+	Start: startPlugin,
+}
+
 func init() {
-	mup.RegisterPlugin("aql", startPlugin)
+	mup.RegisterPlugin(&Plugin)
 }
 
 var httpClient = http.Client{Timeout: mup.NetworkTimeout}
@@ -54,7 +60,7 @@ const (
 	defaultPollDelay     = 10 * time.Second
 )
 
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
+func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &aqlPlugin{
 		plugger:  plugger,
 		prefix:   defaultCommand,
@@ -77,7 +83,7 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 	}
 	p.tomb.Go(p.loop)
 	p.tomb.Go(p.poll)
-	return p
+	return p, nil
 }
 
 func (p *aqlPlugin) Stop() error {
@@ -85,7 +91,7 @@ func (p *aqlPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *aqlPlugin) Handle(msg *mup.Message) error {
+func (p *aqlPlugin) HandleMessage(msg *mup.Message) error {
 	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
 		return nil
 	}

@@ -8,6 +8,16 @@ import (
 	"gopkg.in/niemeyer/mup.v0"
 )
 
+var Plugin = mup.PluginSpec{
+	Name:  "echo",
+	Help:  "Exposes a trivial echo command.",
+	Start: startPlugin,
+}
+
+func init() {
+	mup.RegisterPlugin(&Plugin)
+}
+
 type echoPlugin struct {
 	plugger *mup.Plugger
 	prefix  string
@@ -18,17 +28,13 @@ type echoPlugin struct {
 	}
 }
 
-func init() {
-	mup.RegisterPlugin("echo", startPlugin)
-}
-
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
+func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &echoPlugin{plugger: plugger, prefix: "echo "}
 	plugger.Config(&p.config)
 	if p.config.Command != "" {
 		p.prefix = p.config.Command + " "
 	}
-	return p
+	return p, nil
 }
 
 func (p *echoPlugin) Stop() error {
@@ -36,7 +42,7 @@ func (p *echoPlugin) Stop() error {
 	return nil
 }
 
-func (p *echoPlugin) Handle(msg *mup.Message) error {
+func (p *echoPlugin) HandleMessage(msg *mup.Message) error {
 	if p.stopped {
 		return fmt.Errorf("plugin stopped")
 	}

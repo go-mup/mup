@@ -10,8 +10,20 @@ import (
 	"gopkg.in/tomb.v2"
 )
 
+var Plugin = mup.PluginSpec{
+	Name: "publishbot",
+	Help: `Listens on a TCP port for lines of the form "password:#channel:text".
+
+	The received text is forwarded to all configured plugin targets that contain
+	the provided "password:#channel" in the "accept" list in their configuration.
+
+	See https://launchpad.net/publish-bot for the original implementation.
+	`,
+	Start: startPlugin,
+}
+
 func init() {
-	mup.RegisterPlugin("publishbot", startPlugin)
+	mup.RegisterPlugin(&Plugin)
 }
 
 type pbotPlugin struct {
@@ -27,7 +39,7 @@ type pbotPlugin struct {
 
 const defaultAddr = ":10234"
 
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
+func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &pbotPlugin{
 		plugger: plugger,
 		accept:  make(map[string][]*mup.PluginTarget),
@@ -48,7 +60,7 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		}
 	}
 	p.tomb.Go(p.loop)
-	return p
+	return p, nil
 }
 
 func (p *pbotPlugin) Stop() error {
@@ -60,10 +72,6 @@ func (p *pbotPlugin) Stop() error {
 	p.mu.Unlock()
 	p.plugger.Logf("Waiting.")
 	return p.tomb.Wait()
-}
-
-func (p *pbotPlugin) Handle(msg *mup.Message) error {
-	return nil
 }
 
 func (p *pbotPlugin) loop() error {

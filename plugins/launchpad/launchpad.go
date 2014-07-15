@@ -18,30 +18,43 @@ import (
 	"strings"
 )
 
+var Plugins = []mup.PluginSpec{{
+	Name:  "lpshowbugs",
+	Help:  `Monitors conversations and reports metadata about Launchpad bug numbers mentioned.
+
+	Lookups are performed on text such as "#12345", "bug 123", or "/+bug/123".
+	Entries such as "RT#123" or "#12" alone (under 10000) are ignored to prevent
+	matching unrelated conversations.
+	`,
+	Start: startShowBugs,
+}, {
+	Name:  "lptrackbugs",
+	Help:  "Shows status changes on bugs for a selected Launchpad project.",
+	Start: startTrackBugs,
+}, {
+	Name:  "lptrackmerges",
+	Help:  "Shows status changes on merges for a selected Launchpad project.",
+	Start: startTrackMerges,
+}}
+
 func init() {
-	mup.RegisterPlugin("lpshowbugs", startPlugin)
-	mup.RegisterPlugin("lptrackbugs", startPlugin)
-	mup.RegisterPlugin("lptrackmerges", startPlugin)
+	for i := range Plugins {
+		mup.RegisterPlugin(&Plugins[i])
+	}
 }
 
 var httpClient = http.Client{Timeout: mup.NetworkTimeout}
 
-type lpPluginMode int
+type pluginMode int
 
 const (
-	showBugsMode lpPluginMode = iota + 1
-	trackBugsMode
-	trackMergesMode
+	showBugs pluginMode = iota + 1
+	trackBugs
+	trackMerges
 )
 
-var pluginModes = map[string]lpPluginMode{
-	"lpshowbugs":    showBugsMode,
-	"lptrackbugs":   trackBugsMode,
-	"lptrackmerges": trackMergesMode,
-}
-
 type lpPlugin struct {
-	mode lpPluginMode
+	mode pluginMode
 
 	mu       sync.Mutex
 	tomb     tomb.Tomb
@@ -70,8 +83,17 @@ const (
 	defaultPrefix           = "Bug #%d changed"
 )
 
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
-	mode := pluginModes[strings.SplitN(plugger.Name(), ":", 2)[0]]
+func startShowBugs(plugger *mup.Plugger) (mup.Stopper, error) {
+	return startPlugin(showBugs, plugger)
+}
+func startTrackBugs(plugger *mup.Plugger) (mup.Stopper, error) {
+	return startPlugin(trackBugs, plugger)
+}
+func startTrackMerges(plugger *mup.Plugger) (mup.Stopper, error) {
+	return startPlugin(trackMerges, plugger)
+}
+
+func startPlugin(mode pluginMode, plugger *mup.Plugger) (mup.Stopper, error) {
 	if mode == 0 {
 		panic("launchpad plugin used under unknown name: " + plugger.Name())
 	}
@@ -88,7 +110,7 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}
 	if p.config.BaseURL == "" {
-		if mode == trackBugsMode {
+		if mode == trackBugs {
 			p.config.BaseURL = defaultBaseURLTrackBugs
 		} else {
 			p.config.BaseURL = defaultBaseURL
@@ -101,16 +123,16 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		p.config.PrefixOld = defaultPrefix
 	}
 	switch p.mode {
-	case showBugsMode:
+	case showBugs:
 		p.tomb.Go(p.loop)
-	case trackBugsMode:
+	case trackBugs:
 		p.tomb.Go(p.pollBugs)
-	case trackMergesMode:
+	case trackMerges:
 		p.tomb.Go(p.pollMerges)
 	default:
 		panic("internal error: unknown launchpad plugin mode")
 	}
-	return p
+	return p, nil
 }
 
 func (p *lpPlugin) Stop() error {
@@ -123,8 +145,8 @@ type lpMessage struct {
 	bugs []int
 }
 
-func (p *lpPlugin) Handle(msg *mup.Message) error {
-	if p.mode != showBugsMode {
+func (p *lpPlugin) HandleMessage(msg *mup.Message) error {
+	if p.mode != showBugs {
 		return nil
 	}
 	bmsg := &lpMessage{msg, parseBugs(msg.Text)}

@@ -13,8 +13,19 @@ import (
 	"labix.org/v2/mgo/bson"
 )
 
+var Plugin = mup.PluginSpec{
+	Name:  "ldap",
+	Help:  `Exposes the poke command for searching people on an LDAP directory.
+
+	The search happens against the name (cn) and nick (mozillaNickname)
+	registered in the directory. Information displayed includes nick, name,
+	email, time, and phone numbers.
+	`,
+	Start: startPlugin,
+}
+
 func init() {
-	mup.RegisterPlugin("ldap", startPlugin)
+	mup.RegisterPlugin(&Plugin)
 }
 
 type ldapPlugin struct {
@@ -36,7 +47,7 @@ const (
 	defaultHandleTimeout = 500 * time.Millisecond
 )
 
-func startPlugin(plugger *mup.Plugger) mup.Plugin {
+func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &ldapPlugin{
 		plugger:  plugger,
 		prefix:   defaultCommand,
@@ -51,7 +62,7 @@ func startPlugin(plugger *mup.Plugger) mup.Plugin {
 		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
 	p.tomb.Go(p.loop)
-	return p
+	return p, nil
 }
 
 func (p *ldapPlugin) Stop() error {
@@ -59,7 +70,7 @@ func (p *ldapPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *ldapPlugin) Handle(msg *mup.Message) error {
+func (p *ldapPlugin) HandleMessage(msg *mup.Message) error {
 	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
 		return nil
 	}
