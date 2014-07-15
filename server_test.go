@@ -213,17 +213,15 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	msg.Id = ""
 	c.Assert(msg, DeepEquals, Message{
 		Account: "one",
-		Prefix:  "nick!~user@host",
 		Nick:    "nick",
 		User:    "~user",
 		Host:    "host",
-		Cmd:     "PRIVMSG",
-		Params:  []string{"mup", ":Hello mup!"},
-		Target:  "mup",
+		Command: "PRIVMSG",
 		Text:    "Hello mup!",
 		Bang:    "!",
+		AsNick:  "mup",
+
 		ToMup:   true,
-		MupNick: "mup",
 		MupText: "Hello mup!",
 	})
 }
@@ -239,7 +237,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	outgoing := s.Session.DB("").C("outgoing")
 	err = outgoing.Insert(&Message{
 		Account: "one",
-		Target:  "someone",
+		Nick:    "someone",
 		Text:    "Hello there!",
 	})
 	c.Assert(err, IsNil)
@@ -256,7 +254,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	// Send another message with the server running.
 	err = outgoing.Insert(&Message{
 		Account: "one",
-		Target:  "someone",
+		Nick:    "someone",
 		Text:    "Hello again!",
 	})
 	c.Assert(err, IsNil)
@@ -314,8 +312,8 @@ func (s *ServerSuite) TestPluginTarget(c *C) {
 
 	plugins := s.Session.DB("").C("plugins")
 	err := plugins.Insert(
-		M{"_id": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one", "target": "#chan1"}}},
-		M{"_id": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one", "target": "#chan2"}}},
+		M{"_id": "echo:A", "config": M{"command": "echoA"}, "targets": []M{{"account": "one", "channel": "#chan1"}}},
+		M{"_id": "echo:B", "config": M{"command": "echoB"}, "targets": []M{{"account": "one", "channel": "#chan2"}}},
 		M{"_id": "echo:C", "config": M{"command": "echoC"}, "targets": []M{{"account": "one"}}},
 	)
 	c.Assert(err, IsNil)

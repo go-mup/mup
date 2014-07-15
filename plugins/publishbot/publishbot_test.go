@@ -31,8 +31,8 @@ func (s *PBotSuite) TestPublishBot(c *C) {
 	tester := mup.NewTest("publishbot")
 	tester.SetConfig(bson.M{"addr": ":10423"})
 	tester.SetTargets([]bson.M{
-		{"account": "one", "target": "#one", "config": bson.M{"accept": []string{"pass:#one"}}},
-		{"account": "one", "target": "#two", "config": bson.M{"accept": []string{"pass:#one", "pass:#two"}}},
+		{"account": "one", "channel": "#one", "config": bson.M{"accept": []string{"pass:#one"}}},
+		{"account": "one", "channel": "#two", "config": bson.M{"accept": []string{"pass:#one", "pass:#two"}}},
 	})
 	tester.Start()
 	time.Sleep(500 * time.Millisecond)

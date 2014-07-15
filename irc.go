@@ -91,7 +91,7 @@ func (c *ircClient) Stop() error {
 	// Try to disconnect gracefully.
 	timeout := time.After(NetworkTimeout)
 	select {
-	case c.Outgoing <- &Message{Cmd: cmdQuit, Params: []string{":brb"}}:
+	case c.Outgoing <- &Message{Command: cmdQuit, Params: []string{":brb"}}:
 		select {
 		case <-c.tomb.Dying():
 		case <-timeout:
@@ -236,7 +236,7 @@ func (c *ircClient) auth() (err error) {
 			return errStop
 		}
 
-		if msg.Cmd == cmdNickInUse {
+		if msg.Command == cmdNickInUse {
 			logf("[%s] Nick %q is in use. Trying with %q.", c.Account, nick, nick+"_")
 			nick += "_"
 			err = c.ircW.Sendf("NICK %s", nick)
@@ -245,15 +245,15 @@ func (c *ircClient) auth() (err error) {
 			}
 			continue
 		}
-		if msg.Cmd == cmdPing {
+		if msg.Command == cmdPing {
 			err = c.ircW.Sendf("PONG :%s", msg.Text)
 			if err != nil {
 				return err
 			}
 			continue
 		}
-		if msg.Cmd == cmdWelcome {
-			c.activeNick = msg.MupNick
+		if msg.Command == cmdWelcome {
+			c.activeNick = msg.AsNick
 			logf("[%s] Got welcome notice.", c.Account)
 			break
 		}
@@ -295,7 +295,7 @@ func (c *ircClient) forward() error {
 			inSend = nil
 
 		case outMsg = <-outRecv:
-			if outMsg.Cmd == cmdQuit {
+			if outMsg.Command == cmdQuit {
 				quitting = true
 			}
 			outRecv = nil
@@ -333,9 +333,9 @@ func (c *ircClient) forward() error {
 }
 
 func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
-	switch msg.Cmd {
+	switch msg.Command {
 	case cmdNick:
-		c.activeNick = msg.MupNick
+		c.activeNick = msg.AsNick
 	case cmdPing:
 		err = c.ircW.Sendf("PONG :%s", msg.Text)
 		if err != nil {
@@ -461,7 +461,7 @@ func (w *ircWriter) Send(msg *Message) error {
 }
 
 func (w *ircWriter) Sendf(format string, args ...interface{}) error {
-	return w.Send(ParseMessage("", "", fmt.Sprintf(format, args...)))
+	return w.Send(ParseOutgoing(w.account, fmt.Sprintf(format, args...)))
 }
 
 func (w *ircWriter) die() {
@@ -481,10 +481,10 @@ loop:
 		select {
 		case msg := <-w.Outgoing:
 			line := msg.String()
-			if msg.Cmd != cmdPong {
+			if msg.Command != cmdPong {
 				debugf("[%s] Sending: %s", w.account, line)
 			}
-			if (msg.Cmd == cmdPrivMsg || msg.Cmd == "") && msg.Id != "" {
+			if (msg.Command == cmdPrivMsg || msg.Command == "") && msg.Id != "" {
 				send = []string{line, "\r\nPING :sent:", msg.Id.Hex(), "\r\n"}
 				lastPing = time.Now()
 			} else {
@@ -577,22 +577,21 @@ func (r *ircReader) loop() error {
 			r.tomb.Killf("line is too long")
 			break
 		}
-		msg := ParseMessage(r.activeNick, "!", string(line))
-		msg.Account = r.account
-		if msg.Cmd != cmdPong && msg.Cmd != cmdPing {
+		msg := ParseIncoming(r.account, r.activeNick, "!", string(line))
+		if msg.Command != cmdPong && msg.Command != cmdPing {
 			debugf("[%s] Received: %s", r.account, line)
 		}
-		switch msg.Cmd {
+		switch msg.Command {
 		case cmdNick:
 			if r.activeNick == "" || r.activeNick == msg.Nick {
 				r.activeNick = msg.Text
-				msg.MupNick = r.activeNick
+				msg.AsNick = r.activeNick
 				logf("[%s] Nick %q accepted.", r.account, r.activeNick)
 			}
 		case cmdWelcome:
 			if len(msg.Params) > 0 {
 				r.activeNick = msg.Params[0]
-				msg.MupNick = r.activeNick
+				msg.AsNick = r.activeNick
 				logf("[%s] Nick %q accepted.", r.account, r.activeNick)
 			}
 		}

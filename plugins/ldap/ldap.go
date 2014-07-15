@@ -73,7 +73,7 @@ func (p *ldapPlugin) Handle(msg *mup.Message) error {
 		if err != nil {
 			reply = err.Error()
 		}
-		p.plugger.Replyf(msg, "%s", reply)
+		p.plugger.Sendf(msg, "%s", reply)
 	}
 	return nil
 }
@@ -108,7 +108,7 @@ func (p *ldapPlugin) dial() error {
 		case msg := <-p.messages:
 			err = p.handle(conn, msg)
 			if err != nil {
-				p.plugger.Replyf(msg, "Error talking to LDAP server: %v", err)
+				p.plugger.Sendf(msg, "Error talking to LDAP server: %v", err)
 			}
 		case <-time.After(mup.NetworkTimeout):
 			err = conn.Ping()
@@ -153,15 +153,15 @@ func (p *ldapPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
 	}
 	result, err := conn.Search(&search)
 	if err != nil {
-		p.plugger.Replyf(msg, "Cannot search LDAP server right now: %v", err)
+		p.plugger.Sendf(msg, "Cannot search LDAP server right now: %v", err)
 		return fmt.Errorf("cannot search LDAP server: %v", err)
 	}
 	if len(result) > 1 {
-		p.plugger.Replyf(msg, "%s", p.formatEntries(result))
+		p.plugger.Sendf(msg, "%s", p.formatEntries(result))
 	} else if len(result) > 0 {
-		p.plugger.Replyf(msg, "%s", p.formatEntry(&result[0]))
+		p.plugger.Sendf(msg, "%s", p.formatEntry(&result[0]))
 	} else {
-		p.plugger.Replyf(msg, "Cannot find anyone matching this. :-(")
+		p.plugger.Sendf(msg, "Cannot find anyone matching this. :-(")
 	}
 	return nil
 }

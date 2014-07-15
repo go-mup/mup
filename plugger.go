@@ -13,15 +13,44 @@ type Plugger struct {
 }
 
 type PluginTarget struct {
-	Account string
-	Target  string
-
-	config bson.Raw
+	address Address
+	config  bson.Raw
 }
 
+// Address returns the address for the plugin target.
+//
+// Note that PluginTarget addresses may have both Channel and Nick empty when
+// the target is configured to listen to messages on the entire account.
+func (t *PluginTarget) Address() Address {
+	return t.address
+}
+
+// Config unmarshals into result the plugin target configuration for t.
 func (t *PluginTarget) Config(result interface{}) {
 	t.config.Unmarshal(result)
 }
+
+// CanSend returns whether the plugin target may have messages sent to it.
+// Plugin targets that have both Nick and Channel unset act only as an
+// incoming message selector.
+func (t *PluginTarget) CanSend() bool {
+	return t.address.Nick != "" || t.address.Channel != ""
+}
+
+// String returns a string representation of the plugin target suitable for log messages.
+func (t *PluginTarget) String() string {
+	if t.address.Nick != "" {
+		if t.address.Channel == "" {
+			return fmt.Sprintf("account %q, nick %q", t.address.Account, t.address.Nick)
+		} else {
+			return fmt.Sprintf("account %q, channel %q, nick %q", t.address.Account, t.address.Channel, t.address.Nick)
+		}
+	} else if t.address.Channel != "" {
+		return fmt.Sprintf("account %q, channel %q", t.address.Account, t.address.Channel)
+	}
+	return fmt.Sprintf("account %q", t.address.Account)
+}
+
 
 var emptyDoc = bson.Raw{3, []byte("\x05\x00\x00\x00\x00")}
 
@@ -47,7 +76,8 @@ func (p *Plugger) setTargets(targets bson.Raw) {
 	}
 	var slice []struct {
 		Account string
-		Target  string
+		Channel string
+		Nick    string
 		Config  bson.Raw
 	}
 	err := targets.Unmarshal(&slice)
@@ -56,7 +86,7 @@ func (p *Plugger) setTargets(targets bson.Raw) {
 	}
 	p.targets = make([]PluginTarget, len(slice))
 	for i, item := range slice {
-		p.targets[i] = PluginTarget{item.Account, item.Target, item.Config}
+		p.targets[i] = PluginTarget{Address{Account: item.Account, Channel: item.Channel, Nick: item.Nick}, item.Config}
 	}
 }
 
@@ -83,40 +113,90 @@ func (p *Plugger) Targets() []PluginTarget {
 func (p *Plugger) Target(msg *Message) *PluginTarget {
 	for i := range p.targets {
 		t := &p.targets[i]
-		if t.Account != msg.Account {
+		if t.address.Account != msg.Account {
 			continue
 		}
-		if t.Target == "" {
-			return t
+		if t.address.Nick != "" && t.address.Nick != msg.Nick {
+			continue
 		}
-		if isChannel(t.Target) {
-			if t.Target == msg.Target {
-				return t
-			}
-		} else {
-			if t.Target == msg.Nick {
-				return t
-			}
+		if t.address.Channel != "" && t.address.Channel != msg.Channel {
+			continue
 		}
+		return t
 	}
 	return nil
 }
 
-func (p *Plugger) Replyf(msg *Message, format string, args ...interface{}) error {
+// Sendf sends a message to the address obtained from the provided addressable.
+// The message text is formed by providing format and args to fmt.Sprintf, and by
+// prefixing the result with "nick: " if the message is addressed to a nick in
+// a channel.
+func (p *Plugger) Sendf(to Addressable, format string, args ...interface{}) error {
 	text := fmt.Sprintf(format, args...)
-	target := msg.Target
-	if msg.Target == msg.MupNick {
-		target = msg.Nick
-	} else {
-		text = msg.Nick + ": " + text
+	a := to.Address()
+	if a.Channel != "" && a.Nick != "" {
+		text = a.Nick + ": " + text
 	}
-	reply := &Message{Account: msg.Account, Target: target, Text: text}
-	return p.Send(reply)
+	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: text}
+	return p.Send(msg)
 }
 
-func (p *Plugger) Sendf(account, target, format string, args ...interface{}) error {
-	msg := &Message{Account: account, Target: target, Text: fmt.Sprintf(format, args...)}
+// Directf sends a direct message to the address obtained from the provided addressable.
+// The message is sent privately if the address has a Nick, or to its Channel otherwise.
+// The message text is formed by providing format and args to fmt.Sprintf.
+func (p *Plugger) Directf(to Addressable, format string, args ...interface{}) error {
+	a := to.Address()
+	if a.Nick != "" {
+		a.Channel = ""
+	}
+	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: fmt.Sprintf(format, args...)}
 	return p.Send(msg)
+}
+
+// Channelf sends a channel message to the address obtained from the provided addressable,
+// or privately to the Nick if the address Channel is unset.
+// The message text is formed by providing format and args to fmt.Sprintf.
+func (p *Plugger) Channelf(to Addressable, format string, args ...interface{}) error {
+	a := to.Address()
+	if a.Channel != "" {
+		a.Nick = ""
+	}
+	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: fmt.Sprintf(format, args...)}
+	return p.Send(msg)
+}
+
+// Broadcastf sends a message to all configured plugin targets.
+// The message text is formed by providing format and args to fmt.Sprintf, and by
+// prefixing the result with "nick: " if the message is addressed to a nick in
+// a channel.
+func (p *Plugger) Broadcastf(format string, args ...interface{}) error {
+	msg := &Message{Text: fmt.Sprintf(format, args...)}
+	return p.Broadcast(msg)
+}
+
+// Broadcast sends a message to all configured plugin targets.
+// The message text is prefixed by "nick: " if the message is addressed to
+// a nick in a channel.
+func (p *Plugger) Broadcast(msg *Message) error {
+	var first error
+	for i := range p.targets {
+		t := &p.targets[i]
+		if !t.CanSend() {
+			continue
+		}
+		copy := *msg
+		copy.Account = t.address.Account
+		copy.Channel = t.address.Channel
+		copy.Nick = t.address.Nick
+		if copy.Text != "" && copy.Channel != "" && copy.Nick != "" {
+			copy.Text = copy.Nick + ": " + copy.Text
+		}
+		err := p.Send(&copy)
+		if err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 func (p *Plugger) Send(msg *Message) error {
@@ -126,27 +206,4 @@ func (p *Plugger) Send(msg *Message) error {
 		return fmt.Errorf("cannot put message in outgoing queue: %v", err)
 	}
 	return nil
-}
-
-func (p *Plugger) Broadcastf(format string, args ...interface{}) error {
-	msg := &Message{Text: fmt.Sprintf(format, args...)}
-	return p.Broadcast(msg)
-}
-
-func (p *Plugger) Broadcast(msg *Message) error {
-	var first error
-	for i := range p.targets {
-		t := &p.targets[i]
-		if t.Target == "" {
-			continue
-		}
-		copy := *msg
-		copy.Account = t.Account
-		copy.Target = t.Target
-		err := p.Send(&copy)
-		if err != nil && first == nil {
-			first = err
-		}
-	}
-	return first
 }

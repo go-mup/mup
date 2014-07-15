@@ -40,11 +40,9 @@ func (p *sendrawPlugin) Handle(msg *mup.Message) error {
 	text := strings.TrimLeft(msg.MupText[len(p.prefix):], " ")
 	i := strings.Index(text, " ")
 	if i < 1 {
-		p.plugger.Replyf(msg, "Usage: sendraw <account> <raw IRC message>")
+		p.plugger.Sendf(msg, "Usage: sendraw <account> <raw IRC message>")
 		return nil
 	}
-	raw := mup.ParseMessage("mup", "!", strings.TrimLeft(text[i+1:], " "))
-	raw.Account = text[:i]
-	p.plugger.Send(raw)
-	return p.plugger.Replyf(msg, "Done.")
+	p.plugger.Send(mup.ParseOutgoing(text[:i], strings.TrimLeft(text[i+1:], " ")))
+	return p.plugger.Sendf(msg, "Done.")
 }

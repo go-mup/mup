@@ -134,7 +134,7 @@ func (p *lpPlugin) Handle(msg *mup.Message) error {
 	select {
 	case p.messages <- bmsg:
 	case <-time.After(p.config.HandleTimeout.Duration):
-		p.plugger.Replyf(msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
+		p.plugger.Sendf(msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
 	}
 	return nil
 }
@@ -156,7 +156,7 @@ func (p *lpPlugin) loop() error {
 
 func (p *lpPlugin) handle(bmsg *lpMessage) error {
 	for _, id := range bmsg.bugs {
-		_ = p.showBug(bmsg.msg.Account, bmsg.msg.ReplyTarget(), id, "")
+		_ = p.showBug(bmsg.msg, id, "")
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ type lpBugEntry struct {
 	AssigneeLink string `json:"assignee_link"`
 }
 
-func (p *lpPlugin) showBug(account, target string, bugId int, prefix string) error {
+func (p *lpPlugin) showBug(to mup.Addressable, bugId int, prefix string) error {
 	var bug lpBug
 	var tasks lpBugTasks
 	err := p.request("/bugs/"+strconv.Itoa(bugId), &bug)
@@ -193,7 +193,7 @@ func (p *lpPlugin) showBug(account, target string, bugId int, prefix string) err
 	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
 		prefix = "Bug #%d"
 	}
-	return p.plugger.Sendf(account, target, prefix+": %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
+	return p.plugger.Sendf(to, prefix+": %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
 }
 
 func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
@@ -329,7 +329,7 @@ func (p *lpPlugin) pollBugs() error {
 			}
 
 			// TODO Support plugin targets.
-			p.showBug("canonical", "#mup-test", bugId, prefix)
+			p.showBug(mup.Address{Account: "canonical", Channel: "#mup-test"}, bugId, prefix)
 		}
 
 		oldBugs = newBugs
@@ -395,7 +395,7 @@ func (p *lpPlugin) pollMerges() error {
 			}
 
 			// TODO Support plugin targets.
-			p.plugger.Sendf("canonical", "#mup-test", "Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
+			p.plugger.Sendf(mup.Address{Account: "canonical", Channel: "#mup-test"}, "Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
 		}
 		first = false
 	}

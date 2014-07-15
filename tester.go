@@ -123,7 +123,7 @@ func (t *Tester) Sendf(target, format string, args ...interface{}) error {
 	if target == "" {
 		target = "mup"
 	}
-	msg := ParseMessage("mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
+	msg := ParseIncoming("account", "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
 	return t.plugin.Handle(msg)
 }
 

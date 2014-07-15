@@ -62,11 +62,10 @@ func (s *TesterSuite) TestConfig(c *C) {
 
 func (s *TesterSuite) TestTargets(c *C) {
 	tester := mup.NewTest("echo")
-	tester.SetTargets([]bson.M{{"account": "one", "target": "#one"}})
+	tester.SetTargets([]bson.M{{"account": "one", "channel": "#one"}})
 	targets := tester.Plugger().Targets()
 	c.Assert(targets, HasLen, 1)
-	c.Assert(targets[0].Account, Equals, "one")
-	c.Assert(targets[0].Target, Equals, "#one")
+	c.Assert(targets[0].Address(), Equals, mup.Address{Account: "one", Channel: "#one"})
 }
 
 func (s *TesterSuite) TestStop(c *C) {

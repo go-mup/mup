@@ -46,5 +46,5 @@ func (p *echoPlugin) Handle(msg *mup.Message) error {
 	if p.config.Error != "" {
 		return errors.New(p.config.Error)
 	}
-	return p.plugger.Replyf(msg, "%s", strings.TrimSpace(msg.MupText[len(p.prefix):]))
+	return p.plugger.Sendf(msg, "%s", strings.TrimSpace(msg.MupText[len(p.prefix):]))
 }

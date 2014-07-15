@@ -99,7 +99,7 @@ func (p *aqlPlugin) Handle(msg *mup.Message) error {
 		if err != nil {
 			reply = err.Error()
 		}
-		p.plugger.Replyf(msg, "%s", reply)
+		p.plugger.Sendf(msg, "%s", reply)
 	}
 	return nil
 }
@@ -134,7 +134,7 @@ func (p *aqlPlugin) forward() error {
 		case msg := <-p.messages:
 			err = p.handle(conn, msg)
 			if err != nil {
-				p.plugger.Replyf(msg, "Error sending SMS: %v", err)
+				p.plugger.Sendf(msg, "Error sending SMS: %v", err)
 			}
 		case sms := <-p.smses:
 			err = p.receiveSMS(conn, sms)
@@ -154,7 +154,7 @@ func (p *aqlPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
 		fields[i] = strings.TrimSpace(fields[i])
 	}
 	if len(fields) != 2 || len(fields[0]) == 0 || len(fields[1]) == 0 {
-		p.plugger.Replyf(msg, "Command looks like: sms <nick> <message>")
+		p.plugger.Sendf(msg, "Command looks like: sms <nick> <message>")
 		return nil
 	}
 	nick := fields[0]
@@ -165,23 +165,23 @@ func (p *aqlPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
 	}
 	results, err := conn.Search(search)
 	if err != nil {
-		p.plugger.Replyf(msg, "Cannot search LDAP server right now: %v", err)
+		p.plugger.Sendf(msg, "Cannot search LDAP server right now: %v", err)
 		return fmt.Errorf("cannot search LDAP server: %v", err)
 	}
 	if len(results) == 0 {
-		p.plugger.Replyf(msg, "Cannot find anyone with that IRC nick in the directory. :-(")
+		p.plugger.Sendf(msg, "Cannot find anyone with that IRC nick in the directory. :-(")
 		return nil
 	}
 	receiver := results[0]
 	mobile := receiver.Value("mobile")
 	if mobile == "" {
-		p.plugger.Replyf(msg, "Person doesn't have a mobile phone in the directory.")
+		p.plugger.Sendf(msg, "Person doesn't have a mobile phone in the directory.")
 	} else if !strings.HasPrefix(mobile, "+") {
-		p.plugger.Replyf(msg, "This person's mobile number is not in international format (+XX...): %s", mobile)
+		p.plugger.Sendf(msg, "This person's mobile number is not in international format (+XX...): %s", mobile)
 	} else {
 		err := p.sendSMS(msg, nick, text, receiver)
 		if err != nil {
-			p.plugger.Replyf(msg, "Error sending SMS to %s (%s): %v", nick, mobile, err)
+			p.plugger.Sendf(msg, "Error sending SMS to %s (%s): %v", nick, mobile, err)
 		}
 	}
 	return nil
@@ -193,8 +193,8 @@ func isChannel(name string) bool {
 
 func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.Result) error {
 	var content string
-	if isChannel(msg.Target) {
-		content = fmt.Sprintf("%s %s> %s", msg.Target, msg.Nick, text)
+	if msg.Channel != "" {
+		content = fmt.Sprintf("%s %s> %s", msg.Channel, msg.Nick, text)
 	} else {
 		content = fmt.Sprintf("%s> %s", msg.Nick, text)
 	}
@@ -231,9 +231,9 @@ func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.R
 	info := data[j+1:]
 	p.plugger.Logf("SMS delivery result: from=%s to=%s mobile=%s status=%s credits=%s info=%s", msg.Nick, nick, mobile, status, credits, info)
 	if len(status) == 1 && (status[0] == '0' || status[0] == '1') {
-		p.plugger.Replyf(msg, "SMS is on the way!")
+		p.plugger.Sendf(msg, "SMS is on the way!")
 	} else {
-		p.plugger.Replyf(msg, "SMS delivery failed: %s", info)
+		p.plugger.Sendf(msg, "SMS delivery failed: %s", info)
 	}
 	return nil
 }
@@ -271,9 +271,10 @@ func (p *aqlPlugin) poll() error {
 		"keyword": []string{p.config.AQLKeyword},
 	}
 	for {
-		time.Sleep(p.config.PollDelay.Duration)
-		if !p.tomb.Alive() {
+		select {
+		case <-p.tomb.Dying():
 			return nil
+		case <-time.After(p.config.PollDelay.Duration):
 		}
 		resp, err := httpClient.Get(p.config.AQLProxy + "/retrieve?" + form.Encode())
 		if err != nil {
@@ -333,13 +334,17 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 			sender = nick
 		}
 	}
-	msg := mup.Message{
+	msg := &mup.Message{
 		Account: p.config.Account,
-		Target:  target,
 		Text:    fmt.Sprintf("[SMS] <%s> %s", sender, text),
 	}
+	if isChannel(target) {
+		msg.Channel = target
+	} else {
+		msg.Nick = target
+	}
 	p.plugger.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", p.config.Account, sender, sms.Sender, target, text)
-	err = p.plugger.Send(&msg)
+	err = p.plugger.Send(msg)
 	if err == nil {
 		p.tomb.Go(func() error {
 			_ = p.deleteSMS(sms)
@@ -347,7 +352,7 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 		})
 	}
 	if !strings.HasPrefix(sender, "+") {
-		p.plugger.Sendf(p.config.Account, target, "Answer with: !sms %s <your message>", sender)
+		p.plugger.Sendf(msg, "Answer with: !sms %s <your message>", sender)
 	}
 	return nil
 }

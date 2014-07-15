@@ -117,7 +117,7 @@ func (m *pluginManager) loop() error {
 		m.session.Refresh()
 		select {
 		case msg := <-m.incoming:
-			if msg.Cmd == cmdPong {
+			if msg.Command == cmdPong {
 				continue
 			}
 			for name, handler := range m.plugins {
@@ -223,7 +223,7 @@ func (m *pluginManager) handleRefresh() {
 		// Wake up tail iterator by injecting a dummy message. The iterator
 		// won't be able to deliver this message because incoming is
 		// consumed by this goroutine after this method returns.
-		err := m.database.C("incoming").Insert(&Message{Cmd: cmdPong, Account: rollbackAccount, Text: rollbackText})
+		err := m.database.C("incoming").Insert(&Message{Command: cmdPong, Account: rollbackAccount, Text: rollbackText})
 		if err != nil {
 			logf("Cannot insert wake up message in incoming queue: %v", err)
 			return

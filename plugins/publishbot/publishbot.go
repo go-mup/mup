@@ -126,15 +126,11 @@ func (p *pbotPlugin) handle(conn net.Conn) {
 		}
 		text := line[j+1:]
 		for _, target := range p.accept[line[:j]] {
-			if target.Target == "" {
+			if !target.CanSend() {
 				continue
 			}
-			p.plugger.Logf("Forwarding message to %s's %s: %s", target.Account, target.Target, text)
-			err := p.plugger.Send(&mup.Message{
-				Account: target.Account,
-				Target:  target.Target,
-				Text:    text,
-			})
+			p.plugger.Logf("Forwarding message to %s: %s", target, text)
+			err := p.plugger.Sendf(target, "%s", text)
 			if err != nil {
 				p.plugger.Logf("Cannot forward received message: %v", err)
 			}

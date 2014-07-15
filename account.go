@@ -105,7 +105,7 @@ func (am *accountManager) loop() error {
 		am.session.Refresh()
 		select {
 		case msg := <-am.incoming:
-			if msg.Cmd == cmdPong {
+			if msg.Command == cmdPong {
 				if strings.HasPrefix(msg.Text, "sent:") {
 					// TODO Ensure it's a valid ObjectId.
 					lastId := bson.ObjectIdHex(msg.Text[5:])

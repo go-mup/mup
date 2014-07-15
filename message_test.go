@@ -4,262 +4,237 @@ import (
 	. "gopkg.in/check.v1"
 )
 
-var parseTests = []struct {
-	nick string
-	bang string
+type MessageSuite struct{}
+
+var _ = Suite(&MessageSuite{})
+
+type parseTest struct {
 	line string
 	msg  Message
-}{
+}
+
+var parseIncomingTests = []parseTest{
 	{
-		"",
-		"",
 		"CMD",
 		Message{
-			Cmd: "CMD",
+			Command: "CMD",
 		},
 	}, {
-		"",
-		"",
-		":prefix CMD",
+		"CMD some params",
 		Message{
-			Prefix: "prefix",
-			Cmd:    "CMD",
+			Command: "CMD",
+			Params:  []string{"some", "params"},
 		},
 	}, {
-		"",
-		"",
-		":prefix CMD Yo",
+		"CMD some params :Some text",
 		Message{
-			Cmd:    "CMD",
-			Prefix: "prefix",
-			Params: []string{"Yo"},
+			Command: "CMD",
+			Params:  []string{"some", "params"},
+			Text:    "Some text",
 		},
 	}, {
-		"",
-		"",
-		":prefix CMD Hi there",
+		"PRIVMSG #channel :Some text",
 		Message{
-			Cmd:    "CMD",
-			Prefix: "prefix",
-			Params: []string{"Hi", "there"},
+			Channel: "#channel",
+			Command: "PRIVMSG",
+			Text:    "Some text",
 		},
 	}, {
-		"",
-		"",
-		"CMD :Some text",
+		"NOTICE #channel :Some text",
 		Message{
-			Cmd:    "CMD",
-			Params: []string{":Some text"},
-			Text:   "Some text",
+			Channel: "#channel",
+			Command: "NOTICE",
+			Text:    "Some text",
 		},
 	}, {
-		"",
-		"",
-		"CMD Hi:there :Some text",
+		"CMD some:param :Some text",
 		Message{
-			Cmd:    "CMD",
-			Params: []string{"Hi:there", ":Some text"},
-			Text:   "Some text",
+			Command: "CMD",
+			Params:  []string{"some:param"},
+			Text:    "Some text",
 		},
 	}, {
-		"",
-		"",
+		":nick!user CMD",
+		Message{
+			Nick:    "nick",
+			User:    "user",
+			Command: "CMD",
+			AsNick:  "mup",
+		},
+	}, {
+		":nick@host CMD",
+		Message{
+			Nick:    "nick",
+			Host:    "host",
+			Command: "CMD",
+			AsNick:  "mup",
+		},
+	}, {
 		":nick!user@host CMD",
 		Message{
-			Prefix: "nick!user@host",
-			Nick:   "nick",
-			User:   "user",
-			Host:   "host",
-			Cmd:    "CMD",
-		},
-	}, {
-		"",
-		"",
-		"PRIVMSG #channel :Text",
-		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"#channel", ":Text"},
-			Target: "#channel",
-			Text:   "Text",
-		},
-	}, {
-		"",
-		"",
-		"NOTICE #channel :Text",
-		Message{
-			Cmd:    "NOTICE",
-			Params: []string{"#channel", ":Text"},
-			Target: "#channel",
-			Text:   "Text",
+			Nick:    "nick",
+			User:    "user",
+			Host:    "host",
+			Command: "CMD",
+			AsNick:  "mup",
 		},
 	},
 
 	// Empty nick shouldn't be interpreted.
 	{
-		"",
-		"",
 		"PRIVMSG #channel :: Text",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"#channel", ":: Text"},
-			Target: "#channel",
-			Text:   ": Text",
+			Command: "PRIVMSG",
+			Channel: "#channel",
+			Text:    ": Text",
 		},
 	},
 
-	// MupNick interpretation
+	// AsNick interpretation
 	{
-		"mup",
-		"",
 		"CMD",
 		Message{
-			Cmd:     "CMD",
-			MupNick: "mup",
+			Command: "CMD",
+			AsNick:  "mup",
 		},
 	}, {
-		"mup",
-		"",
 		"PRIVMSG #channel :Text",
 		Message{
-			Cmd:    "PRIVMSG",
-			Target: "#channel",
-			Params: []string{"#channel", ":Text"},
-			Text:   "Text",
-
-			MupNick: "mup",
+			Command: "PRIVMSG",
+			Channel: "#channel",
+			Text:    "Text",
+			AsNick:  "mup",
 		},
 	}, {
-		"mup",
-		"",
 		"PRIVMSG mup :Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"mup", ":Hello there"},
-			Target: "mup",
-			Text:   "Hello there",
+			Command: "PRIVMSG",
+			Text:    "Hello there",
+			AsNick:  "mup",
 
 			ToMup:   true,
-			MupNick: "mup",
 			MupText: "Hello there",
 		},
 	}, {
-		"mup",
-		"",
 		"PRIVMSG mup :mup: Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"mup", ":mup: Hello there"},
-			Target: "mup",
-			Text:   "mup: Hello there",
+			Command: "PRIVMSG",
+			Text:    "mup: Hello there",
+			AsNick:  "mup",
 
 			ToMup:   true,
-			MupNick: "mup",
 			MupText: "Hello there",
 		},
 	}, {
-		"mup",
-		"",
 		"PRIVMSG mup :mup, Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"mup", ":mup, Hello there"},
-			Target: "mup",
-			Text:   "mup, Hello there",
+			Command: "PRIVMSG",
+			Text:    "mup, Hello there",
+			AsNick:  "mup",
 
 			ToMup:   true,
-			MupNick: "mup",
 			MupText: "Hello there",
 		},
 	}, {
-		"mup",
-		"",
 		"PRIVMSG #channel :mup: Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"#channel", ":mup: Hello there"},
-			Target: "#channel",
-			Text:   "mup: Hello there",
+			Command: "PRIVMSG",
+			Channel: "#channel",
+			Text:    "mup: Hello there",
 
 			ToMup:   true,
-			MupNick: "mup",
+			AsNick:  "mup",
 			MupText: "Hello there",
 		},
 	}, {
-		"mup",
-		"",
 		"PRIVMSG mup :mup, Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"mup", ":mup, Hello there"},
-			Target: "mup",
-			Text:   "mup, Hello there",
+			Command: "PRIVMSG",
+			Text:    "mup, Hello there",
+			AsNick:  "mup",
 
 			ToMup:   true,
-			MupNick: "mup",
 			MupText: "Hello there",
 		},
 	},
 
 	// Bang prefix handling
 	{
-		"",
-		"!",
 		"CMD",
 		Message{
-			Cmd:  "CMD",
-			Bang: "!",
+			Command: "CMD",
+			Bang:    "!",
 		},
 	}, {
-		"",
-		"!",
 		"PRIVMSG #channel :Text",
 		Message{
-			Cmd:    "PRIVMSG",
-			Target: "#channel",
-			Params: []string{"#channel", ":Text"},
-			Text:   "Text",
-			Bang:   "!",
+			Command: "PRIVMSG",
+			Channel: "#channel",
+			Text:    "Text",
+			Bang:    "!",
 		},
 	}, {
-		"",
-		"!",
 		"PRIVMSG #channel :!Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"#channel", ":!Hello there"},
-			Target: "#channel",
-			Text:   "!Hello there",
-			Bang:   "!",
+			Command: "PRIVMSG",
+			Channel: "#channel",
+			Text:    "!Hello there",
+			Bang:    "!",
 
 			ToMup:   true,
 			MupText: "Hello there",
 		},
 	}, {
-		"mup",
-		"!",
 		"PRIVMSG mup :mup: !Hello there",
 		Message{
-			Cmd:    "PRIVMSG",
-			Params: []string{"mup", ":mup: !Hello there"},
-			Target: "mup",
-			Text:   "mup: !Hello there",
-			Bang:   "!",
+			Command: "PRIVMSG",
+			Text:    "mup: !Hello there",
+			Bang:    "!",
 
 			ToMup:   true,
-			MupNick: "mup",
+			AsNick:  "mup",
 			MupText: "Hello there",
 		},
 	},
 }
 
-type MessageSuite struct{}
+var parseOutgoingTests = []parseTest{
+	{
+		"PRIVMSG nick :mup: !Hello there",
+		Message{
+			Command: "PRIVMSG",
+			Text:    "mup: !Hello there",
+			Nick:    "nick",
+		},
+	},
+}
 
-var _ = Suite(&MessageSuite{})
-
-func (s *MessageSuite) TestParseMessage(c *C) {
-	for _, test := range parseTests {
-		c.Assert(ParseMessage(test.nick, test.bang, test.line), DeepEquals, &test.msg)
+func (s *MessageSuite) TestParseIncoming(c *C) {
+	for _, test := range parseIncomingTests {
+		c.Logf("Parsing incoming line: %s", test.line)
+		msg := ParseIncoming("", "mup", "!", test.line)
+		test.msg.AsNick = "mup"
+		test.msg.Bang = "!"
+		c.Assert(msg, DeepEquals, &test.msg)
 	}
+}
+
+func (s *MessageSuite) TestParseOutgoing(c *C) {
+	for _, test := range parseOutgoingTests {
+		c.Logf("Parsing outgoing line: %s", test.line)
+		msg := ParseOutgoing("", test.line)
+		c.Assert(msg, DeepEquals, &test.msg)
+	}
+}
+
+func (s *MessageSuite) TestParseIncomingAccount(c *C) {
+	msg := ParseIncoming("account", "", "", "CMD")
+	c.Assert(msg.Account, Equals, "account")
+}
+
+func (s *MessageSuite) TestParseOutgoingAccount(c *C) {
+	msg := ParseOutgoing("account", "CMD")
+	c.Assert(msg.Account, Equals, "account")
 }
 
 var stringTests = []struct {
@@ -267,29 +242,44 @@ var stringTests = []struct {
 	line string
 }{
 	{
-		Message{Cmd: "CMD"},
+		Message{Command: "CMD"},
 		"CMD",
 	}, {
-		Message{Target: "mup", Text: "Text"},
+		Message{Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		Message{Cmd: "PRIVMSG", Target: "mup", Text: "Text"},
+		Message{Command: "PRIVMSG", Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		Message{Cmd: "PRIVMSG", Params: []string{"mup", ":Text"}},
+		Message{Command: "PRIVMSG", Params: []string{"ignored"}, Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		Message{Cmd: "CMD", Nick: "nick", User: "user", Host: "host"},
+		Message{Command: "CMD", Nick: "nick", User: "user", Host: "host"},
+		"CMD",
+	}, {
+		Message{Command: "CMD", Nick: "nick", AsNick: "mup"},
+		":nick CMD",
+	}, {
+		Message{Command: "CMD", Nick: "nick", User: "user", AsNick: "mup"},
+		":nick!user CMD",
+	}, {
+		Message{Command: "CMD", Nick: "nick", Host: "host", AsNick: "mup"},
+		":nick@host CMD",
+	}, {
+		Message{Command: "CMD", Nick: "nick", User: "user", Host: "host", AsNick: "mup"},
 		":nick!user@host CMD",
 	}, {
-		Message{Cmd: "CMD", Prefix: "nick!user@host"},
-		":nick!user@host CMD",
+		Message{Command: "PING", Text: "text"},
+		"PING :text",
 	}, {
-		Message{Cmd: "PING", Text: "hi"},
-		"PING :hi",
+		Message{Command: "CMD", Params: []string{"some", "params"}, Text: "some text"},
+		"CMD some params :some text",
 	}, {
-		Message{Cmd: "A\rB\n", Target: "\rC\nD", Text: "E\rF\nG\x00"},
+		Message{Command: "A\rB\n", Params: []string{"\rC\nD"}, Text: "E\rF\nG\x00"},
 		"A_B_ _C_D :E_F_G_",
+	}, {
+		Message{Command: "PRIVMSG", Channel: "\rC\nD", Text: "E\rF\nG\x00"},
+		"PRIVMSG _C_D :E_F_G_",
 	},
 }
 
@@ -297,14 +287,10 @@ func (s *MessageSuite) TestMessageString(c *C) {
 	for _, test := range stringTests {
 		c.Assert(test.msg.String(), Equals, test.line)
 	}
-	for _, test := range parseTests {
+	for _, test := range parseIncomingTests {
 		c.Assert(test.msg.String(), Equals, test.line)
 	}
-}
-
-func (s *MessageSuite) TestReplyTarget(c *C) {
-	msg1 := Message{MupNick: "mup", Nick: "fooer", Target: "mup"}
-	msg2 := Message{MupNick: "mup", Nick: "fooer", Target: "#chan"}
-	c.Assert(msg1.ReplyTarget(), Equals, "fooer")
-	c.Assert(msg2.ReplyTarget(), Equals, "#chan")
+	for _, test := range parseOutgoingTests {
+		c.Assert(test.msg.String(), Equals, test.line)
+	}
 }

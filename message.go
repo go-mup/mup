@@ -1,158 +1,262 @@
 package mup
 
 import (
-	"fmt"
 	"labix.org/v2/mgo/bson"
 	"strings"
+	"sync"
 	"unicode"
 )
 
 type Message struct {
-	Id      bson.ObjectId `bson:"_id,omitempty"`
-	Account string        `bson:",omitempty"`
-	Prefix  string        `bson:",omitempty"`
-	Nick    string        `bson:",omitempty"`
-	User    string        `bson:",omitempty"`
-	Host    string        `bson:",omitempty"`
-	Cmd     string        `bson:",omitempty"`
-	Params  []string      `bson:",omitempty"`
-	Target  string        `bson:",omitempty"`
-	Text    string        `bson:",omitempty"`
-	Bang    string        `bson:",omitempty"`
-	ToMup   bool          `bson:",omitempty"`
-	MupText string        `bson:",omitempty"`
-	MupNick string        `bson:",omitempty"`
+	Id bson.ObjectId `bson:"_id,omitempty"`
+
+	// These fields form the message Address.
+	Account string `bson:",omitempty"`
+	Channel string `bson:",omitempty"`
+	Nick    string `bson:",omitempty"`
+	User    string `bson:",omitempty"`
+	Host    string `bson:",omitempty"`
+
+	// The IRC protocol command.
+	Command string `bson:",omitempty"`
+
+	// Raw parameters when not a PRIVMSG or NOTICE, and excluding Text.
+	Params []string `bson:",omitempty"`
+
+	// The trailing message text for all relevant commands.
+	Text string `bson:",omitempty"`
+
+	// The bang prefix setting used to address messages to mup
+	// that was in place when the message was received.
+	Bang string `bson:",omitempty"`
+
+	// The mup nick that was in place when the message was received.
+	AsNick string `bson:",omitempty"`
+
+	// TODO Drop these.
+	ToMup   bool   `bson:",omitempty"`
+	MupText string `bson:",omitempty"`
 }
 
+// Address holds the fully qualified address of an incoming or outgoing message.
+type Address struct {
+	Account string `bson:",omitempty"`
+	Channel string `bson:",omitempty"`
+	Nick    string `bson:",omitempty"`
+	User    string `bson:",omitempty"`
+	Host    string `bson:",omitempty"`
+}
+
+// Address returns a itself so it also implements Addressable.
+func (a Address) Address() Address {
+	return a
+}
+
+// Addressable is implemented by types that have a meaningful message address.
+type Addressable interface {
+	Address() Address
+}
+
+// Address returns the message origin or destination address.
+func (m *Message) Address() Address {
+	return Address{
+		Account: m.Account,
+		Channel: m.Channel,
+		Nick:    m.Nick,
+		User:    m.User,
+		Host:    m.Host,
+	}
+}
+
+var linePool = sync.Pool{New: func() interface{} { return make([]byte, 0, 512) }}
+
+// String returns the message as an IRC protocol line.
 func (m *Message) String() string {
-	line := m.Cmd
-	if line == "" {
-		line = "PRIVMSG"
+	line := linePool.Get().([]byte)
+	if m.Nick != "" && m.AsNick != "" {
+		line = append(line, ':')
+		line = append(line, m.Nick...)
+		if m.User != "" {
+			line = append(line, '!')
+			line = append(line, m.User...)
+		}
+		if m.Host != "" {
+			line = append(line, '@')
+			line = append(line, m.Host...)
+		}
+		line = append(line, ' ')
 	}
-	if len(m.Prefix) > 0 {
-		line = fmt.Sprint(":", m.Prefix, " ", m.Cmd)
-	} else if len(m.Nick) > 0 || len(m.User) > 0 || len(m.Host) > 0 {
-		line = fmt.Sprint(":", m.Nick, "!", m.User, "@", m.Host, " ", m.Cmd)
+	cmd := m.Command
+	if cmd == "" {
+		cmd = cmdPrivMsg
 	}
-	if len(m.Params) > 0 {
-		line = fmt.Sprint(line, " ", strings.Join(m.Params, " "))
-	} else if m.Target != "" {
-		line = fmt.Sprint(line, " ", m.Target, " :", m.Text)
-	} else if m.Text != "" {
-		line = fmt.Sprint(line, " :", m.Text)
-	}
-	return escapeLine(line)
-}
-
-func escapeLine(line string) string {
-	if !strings.ContainsAny(line, "\r\n\x00") {
-		return line
-	}
-	buf := []byte(line)
-	for i, c := range buf {
-		switch c {
-		case '\r', '\n', '\x00':
-			buf[i] = '_'
+	line = append(line, cmd...)
+	if cmd == cmdPrivMsg || cmd == cmdNotice {
+		target := m.Channel
+		if target == "" {
+			if m.AsNick != "" {
+				target = m.AsNick
+			} else {
+				target = m.Nick
+			}
+		}
+		line = append(line, ' ')
+		line = append(line, target...)
+	} else if len(m.Params) > 0 {
+		for _, param := range m.Params {
+			line = append(line, ' ')
+			line = append(line, param...)
 		}
 	}
-	return string(buf)
+	if m.Text != "" {
+		line = append(line, ' ', ':')
+		line = append(line, m.Text...)
+	}
+	for i, c := range line {
+		switch c {
+		case '\r', '\n', '\x00':
+			line[i] = '_'
+		}
+	}
+	linestr := string(line)
+	linePool.Put(line[:0])
+	return linestr
 }
 
 func isChannel(name string) bool {
 	return name != "" && (name[0] == '#' || name[0] == '&') && !strings.ContainsAny(name, " ,\x07")
 }
 
-func (m *Message) ReplyTarget() string {
-	if m.Target == m.MupNick {
-		return m.Nick
-	}
-	return m.Target
+// ParseIncoming parses line as an incoming IRC protocol message line.
+// The provided account, nick, and bang string inform the respective connection
+// settings in use when the message was received, so that messages addressed
+// to mup's nick via the IRC command, via a nick prefix in the message text,
+// or via the bang string (as in "!echo bar"), may be properly processed.
+func ParseIncoming(account, asnick, bang, line string) *Message {
+	return parse(account, asnick, bang, line)
 }
 
-func ParseMessage(mupnick, bang, line string) *Message {
-	m := &Message{MupNick: mupnick, Bang: bang}
+// ParseOutgoing parses line as an outgoing IRC protocol message line.
+func ParseOutgoing(account, line string) *Message {
+	return parse(account, "", "", line)
+}
+
+func parse(account, asnick, bang, line string) *Message {
+	m := &Message{Account: account, AsNick: asnick, Bang: bang}
 	i := 0
 	l := len(line)
 	for i < l && line[i] == ' ' {
 		i++
 	}
 
-	// Prefix, Nick, User, Host
+	// Nick, User, Host
 	if i < l && line[i] == ':' {
-		i++
-		prefix := i
-		part := i
-		for i < l && line[i] != ' ' {
-			if line[i] == '!' && m.Nick == "" {
-				m.Nick = line[part:i]
-				part = i + 1
+		mark := i
+		for i++; i < l; i++ {
+			c := line[i]
+			if c == ' ' || c == '!' || c == '@' {
+				break
 			}
-			if line[i] == '@' && m.Nick != "" && m.User == "" {
-				m.User = line[part:i]
-				part = i + 1
+		}
+		if asnick != "" {
+			m.Nick = line[mark+1:i]
+		}
+		if i < l && line[i] == '!' {
+			mark := i
+			for i++; i < l; i++ {
+				c := line[i]
+				if c == ' ' || c == '@' {
+					break
+				}
 			}
-			i++
+			if asnick != "" {
+				m.User = line[mark+1:i]
+			}
 		}
-		if m.User != "" && m.Host == "" {
-			m.Host = line[part:i]
+		if i < l && line[i] == '@' {
+			mark := i
+			for i++; i < l; i++ {
+				c := line[i]
+				if c == ' ' {
+					break
+				}
+			}
+			if asnick != "" {
+				m.Host = line[mark+1:i]
+			}
 		}
-		m.Prefix = line[prefix:i]
 	}
 	for i < l && line[i] == ' ' {
 		i++
 	}
 
-	// Cmd
-	command := i
+	// Command
+	mark := i
 	for i < l && line[i] != ' ' {
 		i++
 	}
-	m.Cmd = line[command:i]
+	m.Command = line[mark:i]
 	for i < l && line[i] == ' ' {
 		i++
 	}
 
-	// Params, Text
-	for i < l {
-		if line[i] == ':' {
-			m.Text = line[i+1:]
-			m.Params = append(m.Params, line[i:])
-			break
-		}
-		param := i
+	if m.Command == cmdPrivMsg || m.Command == cmdNotice {
+		// Target
+		mark = i
 		for i < l && line[i] != ' ' {
 			i++
 		}
-		m.Params = append(m.Params, line[param:i])
+		target := line[mark:i]
+		if isChannel(target) {
+			m.Channel = target
+		} else if asnick == "" {
+			m.Nick = target
+		}
+
+		// Text
 		for i < l && line[i] == ' ' {
 			i++
 		}
-	}
-
-	if m.Cmd == cmdPrivMsg || m.Cmd == cmdNotice {
-		// Target
-		if len(m.Params) > 0 {
-			m.Target = m.Params[0]
+		if i < l && line[i] == ':' {
+			m.Text = line[i+1:]
 		}
 
-		// ToMup, MupText
-		text := m.Text
-		nl := len(m.MupNick)
-		if nl > 0 && len(m.Text) > nl+1 && (m.Text[nl] == ':' || m.Text[nl] == ',') && m.Text[:nl] == m.MupNick {
-			m.ToMup = true
-			m.MupText = strings.TrimSpace(m.Text[nl+1:])
-			text = m.MupText
-		} else if m.Target != "" && m.Target == m.MupNick {
-			m.ToMup = true
-			m.MupText = strings.TrimSpace(m.Text)
-			text = m.MupText
-		}
+		if asnick != "" {
+			// ToMup, MupText
+			text := m.Text
+			nl := len(m.AsNick)
+			if nl > 0 && len(m.Text) > nl+1 && (m.Text[nl] == ':' || m.Text[nl] == ',') && m.Text[:nl] == m.AsNick {
+				m.ToMup = true
+				m.MupText = strings.TrimSpace(m.Text[nl+1:])
+				text = m.MupText
+			} else if m.Channel == "" {
+				m.ToMup = true
+				m.MupText = strings.TrimSpace(m.Text)
+				text = m.MupText
+			}
 
-		// Bang
-		bl := len(m.Bang)
-		if bl > 0 && len(text) >= bl && text[:bl] == m.Bang && (len(text) == bl || unicode.IsLetter(rune(text[bl]))) {
-			m.ToMup = true
-			m.MupText = text[bl:]
+			// Bang
+			bl := len(m.Bang)
+			if bl > 0 && len(text) >= bl && text[:bl] == m.Bang && (len(text) == bl || unicode.IsLetter(rune(text[bl]))) {
+				m.ToMup = true
+				m.MupText = text[bl:]
+			}
+		}
+	} else {
+		// Params, Text
+		for i < l {
+			if line[i] == ':' {
+				m.Text = line[i+1:]
+				break
+			}
+			mark = i
+			for i < l && line[i] != ' ' {
+				i++
+			}
+			m.Params = append(m.Params, line[mark:i])
+			for i < l && line[i] == ' ' {
+				i++
+			}
 		}
 	}
 
