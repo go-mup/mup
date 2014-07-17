@@ -15,7 +15,7 @@ var _ = Suite(&TesterSuite{})
 type TesterSuite struct{}
 
 func (s *TesterSuite) TestSendfRecv(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.Start()
 	tester.Sendf("mup", "echoAcmd <%s>", "repeat")
 	c.Check(tester.Recv(), Equals, "PRIVMSG nick :[cmd] <repeat>")
@@ -32,16 +32,16 @@ func (s *TesterSuite) TestSendfRecv(c *C) {
 }
 
 func (s *TesterSuite) TestUnknownPlugin(c *C) {
-	c.Assert(func() { mup.NewTest("unknown").Start() }, PanicMatches, `plugin not registered: "unknown"`)
+	c.Assert(func() { mup.NewPluginTester("unknown").Start() }, PanicMatches, `plugin not registered: "unknown"`)
 }
 
 func (s *TesterSuite) TestPlugger(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	c.Assert(tester.Plugger().Name(), Equals, "echoA")
 }
 
 func (s *TesterSuite) TestPluginLabel(c *C) {
-	tester := mup.NewTest("echoA:label")
+	tester := mup.NewPluginTester("echoA:label")
 	tester.Start()
 	c.Assert(tester.Plugger().Name(), Equals, "echoA:label")
 	tester.Sendf("mup", "echoAcmd repeat")
@@ -50,7 +50,7 @@ func (s *TesterSuite) TestPluginLabel(c *C) {
 }
 
 func (s *TesterSuite) TestConfig(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.SetConfig(bson.M{"prefix": "[prefix] "})
 	tester.Start()
 	tester.Sendf("mup", "echoAcmd repeat")
@@ -59,7 +59,7 @@ func (s *TesterSuite) TestConfig(c *C) {
 }
 
 func (s *TesterSuite) TestTargets(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.SetTargets([]bson.M{{"account": "one", "channel": "#one"}})
 	targets := tester.Plugger().Targets()
 	c.Assert(targets, HasLen, 1)
@@ -67,7 +67,7 @@ func (s *TesterSuite) TestTargets(c *C) {
 }
 
 func (s *TesterSuite) TestSendRecvAll(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.Start()
 	tester.SendAll("mup", []string{"echoAcmd One", "echoAcmd Two"})
 	c.Assert(tester.RecvAll(), DeepEquals, []string{"PRIVMSG nick :[cmd] One", "PRIVMSG nick :[cmd] Two"})
@@ -79,7 +79,7 @@ func (s *TesterSuite) TestSendRecvAll(c *C) {
 }
 
 func (s *TesterSuite) TestRecvOtherAccount(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.SetConfig(bson.M{"prefix": "[prefix] "})
 	tester.Start()
 	tester.Plugger().Send(&mup.Message{Account: "other", Channel: "#chan", Text: "text"})
@@ -89,7 +89,7 @@ func (s *TesterSuite) TestRecvOtherAccount(c *C) {
 
 
 func (s *TesterSuite) TestSendError(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.SetConfig(bson.M{"error": "error message"})
 	tester.Start()
 	err1 := tester.Sendf("mup", "echoAcmd foo")
@@ -100,7 +100,7 @@ func (s *TesterSuite) TestSendError(c *C) {
 }
 
 func (s *TesterSuite) TestStop(c *C) {
-	tester := mup.NewTest("echoA")
+	tester := mup.NewPluginTester("echoA")
 	tester.Start()
 	tester.Stop()
 	err := tester.Sendf("mup", "echoAcmd repeat")

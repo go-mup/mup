@@ -33,7 +33,7 @@ var echoTests = []echoTest{
 func (s *EchoSuite) TestEcho(c *C) {
 	for i, test := range echoTests {
 		c.Logf("Testing message #%d: %s", i, test.send)
-		tester := mup.NewTest("echo")
+		tester := mup.NewPluginTester("echo")
 		tester.SetConfig(test.config)
 		tester.Start()
 		tester.Sendf(test.target, test.send)

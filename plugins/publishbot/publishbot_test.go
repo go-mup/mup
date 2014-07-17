@@ -28,7 +28,7 @@ func (s *PBotSuite) TearDownSuite(c *C) {
 }
 
 func (s *PBotSuite) TestPublishBot(c *C) {
-	tester := mup.NewTest("publishbot")
+	tester := mup.NewPluginTester("publishbot")
 	tester.SetConfig(bson.M{"addr": ":10423"})
 	tester.SetTargets([]bson.M{
 		{"account": "one", "channel": "#one", "config": bson.M{"accept": []string{"pass:#one"}}},

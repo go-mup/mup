@@ -140,7 +140,7 @@ func (s *LDAPSuite) TearDownSuite(c *C) {
 func (s *LDAPSuite) TestLDAP(c *C) {
 	for i, test := range ldapTests {
 		c.Logf("Starting test %d with messages: %v", i, test.send)
-		tester := mup.NewTest("ldap")
+		tester := mup.NewPluginTester("ldap")
 		tester.SetConfig(test.config)
 		tester.Start()
 		err := tester.SendAll(test.target, test.send)

@@ -9,7 +9,9 @@ import (
 	"gopkg.in/mup.v0/schema"
 )
 
-type Tester struct {
+// NewPluginTester interacts with an internally managed instance of a
+// registered plugin for testing purposes.
+type PluginTester struct {
 	mu      sync.Mutex
 	cond    sync.Cond
 	stopped bool
@@ -17,20 +19,21 @@ type Tester struct {
 	replies []string
 }
 
-// NewTest creates a new tester for interacting with the named plugin.
-func NewTest(pluginName string) *Tester {
+// NewPluginTester creates a new tester for interacting with an internally
+// managed instance of the named plugin.
+func NewPluginTester(pluginName string) *PluginTester {
 	spec, ok := registeredPlugins[pluginKey(pluginName)]
 	if !ok {
 		panic(fmt.Sprintf("plugin not registered: %q", pluginKey(pluginName)))
 	}
-	t := &Tester{}
+	t := &PluginTester{}
 	t.cond.L = &t.mu
 	t.state.spec = spec
 	t.state.plugger = newPlugger(pluginName, t.appendMessage)
 	return t
 }
 
-func (t *Tester) appendMessage(msg *Message) error {
+func (t *PluginTester) appendMessage(msg *Message) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.stopped {
@@ -46,16 +49,16 @@ func (t *Tester) appendMessage(msg *Message) error {
 }
 
 // Plugger returns the plugger that is provided to the plugin.
-func (t *Tester) Plugger() *Plugger {
+func (t *PluginTester) Plugger() *Plugger {
 	return t.state.plugger
 }
 
 // Start starts the plugin being tested.
-func (t *Tester) Start() error {
+func (t *PluginTester) Start() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
-		panic("Tester.Start called more than once")
+		panic("PluginTester.Start called more than once")
 	}
 	var err error
 	t.state.plugin, err = t.state.spec.Start(t.state.plugger)
@@ -63,11 +66,11 @@ func (t *Tester) Start() error {
 }
 
 // SetConfig changes the configuration of the plugin being tested.
-func (t *Tester) SetConfig(value interface{}) {
+func (t *PluginTester) SetConfig(value interface{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
-		panic("Tester.SetConfig called after Start")
+		panic("PluginTester.SetConfig called after Start")
 	}
 	t.state.plugger.setConfig(marshalRaw(value))
 }
@@ -81,11 +84,11 @@ func (t *Tester) SetConfig(value interface{}) {
 // from delivering messages to the plugin, though, as it doesn't
 // make sense to feed the plugin with test messages that it cannot
 // observe.
-func (t *Tester) SetTargets(value interface{}) {
+func (t *PluginTester) SetTargets(value interface{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
-		panic("Tester.SetTargets called after Start")
+		panic("PluginTester.SetTargets called after Start")
 	}
 	t.state.plugger.setTargets(marshalRaw(value))
 }
@@ -107,7 +110,7 @@ func marshalRaw(value interface{}) bson.Raw {
 }
 
 // Stop stops the tester and the plugin being tested.
-func (t *Tester) Stop() error {
+func (t *PluginTester) Stop() error {
 	err := t.state.plugin.Stop()
 	t.mu.Lock()
 	t.stopped = true
@@ -125,7 +128,7 @@ func (t *Tester) Stop() error {
 // to any other account besides the default "test" one.
 //
 // Recv may be used after the tester is stopped.
-func (t *Tester) Recv() string {
+func (t *PluginTester) Recv() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	timeout := time.Now().Add(3 * time.Second)
@@ -148,7 +151,7 @@ func (t *Tester) Recv() string {
 // to any other account besides the default "test" one.
 //
 // RecvAll may be used after the tester is stopped.
-func (t *Tester) RecvAll() []string {
+func (t *PluginTester) RecvAll() []string {
 	t.mu.Lock()
 	replies := t.replies
 	t.replies = nil
@@ -168,7 +171,7 @@ func (t *Tester) RecvAll() []string {
 // Sendf always delivers the message to the plugin, irrespective of which targets
 // are currently setup, as it doesn't make sense to test the plugin with a message
 // that it cannot observe.
-func (t *Tester) Sendf(target, format string, args ...interface{}) error {
+func (t *PluginTester) Sendf(target, format string, args ...interface{}) error {
 	if target == "" {
 		target = "mup"
 	}
@@ -179,7 +182,7 @@ func (t *Tester) Sendf(target, format string, args ...interface{}) error {
 // SendAll sends each entry in text as an individual message to the bot.
 //
 // See Sendf for more details.
-func (t *Tester) SendAll(target string, text []string) error {
+func (t *PluginTester) SendAll(target string, text []string) error {
 	for _, texti := range text {
 		err := t.Sendf(target, "%s", texti)
 		if err != nil {

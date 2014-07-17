@@ -116,7 +116,7 @@ func (s *S) TestLaunchpad(c *C) {
 			test.config = bson.M{}
 		}
 		test.config["baseurl"] = server.URL()
-		tester := mup.NewTest(test.plugin)
+		tester := mup.NewPluginTester(test.plugin)
 		tester.SetConfig(test.config)
 		tester.SetTargets(test.targets)
 		tester.Start()

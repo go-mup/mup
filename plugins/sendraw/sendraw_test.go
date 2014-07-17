@@ -35,7 +35,7 @@ var sendrawTests = []sendrawTest{
 func (s *SendRawSuite) TestSendRaw(c *C) {
 	for i, test := range sendrawTests {
 		c.Logf("Testing message #%d: %s", i, test.send)
-		tester := mup.NewTest("sendraw")
+		tester := mup.NewPluginTester("sendraw")
 		tester.Start()
 		tester.Sendf("mup", test.send)
 		tester.Stop()

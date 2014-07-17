@@ -90,7 +90,7 @@ var pluginTests = []pluginTest{
 func (s *PluginSuite) TestPlugin(c *C) {
 	for i, test := range pluginTests {
 		c.Logf("Testing message #%d: %s", i, test.send)
-		tester := mup.NewTest("echoA")
+		tester := mup.NewPluginTester("echoA")
 		tester.SetConfig(test.config)
 		tester.Start()
 		tester.Sendf(test.target, test.send)

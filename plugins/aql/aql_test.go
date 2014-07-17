@@ -139,7 +139,7 @@ func (s *S) TestSMS(c *C) {
 		test.config["aqlproxy"] = server.URL() + "/proxy"
 		test.config["ldap"] = "the-ldap-server"
 
-		tester := mup.NewTest("aql")
+		tester := mup.NewPluginTester("aql")
 		tester.SetConfig(test.config)
 		tester.SetTargets(test.targets)
 		tester.Start()
