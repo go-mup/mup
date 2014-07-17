@@ -164,27 +164,41 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendWelcome(c)
 
 	accounts := s.Session.DB("").C("accounts")
-	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}}}})
+	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}, {"name": "#c3"}, {"name": "#c4"}}}})
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
-	s.ReadLine(c, "JOIN #c1,#c2")
+	s.ReadLine(c, "JOIN #c1,#c2,#c3,#c4")
 
 	// Confirm it joined both channels.
-	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c1")
-	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c2")
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c1")  // Some servers do this and
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN :#c2") // some servers do that.
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c3")
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c4")
+	s.Roundtrip(c)
 
-	err = accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c3"}}}})
+	err = accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}, {"name": "#c5"}}}})
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
-	s.ReadLine(c, "JOIN #c3")
-	s.ReadLine(c, "PART #c2")
+	s.ReadLine(c, "JOIN #c5")
+	s.ReadLine(c, "PART #c3,#c4")
 
 	// Do not confirm, forcing it to retry.
 	s.server.RefreshAccounts()
-	s.ReadLine(c, "JOIN #c3")
-	s.ReadLine(c, "PART #c2")
+	s.ReadLine(c, "JOIN #c5")
+	s.ReadLine(c, "PART #c3,#c4")
+
+	// Confirm departures only, to test they're properly handled.
+	s.SendLine(c, ":mup!~mup@10.0.0.1 PART #c3")  // Again, some servers do this and
+	s.SendLine(c, ":mup!~mup@10.0.0.1 PART :#c4") // some servers do that.
+	s.Roundtrip(c)
+
+	// Do it twice to ensure there are no further lines to read.
+	s.server.RefreshAccounts()
+	s.ReadLine(c, "JOIN #c5")
+	s.server.RefreshAccounts()
+	s.ReadLine(c, "JOIN #c5")
 }
 
 func waitFor(condition func() bool) {

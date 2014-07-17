@@ -332,6 +332,16 @@ func (c *ircClient) forward() error {
 	panic("unreachable")
 }
 
+func changedChannel(msg *Message) string {
+	if len(msg.Params) > 0 {
+		return msg.Params[0]
+	}
+	if len(msg.Text) > 0 {
+		return msg.Text
+	}
+	return ""
+}
+
 func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
 	switch msg.Command {
 	case cmdNick:
@@ -342,22 +352,25 @@ func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
 			return false, err
 		}
 		return true, nil
-	case cmdJoin:
-		if msg.Nick == c.activeNick && len(msg.Params) > 0 {
-			name := strings.TrimLeft(msg.Params[0], ":")
-			c.activeChannels = append(c.activeChannels, name)
-			logf("[%s] Joined channel %q.", c.Account, name)
+	case cmdJoin, cmdPart:
+		if msg.Nick != c.activeNick {
+			break
 		}
-	case cmdPart:
-		if msg.Nick == c.activeNick && len(msg.Params) > 0 {
-			name := strings.TrimLeft(msg.Params[0], ":")
-			for i, iname := range c.activeChannels {
-				if iname == name {
+		channel := changedChannel(msg)
+		if channel == "" {
+			break
+		}
+		if msg.Command == cmdJoin {
+			c.activeChannels = append(c.activeChannels, channel)
+			logf("[%s] Joined channel %q.", c.Account, channel)
+		} else {
+			for i, ichannel := range c.activeChannels {
+				if ichannel == channel {
 					copy(c.activeChannels[i:], c.activeChannels[i+1:])
 					c.activeChannels = c.activeChannels[:len(c.activeChannels)-1]
 				}
 			}
-			logf("[%s] Left channel %q.", c.Account, name)
+			logf("[%s] Left channel %q.", c.Account, channel)
 		}
 	}
 	return false, nil
