@@ -6,8 +6,8 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/niemeyer/mup.v0"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/publishbot"
+	"gopkg.in/mup.v0"
+	_ "gopkg.in/mup.v0/plugins/publishbot"
 	"gopkg.in/mgo.v2/bson"
 )
 

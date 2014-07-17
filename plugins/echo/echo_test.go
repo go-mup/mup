@@ -5,8 +5,8 @@ import (
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/niemeyer/mup.v0"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
+	"gopkg.in/mup.v0"
+	_ "gopkg.in/mup.v0/plugins/echo"
 )
 
 func Test(t *testing.T) { TestingT(t) }

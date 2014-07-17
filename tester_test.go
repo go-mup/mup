@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/niemeyer/mup.v0"
+	"gopkg.in/mup.v0"
 	"gopkg.in/mgo.v2/bson"
 )
 

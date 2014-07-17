@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/niemeyer/mup.v0"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/sendraw"
+	"gopkg.in/mup.v0"
+	_ "gopkg.in/mup.v0/plugins/sendraw"
 )
 
 func Test(t *testing.T) { TestingT(t) }

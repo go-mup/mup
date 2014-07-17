@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/niemeyer/mup.v0/ldap"
+	"gopkg.in/mup.v0/ldap"
 )
 
 func Test(t *testing.T) { TestingT(t) }

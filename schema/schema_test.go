@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"gopkg.in/niemeyer/mup.v0/schema"
+	"gopkg.in/mup.v0/schema"
 
 	. "gopkg.in/check.v1"
 )

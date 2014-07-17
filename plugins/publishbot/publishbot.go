@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/niemeyer/mup.v0"
+	"gopkg.in/mup.v0"
 	"gopkg.in/tomb.v2"
 )
 

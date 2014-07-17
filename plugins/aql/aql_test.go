@@ -8,9 +8,9 @@ import (
 
 	. "gopkg.in/check.v1"
 
-	"gopkg.in/niemeyer/mup.v0"
-	"gopkg.in/niemeyer/mup.v0/ldap"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/aql"
+	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/ldap"
+	_ "gopkg.in/mup.v0/plugins/aql"
 
 	"gopkg.in/mgo.v2/bson"
 	"net/url"

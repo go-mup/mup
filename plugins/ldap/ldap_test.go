@@ -6,9 +6,9 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/niemeyer/mup.v0"
-	"gopkg.in/niemeyer/mup.v0/ldap"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/ldap"
+	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/ldap"
+	_ "gopkg.in/mup.v0/plugins/ldap"
 	"gopkg.in/mgo.v2/bson"
 )
 

@@ -6,8 +6,8 @@ import (
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/niemeyer/mup.v0"
-	_ "gopkg.in/niemeyer/mup.v0/plugins/launchpad"
+	"gopkg.in/mup.v0"
+	_ "gopkg.in/mup.v0/plugins/launchpad"
 	"net/http"
 	"net/http/httptest"
 	"net/url"

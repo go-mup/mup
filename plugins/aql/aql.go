@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/niemeyer/mup.v0"
-	"gopkg.in/niemeyer/mup.v0/ldap"
-	"gopkg.in/niemeyer/mup.v0/schema"
+	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/ldap"
+	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
 )
 

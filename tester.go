@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/niemeyer/mup.v0/schema"
+	"gopkg.in/mup.v0/schema"
 )
 
 type Tester struct {

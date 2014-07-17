@@ -1,8 +1,8 @@
 package echo
 
 import (
-	"gopkg.in/niemeyer/mup.v0"
-	"gopkg.in/niemeyer/mup.v0/schema"
+	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/schema"
 )
 
 var Plugin = mup.PluginSpec{
