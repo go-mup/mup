@@ -3,26 +3,37 @@ package mup
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
+	"gopkg.in/niemeyer/mup.v0/schema"
 	"gopkg.in/tomb.v2"
-	"labix.org/v2/mgo/bson"
 )
 
 var Plugin = mup.PluginSpec{
-	Name:  "ldap",
-	Help:  `Exposes the poke command for searching people on an LDAP directory.
+	Name: "ldap",
+	Help: `Exposes the poke command for searching people on an LDAP directory.
 
 	The search happens against the name (cn) and nick (mozillaNickname)
 	registered in the directory. Information displayed includes nick, name,
 	email, time, and phone numbers.
 	`,
-	Start: startPlugin,
+	Start:    start,
+	Commands: Commands,
 }
+
+var Commands = schema.Commands{{
+	Name: "poke",
+	Help: "Searches people in the LDAP directory.",
+	Args: schema.Args{{
+		Name: "query",
+		Help: "Exact IRC nick (mozillaNickname) or part of the name (cn).",
+		Flag: schema.Required | schema.Trailing,
+	}},
+}}
 
 func init() {
 	mup.RegisterPlugin(&Plugin)
@@ -32,32 +43,22 @@ type ldapPlugin struct {
 	mu       sync.Mutex
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
-	prefix   string
-	messages chan *mup.Message
+	commands chan *mup.Command
 	err      error
 	config   struct {
 		ldap.Config   `bson:",inline"`
-		Command       string
 		HandleTimeout bson.DurationString
 	}
 }
 
-const (
-	defaultCommand       = "poke"
-	defaultHandleTimeout = 500 * time.Millisecond
-)
+const defaultHandleTimeout = 500 * time.Millisecond
 
-func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &ldapPlugin{
 		plugger:  plugger,
-		prefix:   defaultCommand,
-		messages: make(chan *mup.Message),
+		commands: make(chan *mup.Command),
 	}
 	plugger.Config(&p.config)
-	if p.config.Command != "" {
-		p.prefix = p.config.Command
-	}
-	p.prefix += " "
 	if p.config.HandleTimeout.Duration == 0 {
 		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
@@ -70,12 +71,9 @@ func (p *ldapPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *ldapPlugin) HandleMessage(msg *mup.Message) error {
-	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
-		return nil
-	}
+func (p *ldapPlugin) HandleCommand(cmd *mup.Command) error {
 	select {
-	case p.messages <- msg:
+	case p.commands <- cmd:
 	case <-time.After(p.config.HandleTimeout.Duration):
 		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
 		p.mu.Lock()
@@ -84,7 +82,7 @@ func (p *ldapPlugin) HandleMessage(msg *mup.Message) error {
 		if err != nil {
 			reply = err.Error()
 		}
-		p.plugger.Sendf(msg, "%s", reply)
+		p.plugger.Sendf(cmd, "%s", reply)
 	}
 	return nil
 }
@@ -98,8 +96,10 @@ func (p *ldapPlugin) loop() error {
 		p.mu.Lock()
 		p.err = err
 		p.mu.Unlock()
-		for i := 0; i < 10 && p.tomb.Alive(); i++ {
-			time.Sleep(500 * time.Millisecond)
+		select {
+		case <-p.tomb.Dying():
+			return nil
+		case <-time.After(5 * time.Second):
 		}
 	}
 }
@@ -116,10 +116,10 @@ func (p *ldapPlugin) dial() error {
 	p.mu.Unlock()
 	for err == nil {
 		select {
-		case msg := <-p.messages:
-			err = p.handle(conn, msg)
+		case cmd := <-p.commands:
+			err = p.handle(conn, cmd)
 			if err != nil {
-				p.plugger.Sendf(msg, "Error talking to LDAP server: %v", err)
+				p.plugger.Sendf(cmd, "Error talking to LDAP server: %v", err)
 			}
 		case <-time.After(mup.NetworkTimeout):
 			err = conn.Ping()
@@ -156,23 +156,25 @@ var ldapFormat = []struct {
 	{"skypePhone", "<skype:%s>", nil},
 }
 
-func (p *ldapPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
-	query := ldap.EscapeFilter(strings.TrimSpace(msg.MupText[len(p.prefix):]))
+func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) error {
+	var args struct{ Query string }
+	cmd.Args(&args)
+	query := ldap.EscapeFilter(args.Query)
 	search := ldap.Search{
 		Filter: fmt.Sprintf("(|(mozillaNickname=%s)(cn=*%s*))", query, query),
 		Attrs:  ldapAttributes,
 	}
 	result, err := conn.Search(&search)
 	if err != nil {
-		p.plugger.Sendf(msg, "Cannot search LDAP server right now: %v", err)
+		p.plugger.Sendf(cmd, "Cannot search LDAP server right now: %v", err)
 		return fmt.Errorf("cannot search LDAP server: %v", err)
 	}
 	if len(result) > 1 {
-		p.plugger.Sendf(msg, "%s", p.formatEntries(result))
+		p.plugger.Sendf(cmd, "%s", p.formatEntries(result))
 	} else if len(result) > 0 {
-		p.plugger.Sendf(msg, "%s", p.formatEntry(&result[0]))
+		p.plugger.Sendf(cmd, "%s", p.formatEntry(&result[0]))
 	} else {
-		p.plugger.Sendf(msg, "Cannot find anyone matching this. :-(")
+		p.plugger.Sendf(cmd, "Cannot find anyone matching this. :-(")
 	}
 	return nil
 }

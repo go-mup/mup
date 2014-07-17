@@ -1,18 +1,25 @@
 package echo
 
 import (
-	"errors"
-	"fmt"
-	"strings"
-
 	"gopkg.in/niemeyer/mup.v0"
+	"gopkg.in/niemeyer/mup.v0/schema"
 )
 
 var Plugin = mup.PluginSpec{
-	Name:  "echo",
-	Help:  "Exposes a trivial echo command.",
-	Start: startPlugin,
+	Name:     "echo",
+	Help:     "Exposes a trivial echo command.",
+	Start:    start,
+	Commands: Commands,
 }
+
+var Commands = schema.Commands{{
+	Name: "echo",
+	Args: schema.Args{{
+		Name: "text",
+		Help: "Text to echo back.",
+		Flag: schema.Trailing | schema.Required,
+	}},
+}}
 
 func init() {
 	mup.RegisterPlugin(&Plugin)
@@ -20,37 +27,26 @@ func init() {
 
 type echoPlugin struct {
 	plugger *mup.Plugger
-	prefix  string
-	stopped bool
 	config  struct {
-		Command string
-		Error   string
+		Prefix  string
 	}
 }
 
-func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
-	p := &echoPlugin{plugger: plugger, prefix: "echo "}
+func start(plugger *mup.Plugger) (mup.Stopper, error) {
+	p := &echoPlugin{plugger: plugger}
 	plugger.Config(&p.config)
-	if p.config.Command != "" {
-		p.prefix = p.config.Command + " "
-	}
 	return p, nil
 }
 
 func (p *echoPlugin) Stop() error {
-	p.stopped = true
 	return nil
 }
 
-func (p *echoPlugin) HandleMessage(msg *mup.Message) error {
-	if p.stopped {
-		return fmt.Errorf("plugin stopped")
+func (p *echoPlugin) HandleCommand(cmd *mup.Command) error {
+	var args struct{ Text string }
+	cmd.Args(&args)
+	if p.config.Prefix != "" {
+		return p.plugger.Sendf(cmd, "%s%s", p.config.Prefix, args.Text)
 	}
-	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
-		return nil
-	}
-	if p.config.Error != "" {
-		return errors.New(p.config.Error)
-	}
-	return p.plugger.Sendf(msg, "%s", strings.TrimSpace(msg.MupText[len(p.prefix):]))
+	return p.plugger.Sendf(cmd, "%s", args.Text)
 }

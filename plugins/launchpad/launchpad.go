@@ -4,29 +4,31 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"sync"
-	"time"
-
-	"gopkg.in/niemeyer/mup.v0"
-	"gopkg.in/tomb.v2"
-	"io/ioutil"
-	"labix.org/v2/mgo/bson"
 	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/niemeyer/mup.v0"
+	"gopkg.in/niemeyer/mup.v0/schema"
+	"gopkg.in/tomb.v2"
+	"io/ioutil"
 )
 
 var Plugins = []mup.PluginSpec{{
-	Name:  "lpshowbugs",
-	Help:  `Monitors conversations and reports metadata about Launchpad bug numbers mentioned.
+	Name: "lpshowbugs",
+	Help: `Monitors conversations and reports metadata about Launchpad bug numbers mentioned.
 
-	Lookups are performed on text such as "#12345", "bug 123", or "/+bug/123".
+	Lookups are performed on text such as "#12345", "bug 12", or "/+bug/123".
 	Entries such as "RT#123" or "#12" alone (under 10000) are ignored to prevent
 	matching unrelated conversations.
 	`,
-	Start: startShowBugs,
+	Start:    startShowBugs,
+	Commands: ShowBugsCommands,
 }, {
 	Name:  "lptrackbugs",
 	Help:  "Shows status changes on bugs for a selected Launchpad project.",
@@ -35,6 +37,20 @@ var Plugins = []mup.PluginSpec{{
 	Name:  "lptrackmerges",
 	Help:  "Shows status changes on merges for a selected Launchpad project.",
 	Start: startTrackMerges,
+}}
+
+var ShowBugsCommands = schema.Commands{{
+	Name: "bug",
+	Help: `Displays details of the provided Launchpad bugs.
+
+	This commands allows directly asking the bot for a bug. The lpshowbugs
+	plugin can also monitor channel conversations and report bugs mentioned.
+	`,
+	Args: schema.Args{{
+		Name: "ids",
+		Help: "One or more bug ids or urls.",
+		Flag: schema.Trailing,
+	}},
 }}
 
 func init() {
@@ -146,17 +162,35 @@ type lpMessage struct {
 }
 
 func (p *lpPlugin) HandleMessage(msg *mup.Message) error {
-	if p.mode != showBugs {
+	if p.mode != showBugs || msg.ToMup {
 		return nil
 	}
-	bmsg := &lpMessage{msg, parseBugs(msg.Text)}
-	if len(bmsg.bugs) == 0 {
+	bugs := parseBugChat(msg.Text)
+	if len(bugs) == 0 {
+		return nil
+	}
+	return p.handleMessage(&lpMessage{msg, bugs})
+}
+
+func (p *lpPlugin) HandleCommand(cmd *mup.Command) error {
+	var args struct{ Ids string }
+	cmd.Args(&args)
+	bugs, err := parseBugArgs(args.Ids)
+	if err != nil {
+		p.plugger.Sendf(cmd, "Oops: %v", err)
+	}
+	return p.handleMessage(&lpMessage{cmd.Message, bugs})
+}
+
+
+func (p *lpPlugin) handleMessage(lpmsg *lpMessage) error {
+	if len(lpmsg.bugs) == 0 {
 		return nil
 	}
 	select {
-	case p.messages <- bmsg:
+	case p.messages <- lpmsg:
 	case <-time.After(p.config.HandleTimeout.Duration):
-		p.plugger.Sendf(msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
+		p.plugger.Sendf(lpmsg.msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
 	}
 	return nil
 }
@@ -164,8 +198,8 @@ func (p *lpPlugin) HandleMessage(msg *mup.Message) error {
 func (p *lpPlugin) loop() error {
 	for {
 		select {
-		case bmsg := <-p.messages:
-			err := p.handle(bmsg)
+		case lpmsg := <-p.messages:
+			err := p.handle(lpmsg)
 			if err != nil {
 				p.plugger.Logf("Error talking to Launchpad: %v")
 			}
@@ -176,9 +210,9 @@ func (p *lpPlugin) loop() error {
 	return nil
 }
 
-func (p *lpPlugin) handle(bmsg *lpMessage) error {
-	for _, id := range bmsg.bugs {
-		_ = p.showBug(bmsg.msg, id, "")
+func (p *lpPlugin) handle(lpmsg *lpMessage) error {
+	for _, id := range lpmsg.bugs {
+		_ = p.showBug(lpmsg.msg, id, "")
 	}
 	return nil
 }
@@ -215,7 +249,12 @@ func (p *lpPlugin) showBug(to mup.Addressable, bugId int, prefix string) error {
 	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
 		prefix = "Bug #%d"
 	}
-	return p.plugger.Sendf(to, prefix+": %s%s <https://launchpad.net/bugs/%d>", bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId)
+	format := prefix+": %s%s <https://launchpad.net/bugs/%d>"
+	args := []interface{}{bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId}
+	if to == nil {
+		return p.plugger.Broadcastf(format, args...)
+	}
+	return p.plugger.Channelf(to, format, args...)
 }
 
 func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
@@ -267,7 +306,7 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 			p.plugger.Logf("Cannot read Launchpad response: %v", err)
 			return fmt.Errorf("cannot read Launchpad response: %v", err)
 		}
-		*(result.(*[]int)) = parseShowBugs(string(data))
+		*(result.(*[]int)) = parseBugList(string(data))
 		return nil
 	}
 	err = json.NewDecoder(resp.Body).Decode(result)
@@ -278,11 +317,12 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 	return nil
 }
 
-var bugre = regexp.MustCompile(`(?i)(?:bugs?[ /]#?([0-9]+)|(?:^|\W)#([0-9]{5,}))`)
+var bugChat = regexp.MustCompile(`(?i)(?:bugs?[ /]#?([0-9]+)|(?:^|\W)#([0-9]{5,}))`)
+var bugArg = regexp.MustCompile(`^(?i)(?:.*bugs?/)?#?([0-9]+)$`)
 
-func parseBugs(text string) []int {
+func parseBugChat(text string) []int {
 	var bugs []int
-	for _, match := range bugre.FindAllStringSubmatch(text, -1) {
+	for _, match := range bugChat.FindAllStringSubmatch(text, -1) {
 		s := match[1]
 		if s == "" {
 			s = match[2]
@@ -296,7 +336,24 @@ func parseBugs(text string) []int {
 	return bugs
 }
 
-func parseShowBugs(data string) []int {
+func parseBugArgs(text string) ([]int, error) {
+	var bugs []int
+	for _, s := range strings.Fields(text) {
+		match := bugArg.FindStringSubmatch(s)
+		if match == nil {
+			return nil, fmt.Errorf("cannot parse bug id from argument: %s", s)
+		}
+		s := match[1]
+		id, err := strconv.Atoi(s)
+		if err != nil {
+			panic("bug id not an int, which must never happen (regexp is broken)")
+		}
+		bugs = append(bugs, id)
+	}
+	return bugs, nil
+}
+
+func parseBugList(data string) []int {
 	var bugs []int
 	for _, s := range strings.Fields(data) {
 		id, err := strconv.Atoi(s)
@@ -349,9 +406,7 @@ func (p *lpPlugin) pollBugs() error {
 				n++
 				continue
 			}
-
-			// TODO Support plugin targets.
-			p.showBug(mup.Address{Account: "canonical", Channel: "#mup-test"}, bugId, prefix)
+			p.showBug(nil, bugId, prefix)
 		}
 
 		oldBugs = newBugs
@@ -415,9 +470,7 @@ func (p *lpPlugin) pollMerges() error {
 			if !ok || first {
 				continue
 			}
-
-			// TODO Support plugin targets.
-			p.plugger.Sendf(mup.Address{Account: "canonical", Channel: "#mup-test"}, "Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
+			p.plugger.Broadcastf("Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
 		}
 		first = false
 	}

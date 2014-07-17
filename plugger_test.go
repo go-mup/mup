@@ -2,7 +2,7 @@ package mup
 
 import (
 	. "gopkg.in/check.v1"
-	"labix.org/v2/mgo/bson"
+	"gopkg.in/mgo.v2/bson"
 )
 
 var _ = Suite(&PluggerSuite{})

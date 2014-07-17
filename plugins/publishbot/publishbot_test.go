@@ -8,7 +8,7 @@ import (
 	. "gopkg.in/check.v1"
 	"gopkg.in/niemeyer/mup.v0"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/publishbot"
-	"labix.org/v2/mgo/bson"
+	"gopkg.in/mgo.v2/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -32,7 +32,7 @@ func (s *PBotSuite) TestPublishBot(c *C) {
 	tester.SetConfig(bson.M{"addr": ":10423"})
 	tester.SetTargets([]bson.M{
 		{"account": "one", "channel": "#one", "config": bson.M{"accept": []string{"pass:#one"}}},
-		{"account": "one", "channel": "#two", "config": bson.M{"accept": []string{"pass:#one", "pass:#two"}}},
+		{"account": "two", "channel": "#two", "config": bson.M{"accept": []string{"pass:#one", "pass:#two"}}},
 	})
 	tester.Start()
 	time.Sleep(500 * time.Millisecond)
@@ -50,5 +50,5 @@ func (s *PBotSuite) TestPublishBot(c *C) {
 
 	tester.Stop()
 
-	c.Assert(tester.RecvAll(), DeepEquals, []string{"PRIVMSG #one :A", "PRIVMSG #two :A", "PRIVMSG #two :D"})
+	c.Assert(tester.RecvAll(), DeepEquals, []string{"[one] PRIVMSG #one :A", "[two] PRIVMSG #two :A", "[two] PRIVMSG #two :D"})
 }

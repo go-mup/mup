@@ -9,7 +9,7 @@ import (
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/ldap"
-	"labix.org/v2/mgo/bson"
+	"gopkg.in/mgo.v2/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -40,6 +40,11 @@ var ldapTests = []struct {
 	}, {
 		"mup",
 		[]string{"poke tesla"},
+		[]string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
+		nil,
+	}, {
+		"mup",
+		[]string{"poke nikola tesla"},
 		[]string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 		nil,
 	}, {
@@ -99,6 +104,7 @@ var ldapEntries = []ldap.Result{
 
 var ldapResults = map[string][]ldap.Result{
 	"(|(mozillaNickname=tesla)(cn=*tesla*))":               {ldapEntries[0]},
+	"(|(mozillaNickname=nikola tesla)(cn=*nikola tesla*))": {ldapEntries[0]},
 	"(|(mozillaNickname=euler)(cn=*euler*))":               {ldapEntries[1]},
 	"(|(mozillaNickname=eu)(cn=*eu*))":                     {ldapEntries[1], ldapEntries[2]},
 	"(|(mozillaNickname=e)(cn=*e*))":                       ldapEntries,

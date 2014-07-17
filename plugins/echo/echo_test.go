@@ -4,10 +4,9 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/niemeyer/mup.v0"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/echo"
-
-	"labix.org/v2/mgo/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -25,9 +24,8 @@ type echoTest struct {
 
 var echoTests = []echoTest{
 	{"mup", "echo repeat", "PRIVMSG nick :repeat", nil},
-	{"mup", "notecho repeat", "", nil},
-	{"mup", "echonospace", "", nil},
-	{"mup", "myecho hi", "PRIVMSG nick :hi", bson.M{"command": "myecho"}},
+	{"mup", "echo", "PRIVMSG nick :Oops: missing input for argument: text", nil},
+	{"mup", "echo repeat", "PRIVMSG nick :[prefix]repeat", bson.M{"prefix": "[prefix]"}},
 	{"#channel", "mup: echo repeat", "PRIVMSG #channel :nick: repeat", nil},
 	{"#channel", "echo repeat", "", nil},
 }

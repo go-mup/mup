@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -41,9 +42,6 @@ func valueType(arg *Arg) ValueType {
 	if arg.Type != "" {
 		return arg.Type
 	}
-	if strings.HasPrefix(arg.Name, "-") {
-		return Bool
-	}
 	return String
 }
 
@@ -69,14 +67,22 @@ func parseArg(arg *Arg, s string) (interface{}, error) {
 	return value, err
 }
 
-func (cs Commands) Parse(text string) (*Command, interface{}, error) {
+var errInvalid = errors.New("invalid command")
+
+// CommandName returns the command name used in the provided text,
+// or the empty string if no command name could be parsed out of it.
+func CommandName(text string) string {
 	p := parser{text, 0}
 	p.skipSpaces()
 	mark := p.i
 	if !p.skipAlphas() {
-		return nil, nil, fmt.Errorf("invalid command")
+		return ""
 	}
-	name := text[mark:p.i]
+	return text[mark:p.i]
+}
+
+// Command returns the command with the given name, or nil if one is not found.
+func (cs Commands) Command(name string) *Command {
 	var c *Command
 	for i := range cs {
 		if cs[i].Name == name {
@@ -84,8 +90,20 @@ func (cs Commands) Parse(text string) (*Command, interface{}, error) {
 			break
 		}
 	}
-	if c == nil {
-		return nil, nil, fmt.Errorf("unknown command: %s", name)
+	return c
+}
+
+func (c *Command) Parse(text string) (interface{}, error) {
+	p := parser{text, 0}
+
+	p.skipSpaces()
+	mark := p.i
+	if !p.skipAlphas() {
+		return nil, fmt.Errorf("invalid text for command %q: %q", c.Name, text)
+	}
+	name := text[mark:p.i]
+	if name != c.Name {
+		return nil, fmt.Errorf("cannot parse with command %q text meant to %q: %s", c.Name, name, text)
 	}
 
 	// TODO Must require the space here.
@@ -105,7 +123,7 @@ func (cs Commands) Parse(text string) (*Command, interface{}, error) {
 			}
 		}
 		if arg == nil {
-			return nil, nil, fmt.Errorf("unknown argument: %s", text[mark:p.i])
+			return nil, fmt.Errorf("unknown argument: %s", text[mark:p.i])
 		}
 		if len(opts) == 0 {
 			opts = make(map[string]interface{})
@@ -117,12 +135,12 @@ func (cs Commands) Parse(text string) (*Command, interface{}, error) {
 			p.skipNonSpaces()
 			value, err = parseArg(arg, text[mark:p.i])
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		} else if arg.Type == "" || arg.Type == Bool {
 			value = true
 		} else {
-			return nil, nil, fmt.Errorf("missing value for argument: %s=%s", arg.Name, arg.Type)
+			return nil, fmt.Errorf("missing value for argument: %s=%s", arg.Name, arg.Type)
 		}
 		opts[arg.Name[1:]] = value
 		p.skipSpaces()
@@ -152,7 +170,7 @@ func (cs Commands) Parse(text string) (*Command, interface{}, error) {
 			var err error
 			opts[arg.Name], err = parseArg(arg, s)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		} else if arg.Flag&Required != 0 {
 			missing = append(missing, arg.Name)
@@ -161,27 +179,20 @@ func (cs Commands) Parse(text string) (*Command, interface{}, error) {
 	}
 
 	if len(missing) > 0 {
-		return nil, nil, fmt.Errorf("missing input for arguments: %s", strings.Join(missing, ", "))
+		return nil, fmt.Errorf("missing input for argument%s: %s", plural(len(missing), "", "s"), strings.Join(missing, ", "))
 	}
 
 	if p.i < len(text) {
-		return nil, nil, fmt.Errorf("unexpected input: %s", text[p.i:])
+		return nil, fmt.Errorf("unexpected input: %s", text[p.i:])
 	}
-	return c, opts, nil
+	return opts, nil
 }
 
-func (cs Commands) Command(name string) (*Command, error) {
-	var c *Command
-	for i := range cs {
-		if cs[i].Name == name {
-			c = &cs[i]
-			break
-		}
+func plural(n int, singular, plural string) string {
+	if n > 1 {
+		return plural
 	}
-	if c == nil {
-		return nil, fmt.Errorf("unknown command: %s", name)
-	}
-	return c, nil
+	return singular
 }
 
 type parser struct {
@@ -206,16 +217,17 @@ func (p *parser) skipAlphas() bool {
 }
 
 func (p *parser) skipFunc(f func(rune) bool, when bool) bool {
-	i := p.i
-	for _, c := range p.text[p.i:] {
+	for i, c := range p.text[p.i:] {
 		if f(c) != when {
-			break
+			p.i += i
+			return true
 		}
-		i++
 	}
-	skipped := i != p.i
-	p.i = i
-	return skipped
+	if p.i < len(p.text) {
+		p.i = len(p.text)
+		return true
+	}
+	return false
 }
 
 func (p *parser) skipByte(b byte) bool {

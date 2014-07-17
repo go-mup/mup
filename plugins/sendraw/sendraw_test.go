@@ -21,11 +21,14 @@ type sendrawTest struct {
 
 var sendrawTests = []sendrawTest{
 	{
-		"sendraw foo",
-		[]string{"PRIVMSG nick :Usage: sendraw <account> <raw IRC message>"},
+		"sendraw",
+		[]string{"PRIVMSG nick :Oops: missing input for argument: message"},
 	}, {
-		"sendraw one NOTICE foo :Heya!",
-		[]string{"NOTICE foo :Heya!", "PRIVMSG nick :Done."},
+		"sendraw NOTICE foo :text",
+		[]string{"NOTICE foo :text", "PRIVMSG nick :Done."},
+	}, {
+		"sendraw -account=other PRIVMSG bar :text",
+		[]string{"[other] PRIVMSG bar :text", "PRIVMSG nick :Done."},
 	},
 }
 

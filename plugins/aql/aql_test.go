@@ -12,7 +12,7 @@ import (
 	"gopkg.in/niemeyer/mup.v0/ldap"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/aql"
 
-	"labix.org/v2/mgo/bson"
+	"gopkg.in/mgo.v2/bson"
 	"net/url"
 	"strconv"
 	"strings"
@@ -33,6 +33,7 @@ type smsTest struct {
 	recv         []string
 	fail         bool
 	config       bson.M
+	targets      []bson.M
 	messages     []aqlMessage
 	gatewayForm  url.Values
 	retrieveForm url.Values
@@ -47,8 +48,23 @@ var smsTests = []smsTest{{
 	recv: []string{"PRIVMSG nick :SMS delivery failed: Error message from gateway."},
 	fail: true,
 }, {
-	target: "#channel",
+	target: "#chan",
 	send:   []string{"sms tesla Ignore me."},
+}, {
+	target: "#chan",
+	send:   []string{"mup: sms tesla Hey there"},
+	recv:   []string{"PRIVMSG #chan :nick: SMS is on the way!"},
+	config: bson.M{
+		"aqluser": "myuser",
+		"aqlpass": "mypass",
+	},
+	gatewayForm: url.Values{
+		"destination": {"+11223344"},
+		"message":     {"#chan nick> Hey there"},
+		"originator":  {"+447766404142"},
+		"username":    {"myuser"},
+		"password":    {"mypass"},
+	},
 }, {
 	send: []string{"sms tésla Hey there"},
 	recv: []string{"PRIVMSG nick :SMS is on the way!"},
@@ -64,33 +80,26 @@ var smsTests = []smsTest{{
 		"password":    {"mypass"},
 	},
 }, {
-	target: "#channel",
-	send:   []string{"mup: sms tesla Hey there"},
-	recv:   []string{"PRIVMSG #channel :nick: SMS is on the way!"},
-	config: bson.M{
-		"aqluser": "myuser",
-		"aqlpass": "mypass",
-	},
-	gatewayForm: url.Values{
-		"destination": {"+11223344"},
-		"message":     {"#channel nick> Hey there"},
-		"originator":  {"+447766404142"},
-		"username":    {"myuser"},
-		"password":    {"mypass"},
-	},
-}, {
 	recv: []string{
-		"PRIVMSG mup :[SMS] <++99> One",
-		"PRIVMSG #ch :[SMS] <tesla> Two",
-		"PRIVMSG #ch :Answer with: !sms tesla <your message>",
+		"[one] PRIVMSG nick :[SMS] <++99> A",
+		"[three] PRIVMSG nick :[SMS] <++99> A",
+		"[two] PRIVMSG #chan :[SMS] <tesla> B",
+		"[two] PRIVMSG #chan :Answer with: !sms tesla <your message>",
+		"[three] PRIVMSG #chan :[SMS] <tesla> B",
+		"[three] PRIVMSG #chan :Answer with: !sms tesla <your message>",
 	},
 	config: bson.M{
 		"aqlkeyword": "yo",
 		"polldelay":  "100ms",
 	},
+	targets: []bson.M{
+		{"account": "one", "nick": "nick"},
+		{"account": "two", "channel": "#chan"},
+		{"account": "three"},
+	},
 	messages: []aqlMessage{
-		{Key: 12, Message: "mup One", Sender: "+99"},
-		{Key: 34, Message: "#ch Two", Sender: "+55"},
+		{Key: 12, Message: "nick A", Sender: "+99"},
+		{Key: 34, Message: "#chan B", Sender: "+55"},
 	},
 	retrieveForm: url.Values{
 		"keyword": {"yo"},
@@ -98,7 +107,7 @@ var smsTests = []smsTest{{
 	deletedKeys: []int{12, 34},
 }}
 
-func (s *S) SetUpSuite(c *C) {
+func (s *S) SetUpTest(c *C) {
 	ldap.TestDial = func(config *ldap.Config) (ldap.Conn, error) {
 		s.ldapConfig = config
 		return &ldapConn{config}, nil
@@ -107,7 +116,7 @@ func (s *S) SetUpSuite(c *C) {
 	mup.SetDebug(true)
 }
 
-func (s *S) TearDownSuite(c *C) {
+func (s *S) TearDownTest(c *C) {
 	ldap.TestDial = nil
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
@@ -132,6 +141,7 @@ func (s *S) TestSMS(c *C) {
 
 		tester := mup.NewTest("aql")
 		tester.SetConfig(test.config)
+		tester.SetTargets(test.targets)
 		tester.Start()
 		tester.SendAll(test.target, test.send)
 

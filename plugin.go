@@ -3,20 +3,23 @@ package mup
 import (
 	"bytes"
 	"fmt"
-	"time"
-
-	"gopkg.in/tomb.v2"
-	"labix.org/v2/mgo"
-	"labix.org/v2/mgo/bson"
 	"strings"
 	"sync"
+	"time"
+
+	"gopkg.in/niemeyer/mup.v0/schema"
+	"gopkg.in/tomb.v2"
+
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
 // PluginSpec holds the specification of a plugin that may be registered with mup.
 type PluginSpec struct {
-	Name  string
-	Help  string
-	Start func(p *Plugger) (Stopper, error)
+	Name     string
+	Help     string
+	Start    func(p *Plugger) (Stopper, error)
+	Commands schema.Commands
 }
 
 // Stopper is implemented by types that can run arbitrary background
@@ -35,7 +38,20 @@ type CommandHandler interface {
 	HandleCommand(cmd *Command) error
 }
 
-type Command struct{}
+type Command struct {
+	*Message
+
+	schema *schema.Command
+	args   bson.Raw
+}
+
+func (c *Command) Schema() *schema.Command {
+	return c.schema
+}
+
+func (c *Command) Args(result interface{}) {
+	c.args.Unmarshal(result)
+}
 
 var registeredPlugins = make(map[string]*PluginSpec)
 
@@ -59,12 +75,11 @@ type pluginInfo struct {
 	State   bson.Raw
 }
 
-type pluginHandle struct {
+type pluginState struct {
 	info    pluginInfo
+	spec    *PluginSpec
 	plugger *Plugger
-	message func(msg *Message) error
-	command func(cmd *Command) error
-	stop    func() error
+	plugin  Stopper
 }
 
 type pluginManager struct {
@@ -72,7 +87,7 @@ type pluginManager struct {
 	config   Config
 	session  *mgo.Session
 	database *mgo.Database
-	plugins  map[string]*pluginHandle
+	plugins  map[string]*pluginState
 	requests chan interface{}
 	incoming chan *Message
 	outgoing *mgo.Collection
@@ -83,7 +98,7 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	logf("Starting plugins...")
 	m := &pluginManager{
 		config:   config,
-		plugins:  make(map[string]*pluginHandle),
+		plugins:  make(map[string]*pluginState),
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
 		rollback: make(chan bson.ObjectId),
@@ -122,8 +137,8 @@ func (m *pluginManager) Refresh() {
 func (m *pluginManager) die() {
 	var wg sync.WaitGroup
 	wg.Add(len(m.plugins))
-	for _, handle := range m.plugins {
-		stop := handle.stop
+	for _, state := range m.plugins {
+		stop := state.plugin.Stop
 		go func() {
 			stop()
 			wg.Done()
@@ -150,17 +165,13 @@ func (m *pluginManager) loop() error {
 			if msg.Command == cmdPong {
 				continue
 			}
-			for name, handle := range m.plugins {
-				if handle.info.LastId >= msg.Id || handle.plugger.Target(msg) == nil {
+			cmdName := schema.CommandName(msg.MupText)
+			for name, state := range m.plugins {
+				if state.info.LastId >= msg.Id || state.plugger.Target(msg) == nil {
 					continue
 				}
-				handle.info.LastId = msg.Id
-				if handle.message != nil {
-					err := handle.message(msg)
-					if err != nil {
-						logf("Plugin %q failed to handle message: %s: %v", name, msg, err)
-					}
-				}
+				state.info.LastId = msg.Id
+				state.handle(msg, cmdName)
 				err := plugins.UpdateId(name, bson.D{{"$set", bson.D{{"lastid", msg.Id}}}})
 				if err != nil {
 					logf("Cannot update last message id for plugin %q: %v", name, err)
@@ -202,13 +213,13 @@ func (m *pluginManager) handleRefresh() {
 	var rollbackId bson.ObjectId
 	for i := range infos {
 		info := &infos[i]
-		if handle, ok := m.plugins[info.Name]; ok {
+		if state, ok := m.plugins[info.Name]; ok {
 			found++
-			if !pluginChanged(&handle.info, info) {
+			if !pluginChanged(&state.info, info) {
 				continue
 			}
 			logf("Plugin %q config or targets changed. Stopping and restarting it.", info.Name)
-			err := handle.stop()
+			err := state.plugin.Stop()
 			if err != nil {
 				logf("Plugin %q stopped with an error: %v", info.Name, err)
 			}
@@ -217,14 +228,14 @@ func (m *pluginManager) handleRefresh() {
 			logf("Plugin %q starting.", info.Name)
 		}
 
-		handle, err := m.startPlugin(info)
+		state, err := m.startPlugin(info)
 		if err != nil {
 			logf("Plugin %q failed to start: %v", info.Name, err)
 			continue
 		}
-		m.plugins[info.Name] = handle
-		if rollbackId == "" || rollbackId > handle.info.LastId {
-			rollbackId = handle.info.LastId
+		m.plugins[info.Name] = state
+		if rollbackId == "" || rollbackId > state.info.LastId {
+			rollbackId = state.info.LastId
 		}
 	}
 
@@ -232,16 +243,16 @@ func (m *pluginManager) handleRefresh() {
 	// set of plugins, they must be stopped and removed.
 	if known != found {
 	NextPlugin:
-		for name, handle := range m.plugins {
+		for name, state := range m.plugins {
 			for i := range infos {
 				if infos[i].Name == name {
 					continue NextPlugin
 				}
 			}
-			logf("Plugin %q removed. Stopping it.", handle.info.Name)
-			err := handle.stop()
+			logf("Plugin %q removed. Stopping it.", state.info.Name)
+			err := state.plugin.Stop()
 			if err != nil {
-				logf("Plugin %q stopped with an error: %v", handle.info.Name, err)
+				logf("Plugin %q stopped with an error: %v", state.info.Name, err)
 			}
 			delete(m.plugins, name)
 		}
@@ -285,7 +296,7 @@ func pluginKey(pluginName string) string {
 	return pluginName
 }
 
-func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandle, error) {
+func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 	spec, ok := registeredPlugins[pluginKey(info.Name)]
 	if !ok {
 		logf("Plugin is not registered: %s", pluginKey(info.Name))
@@ -299,23 +310,18 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginHandle, error) {
 		logf("Cannot start plugin %q: %v", info.Name, err)
 		return nil, fmt.Errorf("cannot start plugin %q: %v", info.Name, err)
 	}
-	handle := &pluginHandle{
+	state := &pluginState{
 		info:    *info,
+		spec:    spec,
 		plugger: plugger,
-		stop:    plugin.Stop,
-	}
-	if h, ok := plugin.(MessageHandler); ok {
-		handle.message = h.HandleMessage
-	}
-	if h, ok := plugin.(CommandHandler); ok {
-		handle.command = h.HandleCommand
+		plugin:  plugin,
 	}
 
 	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
-	if !handle.info.LastId.Valid() || handle.info.LastId < lastId {
-		handle.info.LastId = lastId
+	if !state.info.LastId.Valid() || state.info.LastId < lastId {
+		state.info.LastId = lastId
 	}
-	return handle, nil
+	return state, nil
 }
 
 func (m *pluginManager) sendMessage(msg *Message) error {
@@ -381,6 +387,55 @@ NextTail:
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+	return nil
+}
 
+func (state *pluginState) handle(msg *Message, cmdName string) error {
+	err1 := state.handleCommand(msg, cmdName)
+	err2 := state.handleMessage(msg)
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+
+func (state *pluginState) handleCommand(msg *Message, cmdName string) error {
+	if cmdName == "" {
+		return nil
+	}
+	handler, ok := state.plugin.(CommandHandler)
+	if !ok {
+		return nil
+	}
+	cmdSchema := state.spec.Commands.Command(cmdName)
+	if cmdSchema == nil {
+		return nil
+	}
+	args, err := cmdSchema.Parse(msg.MupText)
+	if err != nil {
+		state.plugger.Sendf(msg, "Oops: %v", err)
+		return err
+	}
+	cmd := &Command{
+		Message: msg,
+		schema:  cmdSchema,
+		args:    marshalRaw(args),
+	}
+	err = handler.HandleCommand(cmd)
+	if err != nil {
+		logf("Plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
+		return fmt.Errorf("plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
+	}
+	return nil
+}
+
+func (state *pluginState) handleMessage(msg *Message) error {
+	if handler, ok := state.plugin.(MessageHandler); ok {
+		err := handler.HandleMessage(msg)
+		if err != nil {
+			logf("Plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
+			return fmt.Errorf("plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
+		}
+	}
 	return nil
 }

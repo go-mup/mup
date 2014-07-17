@@ -2,7 +2,6 @@ package schema_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"gopkg.in/niemeyer/mup.v0/schema"
@@ -50,19 +49,21 @@ var commands = schema.Commands{{
 	Name: "cmd3",
 	Help: help("cmd3"),
 	Args: schema.Args{{
+		Name: "-arg2",
+		Help: help("arg2"),
+		Flag: schema.Required,
+		Type: schema.Bool,
+	}, {
+		Name: "-arg3",
+		Help: help("arg3"),
+		Type: schema.Bool,
+	}, {
 		Name: "arg0",
 		Help: help("arg0"),
 		Flag: schema.Required,
 	}, {
 		Name: "arg1",
 		Help: help("arg1"),
-	}, {
-		Name: "-arg2",
-		Help: help("arg2"),
-		Flag: schema.Required,
-	}, {
-		Name: "-arg3",
-		Help: help("arg3"),
 	}},
 }, {
 	Name: "cmd4",
@@ -104,6 +105,16 @@ var commands = schema.Commands{{
 		Help: help("boolB"),
 		Type: schema.Bool,
 	}},
+}, {
+	Name: "çmd6",
+	Help: help("çmd6"),
+	Args: schema.Args{{
+		Name: "-árg0",
+		Help: help("árg0"),
+	}, {
+		Name: "árg1",
+		Help: help("árg1"),
+	}},
 }}
 
 func help(name string) string {
@@ -115,17 +126,6 @@ var parseTests = []struct {
 	opts  map[string]interface{}
 	error string
 }{
-
-	// Basic errors.
-	{
-		text:  "'",
-		error: "invalid command",
-	},
-	{
-		text:  "bad foo",
-		error: "unknown command: bad",
-	},
-
 	// Simple positional argument handling.
 	{
 		text: "cmd0",
@@ -137,7 +137,7 @@ var parseTests = []struct {
 		error: "missing input for arguments: arg0, arg1",
 	}, {
 		text:  "cmd1 val0",
-		error: "missing input for arguments: arg1",
+		error: "missing input for argument: arg1",
 	}, {
 		text: " cmd1  val0  val1 ",
 		opts: map[string]interface{}{"arg0": "val0", "arg1": "val1"},
@@ -155,7 +155,7 @@ var parseTests = []struct {
 		error: "missing input for arguments: arg0, arg1",
 	}, {
 		text:  "cmd2 val0",
-		error: "missing input for arguments: arg1",
+		error: "missing input for argument: arg1",
 	}, {
 		text: "cmd2 val0 val1",
 		opts: map[string]interface{}{"arg0": "val0", "arg1": "val1"},
@@ -170,13 +170,13 @@ var parseTests = []struct {
 		error: "unknown argument: -arg0",
 	}, {
 		text:  "cmd3 -arg2",
-		error: "missing input for arguments: arg0",
+		error: "missing input for argument: arg0",
 	}, {
 		text:  "cmd3 -arg4",
 		error: "unknown argument: -arg4",
 	}, {
 		text:  "cmd3 arg0",
-		error: "missing input for arguments: -arg2",
+		error: "missing input for argument: -arg2",
 	}, {
 		text: "cmd3 -arg2 val0",
 		opts: map[string]interface{}{"arg0": "val0", "arg2": true},
@@ -218,18 +218,30 @@ var parseTests = []struct {
 		text: "cmd5 -boolB=true",
 		opts: map[string]interface{}{"boolB": true},
 	},
+
+	// UTF-8 handling.
+	{
+		text: "çmd6 -árg0=vál0 vál1",
+		opts: map[string]interface{}{
+			"árg0": "vál0",
+			"árg1": "vál1",
+		},
+	},
 }
 
 func (s *S) TestCommandParse(c *C) {
 	for _, test := range parseTests {
 		c.Logf("Processing command line: %q", test.text)
-		cmd, opts, err := commands.Parse(test.text)
+		name := schema.CommandName(test.text)
+		cmd := commands.Command(name)
+		if cmd == nil {
+			c.Fatalf("Cannot find command %q", name)
+		}
+		opts, err := cmd.Parse(test.text)
 		if test.error != "" {
 			c.Assert(err, ErrorMatches, test.error)
 		} else {
 			c.Assert(err, IsNil)
-			c.Assert(cmd, NotNil)
-			c.Assert(cmd.Name, Equals, strings.Fields(test.text)[0])
 			c.Assert(opts, DeepEquals, test.opts)
 		}
 	}

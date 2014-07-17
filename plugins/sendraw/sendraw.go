@@ -1,20 +1,35 @@
 package sendraw
 
 import (
-	"strings"
-
 	"gopkg.in/niemeyer/mup.v0"
+	"gopkg.in/niemeyer/mup.v0/schema"
 )
 
 var Plugin = mup.PluginSpec{
-	Name:  "sendraw",
-	Help:  `Exposes the sendraw command for raw IRC message sending.
+	Name: "sendraw",
+	Help: `Exposes the sendraw command for raw IRC message sending.
 
 	This is an administration tool, and must be enabled with great care. People
 	with access can have the bot communicating arbitrarily with the server.
 	`,
-	Start: startPlugin,
+	Start:    start,
+	Commands: Commands,
 }
+
+var Commands = schema.Commands{{
+	Name: "sendraw",
+	Help: "Send the provided text as a raw IRC protocol messagae.",
+	Args: schema.Args{{
+		Name: "-account",
+		Help: "Account to send the message to. Defaults to the current one.",
+		Type: schema.String,
+	}, {
+		Name: "message",
+		Help: "Raw IRC message to send.",
+		Type: schema.String,
+		Flag: schema.Required | schema.Trailing,
+	}},
+}}
 
 func init() {
 	mup.RegisterPlugin(&Plugin)
@@ -22,37 +37,22 @@ func init() {
 
 type sendrawPlugin struct {
 	plugger *mup.Plugger
-	prefix  string
-	stopped bool
-	config  struct {
-		Command string
-		Error   string
-	}
 }
 
-func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
-	p := &sendrawPlugin{plugger: plugger, prefix: "sendraw "}
-	plugger.Config(&p.config)
-	if p.config.Command != "" {
-		p.prefix = p.config.Command + " "
-	}
-	return p, nil
+func start(plugger *mup.Plugger) (mup.Stopper, error) {
+	return &sendrawPlugin{plugger: plugger}, nil
 }
 
 func (p *sendrawPlugin) Stop() error {
 	return nil
 }
 
-func (p *sendrawPlugin) HandleMessage(msg *mup.Message) error {
-	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
-		return nil
+func (p *sendrawPlugin) HandleCommand(cmd *mup.Command) error {
+	var args struct{ Account, Message string }
+	cmd.Args(&args)
+	if args.Account == "" {
+		args.Account = cmd.Account
 	}
-	text := strings.TrimLeft(msg.MupText[len(p.prefix):], " ")
-	i := strings.Index(text, " ")
-	if i < 1 {
-		p.plugger.Sendf(msg, "Usage: sendraw <account> <raw IRC message>")
-		return nil
-	}
-	p.plugger.Send(mup.ParseOutgoing(text[:i], strings.TrimLeft(text[i+1:], " ")))
-	return p.plugger.Sendf(msg, "Done.")
+	p.plugger.Send(mup.ParseOutgoing(args.Account, args.Message))
+	return p.plugger.Sendf(cmd, "Done.")
 }

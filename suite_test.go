@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	. "gopkg.in/check.v1"
-	"gopkg.in/tomb.v2"
-	"labix.org/v2/mgo"
 	"net"
 	"os/exec"
 	"sync"
 	"time"
+
+	. "gopkg.in/check.v1"
+	"gopkg.in/tomb.v2"
+	"gopkg.in/mgo.v2"
 )
 
 type M map[string]interface{}

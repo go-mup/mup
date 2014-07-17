@@ -14,7 +14,7 @@ import (
 	_ "gopkg.in/niemeyer/mup.v0/plugins/publishbot"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/sendraw"
 
-	"labix.org/v2/mgo"
+	"gopkg.in/mgo.v2"
 )
 
 func main() {

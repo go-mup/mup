@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/niemeyer/mup.v0"
 	_ "gopkg.in/niemeyer/mup.v0/plugins/launchpad"
-	"labix.org/v2/mgo/bson"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,6 +28,7 @@ type lpTest struct {
 	send     []string
 	recv     []string
 	config   bson.M
+	targets  []bson.M
 	bugsText [][]int
 	bugsForm url.Values
 }
@@ -35,8 +36,25 @@ type lpTest struct {
 var lpTests = []lpTest{
 	{
 		plugin: "lpshowbugs",
+		send:   []string{"bug foo"},
+		recv:   []string{"PRIVMSG nick :Oops: cannot parse bug id from argument: foo"},
+	}, {
+		plugin: "lpshowbugs",
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>"},
+	}, {
+		plugin: "lpshowbugs",
+		send:   []string{"bug 111 +bug/222 bugs/333"},
+		recv:   []string{
+			"PRIVMSG nick :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+			"PRIVMSG nick :Bug #222: Title of 222 <https://launchpad.net/bugs/222>",
+			"PRIVMSG nick :Bug #333: Title of 333 <https://launchpad.net/bugs/333>",
+		},
+	}, {
+		plugin: "lpshowbugs",
+		target: "#chan",
+		send:   []string{"foo bug #111"},
+		recv:   []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		plugin: "lptrackbugs",
 		config: bson.M{
@@ -46,15 +64,18 @@ var lpTests = []lpTest{
 			"prefixold": "Bug #%d is old",
 			"options":   "foo=bar",
 		},
+		targets: []bson.M{
+			{"account": "test", "channel": "#chan"},
+		},
 		bugsText: [][]int{{111, 333, 444, 555}, {111, 222, 444, 666}},
 		bugsForm: url.Values{
 			"foo": {"bar"},
 		},
 		recv: []string{
-			"PRIVMSG #mup-test :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
-			"PRIVMSG #mup-test :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
-			"PRIVMSG #mup-test :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
-			"PRIVMSG #mup-test :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
+			"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
+			"PRIVMSG #chan :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
+			"PRIVMSG #chan :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
+			"PRIVMSG #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
 		},
 	}, {
 		plugin: "lptrackmerges",
@@ -62,11 +83,14 @@ var lpTests = []lpTest{
 			"project":   "some-project",
 			"polldelay": "50ms",
 		},
+		targets: []bson.M{
+			{"account": "test", "channel": "#chan"},
+		},
 		recv: []string{
-			"PRIVMSG #mup-test :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
-			"PRIVMSG #mup-test :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
-			"PRIVMSG #mup-test :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
-			"PRIVMSG #mup-test :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
+			"PRIVMSG #chan :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"PRIVMSG #chan :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
+			"PRIVMSG #chan :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"PRIVMSG #chan :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
 		},
 	},
 }
@@ -94,6 +118,7 @@ func (s *S) TestLaunchpad(c *C) {
 		test.config["baseurl"] = server.URL()
 		tester := mup.NewTest(test.plugin)
 		tester.SetConfig(test.config)
+		tester.SetTargets(test.targets)
 		tester.Start()
 		tester.SendAll(test.target, test.send)
 		if test.config["polldelay"] != "" {

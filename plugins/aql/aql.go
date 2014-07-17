@@ -12,17 +12,53 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/niemeyer/mup.v0"
 	"gopkg.in/niemeyer/mup.v0/ldap"
+	"gopkg.in/niemeyer/mup.v0/schema"
 	"gopkg.in/tomb.v2"
-	"labix.org/v2/mgo/bson"
 )
 
 var Plugin = mup.PluginSpec{
-	Name:  "aql",
-	Help:  "Integrates mup with AQL's SMS delivery system.",
-	Start: startPlugin,
+	Name: "aql",
+	Help: `Integrates the bot with AQL's SMS delivery gateway.
+
+	The configured LDAP directory is queried for a person with the
+	provided IRC nick (mozillaNickname) and a phone (mobile) in
+	international format (+NN...). The message sender must also be
+	registered in the LDAP directory with the IRC nick in use.
+
+	The plugin also allows people to send SMS messages into IRC on
+	one of the configured plugin targets. The message must be
+	addressed to AQL's shared number in the UK (+447766404142) and
+	have the format "<keyword> <nick or channel> <message>". The
+	keyword must be reserved via AQL's interface and informed in
+	the plugin configuration.
+
+	Incoming SMS messages first go to custom HTTP server that acts
+	as a proxy, receiving messages pushed from AQL via HTTP, and
+	storing them until the plugin pulls the message and forwards
+	it to the appropriate account. The role of that proxy is
+	offering an increased availability to reduce the chances of
+	AQL's HTTP requests ever getting lost.
+	`,
+	Start:    start,
+	Commands: Commands,
 }
+
+var Commands = schema.Commands{{
+	Name: "sms",
+	Help: "Sends an SMS message.",
+	Args: schema.Args{{
+		Name: "nick",
+		Help: "IRC nick of the person whose phone number should receive the SMS message.",
+		Flag: schema.Required,
+	}, {
+		Name: "message",
+		Help: "Message to be sent.",
+		Flag: schema.Required | schema.Trailing,
+	}},
+}}
 
 func init() {
 	mup.RegisterPlugin(&Plugin)
@@ -34,15 +70,12 @@ type aqlPlugin struct {
 	mu       sync.Mutex
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
-	prefix   string
-	messages chan *mup.Message
+	commands chan *mup.Command
 	smses    chan *smsMessage
 	err      error
 	config   struct {
 		ldap.Config `bson:",inline"`
 
-		Command    string
-		Account    string
 		AQLProxy   string
 		AQLUser    string
 		AQLPass    string
@@ -55,23 +88,17 @@ type aqlPlugin struct {
 }
 
 const (
-	defaultCommand       = "sms"
 	defaultHandleTimeout = 500 * time.Millisecond
 	defaultPollDelay     = 10 * time.Second
 )
 
-func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &aqlPlugin{
 		plugger:  plugger,
-		prefix:   defaultCommand,
-		messages: make(chan *mup.Message),
+		commands: make(chan *mup.Command),
 		smses:    make(chan *smsMessage),
 	}
 	plugger.Config(&p.config)
-	if p.config.Command != "" {
-		p.prefix = p.config.Command
-	}
-	p.prefix += " "
 	if p.config.HandleTimeout.Duration == 0 {
 		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
@@ -82,7 +109,6 @@ func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
 		p.config.AQLGateway = "https://gw.aql.com/sms/sms_gw.php"
 	}
 	p.tomb.Go(p.loop)
-	p.tomb.Go(p.poll)
 	return p, nil
 }
 
@@ -91,12 +117,9 @@ func (p *aqlPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *aqlPlugin) HandleMessage(msg *mup.Message) error {
-	if !msg.ToMup || !strings.HasPrefix(msg.MupText, p.prefix) {
-		return nil
-	}
+func (p *aqlPlugin) HandleCommand(cmd *mup.Command) error {
 	select {
-	case p.messages <- msg:
+	case p.commands <- cmd:
 	case <-time.After(p.config.HandleTimeout.Duration):
 		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
 		p.mu.Lock()
@@ -105,12 +128,13 @@ func (p *aqlPlugin) HandleMessage(msg *mup.Message) error {
 		if err != nil {
 			reply = err.Error()
 		}
-		p.plugger.Sendf(msg, "%s", reply)
+		p.plugger.Sendf(cmd, "%s", reply)
 	}
 	return nil
 }
 
 func (p *aqlPlugin) loop() error {
+	p.tomb.Go(p.poll)
 	for {
 		err := p.forward()
 		if !p.tomb.Alive() {
@@ -137,11 +161,8 @@ func (p *aqlPlugin) forward() error {
 	p.mu.Unlock()
 	for err == nil {
 		select {
-		case msg := <-p.messages:
-			err = p.handle(conn, msg)
-			if err != nil {
-				p.plugger.Sendf(msg, "Error sending SMS: %v", err)
-			}
+		case cmd := <-p.commands:
+			p.handle(conn, cmd)
 		case sms := <-p.smses:
 			err = p.receiveSMS(conn, sms)
 		case <-time.After(mup.NetworkTimeout):
@@ -153,56 +174,49 @@ func (p *aqlPlugin) forward() error {
 	return err
 }
 
-func (p *aqlPlugin) handle(conn ldap.Conn, msg *mup.Message) error {
-	query := strings.TrimSpace(msg.MupText[len(p.prefix):])
-	fields := strings.SplitN(query, " ", 2)
-	for i := range fields {
-		fields[i] = strings.TrimSpace(fields[i])
-	}
-	if len(fields) != 2 || len(fields[0]) == 0 || len(fields[1]) == 0 {
-		p.plugger.Sendf(msg, "Command looks like: sms <nick> <message>")
-		return nil
-	}
-	nick := fields[0]
-	text := fields[1]
+func (p *aqlPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
+	var args struct{ Nick, Message string }
+	cmd.Args(&args)
 	search := &ldap.Search{
-		Filter: fmt.Sprintf("(mozillaNickname=%s)", ldap.EscapeFilter(nick)),
+		Filter: fmt.Sprintf("(mozillaNickname=%s)", ldap.EscapeFilter(args.Nick)),
 		Attrs:  []string{"mozillaNickname", "mobile"},
 	}
 	results, err := conn.Search(search)
 	if err != nil {
-		p.plugger.Sendf(msg, "Cannot search LDAP server right now: %v", err)
-		return fmt.Errorf("cannot search LDAP server: %v", err)
+		p.plugger.Logf("Cannot search LDAP server: %v", err)
+		p.plugger.Sendf(cmd, "Cannot search LDAP server right now: %v", err)
+		return
 	}
 	if len(results) == 0 {
-		p.plugger.Sendf(msg, "Cannot find anyone with that IRC nick in the directory. :-(")
-		return nil
+		p.plugger.Logf("Cannot find requested query in LDAP server: %q", args.Nick)
+		p.plugger.Sendf(cmd, "Cannot find anyone with that IRC nick in the directory. :-(")
+		return
 	}
 	receiver := results[0]
 	mobile := receiver.Value("mobile")
 	if mobile == "" {
-		p.plugger.Sendf(msg, "Person doesn't have a mobile phone in the directory.")
+		p.plugger.Sendf(cmd, "Person doesn't have a mobile phone in the directory.")
 	} else if !strings.HasPrefix(mobile, "+") {
-		p.plugger.Sendf(msg, "This person's mobile number is not in international format (+XX...): %s", mobile)
+		p.plugger.Sendf(cmd, "This person's mobile number is not in international format (+NN...): %s", mobile)
 	} else {
-		err := p.sendSMS(msg, nick, text, receiver)
+		err := p.sendSMS(cmd, args.Nick, args.Message, receiver)
 		if err != nil {
-			p.plugger.Sendf(msg, "Error sending SMS to %s (%s): %v", nick, mobile, err)
+			p.plugger.Logf("Error sending SMS to %s (%s): %v", args.Nick, mobile, err)
+			p.plugger.Sendf(cmd, "Error sending SMS to %s (%s): %v", args.Nick, mobile, err)
 		}
 	}
-	return nil
 }
 
 func isChannel(name string) bool {
 	return name != "" && (name[0] == '#' || name[0] == '&') && !strings.ContainsAny(name, " ,\x07")
 }
 
-func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.Result) error {
+func (p *aqlPlugin) sendSMS(cmd *mup.Command, nick, message string, receiver ldap.Result) error {
 	var content string
-	if msg.Channel != "" {
-		content = fmt.Sprintf("%s %s> %s", msg.Channel, msg.Nick, text)
+	if cmd.Channel != "" {
+		content = fmt.Sprintf("%s %s> %s", cmd.Channel, cmd.Nick, message)
 	} else {
-		content = fmt.Sprintf("%s> %s", msg.Nick, text)
+		content = fmt.Sprintf("%s> %s", cmd.Nick, message)
 	}
 
 	// This API is documented at http://aql.com/sms/integrated/sms-api
@@ -235,11 +249,11 @@ func (p *aqlPlugin) sendSMS(msg *mup.Message, nick, text string, receiver ldap.R
 	status := data[:i]
 	credits := data[i+1 : j]
 	info := data[j+1:]
-	p.plugger.Logf("SMS delivery result: from=%s to=%s mobile=%s status=%s credits=%s info=%s", msg.Nick, nick, mobile, status, credits, info)
+	p.plugger.Logf("SMS delivery result: from=%s to=%s mobile=%s status=%s credits=%s info=%s", cmd.Nick, nick, mobile, status, credits, info)
 	if len(status) == 1 && (status[0] == '0' || status[0] == '1') {
-		p.plugger.Sendf(msg, "SMS is on the way!")
+		p.plugger.Sendf(cmd, "SMS is on the way!")
 	} else {
-		p.plugger.Sendf(msg, "SMS delivery failed: %s", info)
+		p.plugger.Sendf(cmd, "SMS delivery failed: %s", info)
 	}
 	return nil
 }
@@ -340,26 +354,29 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 			sender = nick
 		}
 	}
-	msg := &mup.Message{
-		Account: p.config.Account,
-		Text:    fmt.Sprintf("[SMS] <%s> %s", sender, text),
-	}
-	if isChannel(target) {
+	msg := &mup.Message{Text: fmt.Sprintf("[SMS] <%s> %s", sender, text)}
+	isChan := isChannel(target)
+	if isChan {
 		msg.Channel = target
 	} else {
 		msg.Nick = target
 	}
-	p.plugger.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", p.config.Account, sender, sms.Sender, target, text)
-	err = p.plugger.Send(msg)
-	if err == nil {
-		p.tomb.Go(func() error {
-			_ = p.deleteSMS(sms)
-			return nil
-		})
+	for _, target := range p.plugger.Targets() {
+		a := target.Address()
+		if (a.Nick != "" || a.Channel != "") && (a.Nick != msg.Nick || a.Channel != msg.Channel) {
+			continue
+		}
+		msg.Account = a.Account
+		p.plugger.Logf("[%s] Delivering SMS from %s (%s) to %s: %s\n", msg.Account, sender, sms.Sender, target, text)
+		err = p.plugger.Send(msg)
+		if err == nil && !strings.HasPrefix(sender, "+") {
+			p.plugger.Sendf(msg, "Answer with: !sms %s <your message>", sender)
+		}
 	}
-	if !strings.HasPrefix(sender, "+") {
-		p.plugger.Sendf(msg, "Answer with: !sms %s <your message>", sender)
-	}
+	p.tomb.Go(func() error {
+		_ = p.deleteSMS(sms)
+		return nil
+	})
 	return nil
 }
 

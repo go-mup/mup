@@ -19,7 +19,7 @@ var Plugin = mup.PluginSpec{
 
 	See https://launchpad.net/publish-bot for the original implementation.
 	`,
-	Start: startPlugin,
+	Start: start,
 }
 
 func init() {
@@ -39,7 +39,7 @@ type pbotPlugin struct {
 
 const defaultAddr = ":10234"
 
-func startPlugin(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &pbotPlugin{
 		plugger: plugger,
 		accept:  make(map[string][]*mup.PluginTarget),

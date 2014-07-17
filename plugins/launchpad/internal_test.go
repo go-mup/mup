@@ -8,7 +8,7 @@ var _ = Suite(&LPBugsSuite{})
 
 type LPBugsSuite struct{}
 
-var parseBugsTests = []struct {
+var parseBugChatTests = []struct {
 	bugs []int
 	line string
 }{
@@ -33,7 +33,7 @@ var parseBugsTests = []struct {
 }
 
 func (s *LPBugsSuite) TestParseBugs(c *C) {
-	for _, test := range parseBugsTests {
-		c.Assert(parseBugs(test.line), DeepEquals, test.bugs, Commentf("Line: %s", test.line))
+	for _, test := range parseBugChatTests {
+		c.Assert(parseBugChat(test.line), DeepEquals, test.bugs, Commentf("Line: %s", test.line))
 	}
 }

@@ -1,8 +1,9 @@
 package mup
 
 import (
-	"labix.org/v2/mgo"
 	"time"
+
+	"gopkg.in/mgo.v2"
 )
 
 type Config struct {
