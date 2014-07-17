@@ -41,9 +41,9 @@ func (s *TesterSuite) TestPlugger(c *C) {
 }
 
 func (s *TesterSuite) TestPluginLabel(c *C) {
-	tester := mup.NewPluginTester("echoA:label")
+	tester := mup.NewPluginTester("echoA/label")
 	tester.Start()
-	c.Assert(tester.Plugger().Name(), Equals, "echoA:label")
+	c.Assert(tester.Plugger().Name(), Equals, "echoA/label")
 	tester.Sendf("mup", "echoAcmd repeat")
 	tester.Stop()
 	c.Assert(tester.Recv(), Equals, "PRIVMSG nick :[cmd] repeat")

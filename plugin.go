@@ -290,7 +290,7 @@ const (
 )
 
 func pluginKey(pluginName string) string {
-	if i := strings.Index(pluginName, ":"); i >= 0 {
+	if i := strings.Index(pluginName, "/"); i >= 0 {
 		return pluginName[:i]
 	}
 	return pluginName
