@@ -35,11 +35,16 @@ func init() {
 	mup.RegisterPlugin(&Plugin)
 }
 
+var defaultEndpoint = "http://api.wolframalpha.com/v2/query"
+
 type alphaPlugin struct {
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
 	commands chan *mup.Command
 	config   struct {
+		AppID    string
+		Endpoint string
+
 		HandleTimeout bson.DurationString
 	}
 }
@@ -52,6 +57,9 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 		commands: make(chan *mup.Command),
 	}
 	plugger.Config(&p.config)
+	if p.config.Endpoint == "" {
+		p.config.Endpoint = defaultEndpoint
+	}
 	if p.config.HandleTimeout.Duration == 0 {
 		p.config.HandleTimeout.Duration = defaultHandleTimeout
 	}
@@ -87,9 +95,9 @@ func (p *alphaPlugin) loop() error {
 
 var (
 	httpClient = http.Client{Timeout: time.Duration(5 * time.Second)}
-	bodyPath   = xmlpath.MustCompile("//body")
-	failPath   = xmlpath.MustCompile("//queryresult[@success='false']")
 	textPath   = xmlpath.MustCompile("/queryresult[@success='true']/pod[@primary='true']/subpod/plaintext")
+	failPath   = xmlpath.MustCompile("/queryresult[@success='false']")
+	errorPath  = xmlpath.MustCompile("/queryresult[@error='true']/error/msg")
 )
 
 func (p *alphaPlugin) handle(cmd *mup.Command) {
@@ -97,21 +105,16 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 	cmd.Args(&args)
 
 	form := url.Values{
-		"i":         {args.Query},
-		"plaintext": {"true"},
+		"appid":  {p.config.AppID},
+		"format": {"plaintext"},
+		"input":  {args.Query},
 	}
 
-	// TODO That's a hack to develop the plugin while they fix the web interface to request AppIDs.
-
-	req, err := http.NewRequest("GET", "http://products.wolframalpha.com/alpha/styledapiresults.jsp", nil)
+	req, err := http.NewRequest("GET", p.config.Endpoint, nil)
 	if err != nil {
 		panic(err)
 	}
 	req.URL.RawQuery = form.Encode()
-	req.Header = http.Header{
-		"User-Agent": {"Mozilla/5.0 (Windows NT 5.1; rv:10.0.2) Gecko/20100101 Firefox/10.0.2"},
-		"Referer":    {"http://products.wolframalpha.com/api/explorer.html"},
-	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -128,39 +131,36 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 		return
 	}
 
-	root, err := xmlpath.ParseHTML(bytes.NewBuffer(data))
+	result, err := xmlpath.Parse(bytes.NewBuffer(data))
 	if err != nil {
 		p.plugger.Logf("Cannot parse WolframAlpha response: %v\nResponse:\n%s", err, data)
 		p.plugger.Sendf(cmd, "Cannot parse WolframAlpha response.")
 		return
 	}
 
-	body, ok := bodyPath.Bytes(root)
-	if !ok {
-		p.plugger.Logf("Cannot parse WolframAlpha response: no body\nResponse:\n%s", data)
-		p.plugger.Sendf(cmd, "Cannot parse WolframAlpha response.")
+	if text, ok := textPath.String(result); ok {
+		p.plugger.Debugf("WolframAlpha result:\n%s", data)
+		p.plugger.Sendf(cmd, "%s", strip(text))
 		return
 	}
 
-	result, err := xmlpath.Parse(bytes.NewBuffer(body))
-	if err != nil {
-		p.plugger.Logf("Cannot parse WolframAlpha response body: %v\nResponse:\n%s", body)
-		p.plugger.Sendf(cmd, "Cannot parse WolframAlpha response.")
-		return
-	}
-
-	text, ok := textPath.String(result)
-	if ok {
-		p.plugger.Debugf("WolframAlpha result:\n%s", body)
-		p.plugger.Sendf(cmd, "%s", strings.Join(strings.Fields(text), " "))
+	if msg, ok := errorPath.String(result); ok {
+		msg = strip(msg)
+		p.plugger.Logf("WolframAlpha reported an error: %s", msg)
+		p.plugger.Sendf(cmd, "WolframAlpha reported an error: %s", msg)
 		return
 	}
 
 	if failPath.Exists(result) {
-		p.plugger.Sendf(cmd, "Cannot infer any meaningful information out of this.")
+		p.plugger.Debugf("WolframAlpha result:\n%s", data)
+		p.plugger.Sendf(cmd, "Cannot infer much out of this.")
 		return
 	}
 
-	p.plugger.Logf("Cannot parse WolframAlpha response XML:\n%s", body)
+	p.plugger.Logf("Cannot parse WolframAlpha response XML:\n%s", data)
 	p.plugger.Sendf(cmd, "Cannot parse WolframAlpha response.")
+}
+
+func strip(text string) string {
+	return strings.Join(strings.Fields(text), " ")
 }

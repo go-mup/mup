@@ -80,7 +80,7 @@ type aqlPlugin struct {
 		AQLUser    string
 		AQLPass    string
 		AQLKeyword string
-		AQLGateway string
+		AQLGateway string // TODO s/Gateway/Endpoint/
 
 		HandleTimeout bson.DurationString
 		PollDelay     bson.DurationString
