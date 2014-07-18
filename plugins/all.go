@@ -8,4 +8,5 @@ import (
 	_ "gopkg.in/mup.v0/plugins/ldap"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
 	_ "gopkg.in/mup.v0/plugins/sendraw"
+	_ "gopkg.in/mup.v0/plugins/wolframalpha"
 )
