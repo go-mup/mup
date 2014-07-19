@@ -35,7 +35,7 @@ type smsTest struct {
 	config       bson.M
 	targets      []bson.M
 	messages     []aqlMessage
-	gatewayForm  url.Values
+	endpointForm url.Values
 	retrieveForm url.Values
 	deletedKeys  []int
 }
@@ -45,7 +45,7 @@ var smsTests = []smsTest{{
 	recv: []string{"PRIVMSG nick :Cannot find anyone with that IRC nick in the directory. :-("},
 }, {
 	send: []string{"sms tesla Fail please"},
-	recv: []string{"PRIVMSG nick :SMS delivery failed: Error message from gateway."},
+	recv: []string{"PRIVMSG nick :SMS delivery failed: Error message from endpoint."},
 	fail: true,
 }, {
 	target: "#chan",
@@ -58,7 +58,7 @@ var smsTests = []smsTest{{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
 	},
-	gatewayForm: url.Values{
+	endpointForm: url.Values{
 		"destination": {"+11223344"},
 		"message":     {"#chan nick> Hey there"},
 		"originator":  {"+447766404142"},
@@ -72,7 +72,7 @@ var smsTests = []smsTest{{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
 	},
-	gatewayForm: url.Values{
+	endpointForm: url.Values{
 		"destination": {"+11223344"},
 		"message":     {"nick> Hey there"},
 		"originator":  {"+447766404142"},
@@ -135,7 +135,7 @@ func (s *S) TestSMS(c *C) {
 		if test.config == nil {
 			test.config = bson.M{}
 		}
-		test.config["aqlgateway"] = server.URL() + "/gateway"
+		test.config["aqlendpoint"] = server.URL() + "/endpoint"
 		test.config["aqlproxy"] = server.URL() + "/proxy"
 		test.config["ldap"] = "the-ldap-server"
 
@@ -154,8 +154,8 @@ func (s *S) TestSMS(c *C) {
 
 		server.Stop()
 
-		if test.gatewayForm != nil {
-			c.Assert(server.gatewayForm, DeepEquals, test.gatewayForm)
+		if test.endpointForm != nil {
+			c.Assert(server.endpointForm, DeepEquals, test.endpointForm)
 		}
 		if test.retrieveForm != nil {
 			c.Assert(server.retrieveForm, DeepEquals, test.retrieveForm)
@@ -213,7 +213,7 @@ type aqlServer struct {
 	fail     bool
 	messages []aqlMessage
 
-	gatewayForm  url.Values
+	endpointForm url.Values
 	retrieveForm url.Values
 	deletedKeys  []int
 
@@ -242,7 +242,7 @@ func (s *aqlServer) URL() string {
 func (s *aqlServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	switch req.URL.Path {
-	case "/gateway":
+	case "/endpoint":
 		s.serveGateway(w, req)
 	case "/proxy/retrieve":
 		s.serveRetrieve(w, req)
@@ -254,9 +254,9 @@ func (s *aqlServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *aqlServer) serveGateway(w http.ResponseWriter, req *http.Request) {
-	s.gatewayForm = req.Form
+	s.endpointForm = req.Form
 	if s.fail {
-		w.Write([]byte("2:0 Error message from gateway."))
+		w.Write([]byte("2:0 Error message from endpoint."))
 		return
 	}
 	w.Write([]byte("1:1 Okay."))

@@ -76,11 +76,11 @@ type aqlPlugin struct {
 	config   struct {
 		ldap.Config `bson:",inline"`
 
-		AQLProxy   string
-		AQLUser    string
-		AQLPass    string
-		AQLKeyword string
-		AQLGateway string // TODO s/Gateway/Endpoint/
+		AQLProxy    string
+		AQLUser     string
+		AQLPass     string
+		AQLKeyword  string
+		AQLEndpoint string
 
 		HandleTimeout bson.DurationString
 		PollDelay     bson.DurationString
@@ -105,8 +105,8 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}
-	if p.config.AQLGateway == "" {
-		p.config.AQLGateway = "https://gw.aql.com/sms/sms_gw.php"
+	if p.config.AQLEndpoint == "" {
+		p.config.AQLEndpoint = "https://gw.aql.com/sms/sms_gw.php"
 	}
 	p.tomb.Go(p.loop)
 	return p, nil
@@ -228,7 +228,7 @@ func (p *aqlPlugin) sendSMS(cmd *mup.Command, nick, message string, receiver lda
 		"originator":  []string{"+447766404142"},
 		"message":     []string{content},
 	}
-	resp, err := httpClient.PostForm(p.config.AQLGateway, form)
+	resp, err := httpClient.PostForm(p.config.AQLEndpoint, form)
 	if err != nil {
 		return err
 	}

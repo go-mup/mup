@@ -80,7 +80,7 @@ type lpPlugin struct {
 		OAuthAccessToken string
 		OAuthSecretToken string
 
-		BaseURL   string
+		Endpoint  string
 		Project   string
 		Options   string
 		PrefixNew string
@@ -93,8 +93,8 @@ type lpPlugin struct {
 
 const (
 	defaultHandleTimeout    = 500 * time.Millisecond
-	defaultBaseURL          = "https://api.launchpad.net/1.0/"
-	defaultBaseURLTrackBugs = "https://launchpad.net/"
+	defaultEndpoint          = "https://api.launchpad.net/1.0/"
+	defaultEndpointTrackBugs = "https://launchpad.net/"
 	defaultPollDelay        = 10 * time.Second
 	defaultPrefix           = "Bug #%d changed"
 )
@@ -125,11 +125,11 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) (mup.Stopper, error) {
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}
-	if p.config.BaseURL == "" {
+	if p.config.Endpoint == "" {
 		if mode == trackBugs {
-			p.config.BaseURL = defaultBaseURLTrackBugs
+			p.config.Endpoint = defaultEndpointTrackBugs
 		} else {
-			p.config.BaseURL = defaultBaseURL
+			p.config.Endpoint = defaultEndpoint
 		}
 	}
 	if p.config.PrefixNew == "" {
@@ -285,7 +285,7 @@ func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
 
 func (p *lpPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = p.config.BaseURL + url
+		url = p.config.Endpoint + url
 	}
 	if p.config.Options != "" {
 		if strings.Contains(url, "?") {
