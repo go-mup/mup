@@ -170,7 +170,7 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 		buf.Grow(256)
 	}
 	for _, pod := range result.Pods {
-		if pod.Id == "Input" {
+		if pod.Id == "Input" || pod.Id == "Illustration" {
 			continue
 		}
 		if !args.All && buf.Len() > 0 && !pod.Primary {
@@ -225,15 +225,21 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 	}
 }
 
-var bars = regexp.MustCompile(`(?: \|){2,}`)
+var bars = regexp.MustCompile(` \|[| ]* `)
+var newlines = regexp.MustCompile(`(?m),?\s*\n[\s\n,]*`)
 
 func (p *alphaPlugin) send(cmd *mup.Command, text string) {
-	if strings.Contains(text, " | |") {
-		text = bars.ReplaceAllString(text, " |")
+	if strings.Contains(text, " |") {
+		text = strings.Replace(text, " |,", ",", -1)
+		text = bars.ReplaceAllString(text, " ")
 	}
 	p.plugger.Sendf(cmd, "%s.", text)
 }
 
 func strip(text string) string {
-	return strings.Trim(strings.Join(strings.Fields(text), " "), ".")
+	text = strings.TrimSpace(text)
+	if strings.Contains(text, "\n") {
+		text = newlines.ReplaceAllString(text, ", ")
+	}
+	return strings.TrimRight(strings.Join(strings.Fields(text), " "), ".")
 }

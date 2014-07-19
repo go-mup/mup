@@ -38,7 +38,7 @@ var inferTests = []inferTest{{
 	// Basic result displaying.
 	send:   "infer the query",
 	recv:   "PRIVMSG nick :the result.",
-	result: "<queryresult success='true'><pod><subpod><plaintext> the \n result </plaintext></subpod></pod></queryresult>",
+	result: "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
 	config: bson.M{
 		"appid": "theid",
 	},
@@ -49,12 +49,13 @@ var inferTests = []inferTest{{
 		"appid":  {"theid"},
 	},
 }, {
-	// Ignore the input entry.
+	// Ignore input and illustration pods.
 	send: "infer the query",
 	recv: "PRIVMSG nick :result.",
 	result: `
 		 <queryresult success='true'>
 	         <pod id="Input"><subpod><plaintext>input</plaintext></subpod></pod>
+	         <pod id="Illustration"><subpod><plaintext>illustration</plaintext></subpod></pod>
 	         <pod><subpod><plaintext>result</plaintext></subpod></pod>
 		 </queryresult>
 	`,
@@ -123,6 +124,23 @@ var inferTests = []inferTest{{
 		 <queryresult success='true'>
 	         <pod primary='true' title='Result'><subpod><plaintext>one</plaintext></subpod></pod>
 	         <pod primary='true' title='Results'><subpod><plaintext>two</plaintext></subpod></pod>
+		 </queryresult>
+	`,
+}, {
+	// Join multiple lines with commas.
+	send:   "infer the query",
+	recv:   "PRIVMSG nick :one, two, three.",
+	result: "<queryresult success='true'><pod><subpod><plaintext> one,\ntwo \n three</plaintext></subpod></pod></queryresult>",
+}, {
+	// " | " is not a good way to say " => " out of math. Also drop repeated " | " garbage.
+	send: "infer the query",
+	recv: "PRIVMSG nick :foo bar — foo|bar, baz.",
+	result: `
+		 <queryresult success='true'>
+	         <pod primary='true'><subpod><plaintext>foo | | bar</plaintext></subpod></pod>
+	         <pod primary='true'><subpod><plaintext>| foo|bar |
+		 baz
+		 </plaintext></subpod></pod>
 		 </queryresult>
 	`,
 }, {
