@@ -49,13 +49,13 @@ var inferTests = []inferTest{{
 		"appid":  {"theid"},
 	},
 }, {
-	// Ignore the input entry, and ignore the Result title.
+	// Ignore the input entry.
 	send: "infer the query",
 	recv: "PRIVMSG nick :result.",
 	result: `
 		 <queryresult success='true'>
 	         <pod id="Input"><subpod><plaintext>input</plaintext></subpod></pod>
-	         <pod title='Result'><subpod><plaintext>result</plaintext></subpod></pod>
+	         <pod><subpod><plaintext>result</plaintext></subpod></pod>
 		 </queryresult>
 	`,
 }, {
@@ -113,6 +113,16 @@ var inferTests = []inferTest{{
 		   <subpod title='Sub one'><plaintext>two.one</plaintext></subpod>
 		   <subpod title='Sub two'><plaintext>two.two</plaintext></subpod>
 		 </pod>
+		 </queryresult>
+	`,
+}, {
+	// Ignore boring result titles.
+	send: "infer the query",
+	recv: "PRIVMSG nick :one — two.",
+	result: `
+		 <queryresult success='true'>
+	         <pod primary='true' title='Result'><subpod><plaintext>one</plaintext></subpod></pod>
+	         <pod primary='true' title='Results'><subpod><plaintext>two</plaintext></subpod></pod>
 		 </queryresult>
 	`,
 }, {

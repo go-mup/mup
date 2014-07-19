@@ -188,7 +188,7 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 				if buf.Len() > 0 {
 					buf.WriteString(" — ")
 				}
-				if pod.Title != "" && pod.Title != "Result" {
+				if pod.Title != "" && pod.Title != "Result" && pod.Title != "Results" {
 					buf.WriteString(pod.Title)
 					buf.WriteString(": ")
 				}
