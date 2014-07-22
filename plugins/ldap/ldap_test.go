@@ -6,10 +6,10 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	_ "gopkg.in/mup.v0/plugins/ldap"
-	"gopkg.in/mgo.v2/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -25,48 +25,30 @@ var ldapTests = []struct {
 	config bson.M
 }{
 	{
-		"mup",
-		[]string{"poke notfound"},
-		[]string{"PRIVMSG nick :Cannot find anyone matching this. :-("},
-		nil,
+		send: []string{"poke notfound"},
+		recv: []string{"PRIVMSG nick :Cannot find anyone matching this. :-("},
 	}, {
-		"mup",
-		[]string{"poke slow", "poke notfound"},
-		[]string{
-			"PRIVMSG nick :The LDAP server seems a bit sluggish right now. Please try again soon.",
-			"PRIVMSG nick :Cannot find anyone matching this. :-(",
-		},
-		bson.M{"handletimeout": "100ms"},
+		send: []string{"poke noldap"},
+		recv: []string{`PRIVMSG nick :Plugin configuration error: LDAP connection "unknown" not found.`},
+		config: bson.M{"ldap": "unknown"},
 	}, {
-		"mup",
-		[]string{"poke tesla"},
-		[]string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
-		nil,
+		send: []string{"poke tesla"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 	}, {
-		"mup",
-		[]string{"poke nikola tesla"},
-		[]string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
-		nil,
+		send: []string{"poke nikola tesla"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 	}, {
-		"mup",
-		[]string{"poke euler"},
-		[]string{"PRIVMSG nick :euler is Leonhard Euler <euler@example.com>"},
-		nil,
+		send: []string{"poke euler"},
+		recv: []string{"PRIVMSG nick :euler is Leonhard Euler <euler@example.com>"},
 	}, {
-		"mup",
-		[]string{"poke eu"},
-		[]string{"PRIVMSG nick :euler is Leonhard Euler, euclid is Euclid of Alexandria"},
-		nil,
+		send: []string{"poke eu"},
+		recv: []string{"PRIVMSG nick :euler is Leonhard Euler, euclid is Euclid of Alexandria"},
 	}, {
-		"mup",
-		[]string{"poke e"},
-		[]string{"PRIVMSG nick :tesla is Nikola Tesla, euler is Leonhard Euler, euclid is Euclid of Alexandria, riemann is Bernhard Riemann, einstein is Albert Einstein, newton is Isaac Newton, galileo is Galileo Galilei, plus 2 more people."},
-		nil,
+		send: []string{"poke e"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla, euler is Leonhard Euler, euclid is Euclid of Alexandria, riemann is Bernhard Riemann, einstein is Albert Einstein, newton is Isaac Newton, galileo is Galileo Galilei, plus 2 more people."},
 	}, {
-		"mup",
-		[]string{"poke riémann"},
-		[]string{"PRIVMSG nick :riemann is Bernhard Riemann <riemann@example.com>"},
-		nil,
+		send: []string{"poke riémann"},
+		recv: []string{"PRIVMSG nick :riemann is Bernhard Riemann <riemann@example.com>"},
 	},
 }
 
@@ -111,28 +93,23 @@ var ldapResults = map[string][]ldap.Result{
 	`(|(mozillaNickname=ri\c3\a9mann)(cn=*ri\c3\a9mann*))`: {ldapEntries[3]},
 }
 
-type ldapConn struct {
-	s *ldap.Config
-}
+type ldapConn struct{}
 
-func (l *ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
+func (l ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
 	if strings.Contains(s.Filter, "=slow)") {
 		time.Sleep(150 * time.Millisecond)
 	}
 	return ldapResults[s.Filter], nil
 }
 
-func (l *ldapConn) Ping() error  { return nil }
-func (l *ldapConn) Close() error { return nil }
+func (l ldapConn) Close() error { return nil }
 
 func (s *LDAPSuite) SetUpSuite(c *C) {
-	ldap.TestDial = func(s *ldap.Config) (ldap.Conn, error) { return &ldapConn{s}, nil }
 	mup.SetLogger(c)
 	mup.SetDebug(true)
 }
 
 func (s *LDAPSuite) TearDownSuite(c *C) {
-	ldap.TestDial = nil
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
 }
@@ -141,7 +118,14 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 	for i, test := range ldapTests {
 		c.Logf("Starting test %d with messages: %v", i, test.send)
 		tester := mup.NewPluginTester("ldap")
+		if test.config == nil {
+			test.config = bson.M{}
+		}
+		if test.config["ldap"] == nil {
+			test.config["ldap"] = "test"
+		}
 		tester.SetConfig(test.config)
+		tester.SetLDAP("test", ldapConn{})
 		tester.Start()
 		err := tester.SendAll(test.target, test.send)
 		c.Assert(err, IsNil)

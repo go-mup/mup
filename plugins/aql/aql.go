@@ -74,7 +74,7 @@ type aqlPlugin struct {
 	smses    chan *smsMessage
 	err      error
 	config   struct {
-		ldap.Config `bson:",inline"`
+		LDAP string
 
 		AQLProxy    string
 		AQLUser     string
@@ -82,7 +82,6 @@ type aqlPlugin struct {
 		AQLKeyword  string
 		AQLEndpoint string
 
-		HandleTimeout bson.DurationString
 		PollDelay     bson.DurationString
 	}
 }
@@ -95,13 +94,10 @@ const (
 func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &aqlPlugin{
 		plugger:  plugger,
-		commands: make(chan *mup.Command),
+		commands: make(chan *mup.Command, 5),
 		smses:    make(chan *smsMessage),
 	}
 	plugger.Config(&p.config)
-	if p.config.HandleTimeout.Duration == 0 {
-		p.config.HandleTimeout.Duration = defaultHandleTimeout
-	}
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}
@@ -113,6 +109,7 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 }
 
 func (p *aqlPlugin) Stop() error {
+	close(p.commands)
 	p.tomb.Kill(nil)
 	return p.tomb.Wait()
 }
@@ -120,15 +117,8 @@ func (p *aqlPlugin) Stop() error {
 func (p *aqlPlugin) HandleCommand(cmd *mup.Command) error {
 	select {
 	case p.commands <- cmd:
-	case <-time.After(p.config.HandleTimeout.Duration):
-		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
-		p.mu.Lock()
-		err := p.err
-		p.mu.Unlock()
-		if err != nil {
-			reply = err.Error()
-		}
-		p.plugger.Sendf(cmd, "%s", reply)
+	default:
+		p.plugger.Sendf(cmd, "The server seems a bit sluggish right now. Please try again soon.")
 	}
 	return nil
 }
@@ -136,42 +126,33 @@ func (p *aqlPlugin) HandleCommand(cmd *mup.Command) error {
 func (p *aqlPlugin) loop() error {
 	p.tomb.Go(p.poll)
 	for {
-		err := p.forward()
-		if !p.tomb.Alive() {
-			return nil
-		}
-		p.mu.Lock()
-		p.err = err
-		p.mu.Unlock()
-		for i := 0; i < 10 && p.tomb.Alive(); i++ {
-			time.Sleep(500 * time.Millisecond)
+		select {
+		case cmd, ok := <-p.commands:
+			if !ok {
+				return nil
+			}
+			if conn := p.ldap(cmd); conn != nil {
+				p.handle(conn, cmd)
+				conn.Close()
+			}
+		case sms := <-p.smses:
+			if conn := p.ldap(nil); conn != nil {
+				p.receiveSMS(conn, sms)
+				conn.Close()
+			}
 		}
 	}
 }
 
-func (p *aqlPlugin) forward() error {
-	conn, err := ldap.Dial(&p.config.Config)
+func (p *aqlPlugin) ldap(cmd *mup.Command) ldap.Conn {
+	conn, err := p.plugger.LDAP(p.config.LDAP)
 	if err != nil {
-		p.plugger.Logf("%v", err)
-		return err
-	}
-	defer conn.Close()
-	p.mu.Lock()
-	p.err = nil
-	p.mu.Unlock()
-	for err == nil {
-		select {
-		case cmd := <-p.commands:
-			p.handle(conn, cmd)
-		case sms := <-p.smses:
-			err = p.receiveSMS(conn, sms)
-		case <-time.After(mup.NetworkTimeout):
-			err = conn.Ping()
-		case <-p.tomb.Dying():
-			err = tomb.ErrDying
+		p.plugger.Logf("Plugin configuration error: %s.", err)
+		if cmd != nil {
+			p.plugger.Sendf(cmd, "Plugin configuration error: %s.", err)
 		}
 	}
-	return err
+	return conn
 }
 
 func (p *aqlPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
@@ -184,11 +165,11 @@ func (p *aqlPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	results, err := conn.Search(search)
 	if err != nil {
 		p.plugger.Logf("Cannot search LDAP server: %v", err)
-		p.plugger.Sendf(cmd, "Cannot search LDAP server right now: %v", err)
+		p.plugger.Sendf(cmd, "Cannot search LDAP server: %v", err)
 		return
 	}
 	if len(results) == 0 {
-		p.plugger.Logf("Cannot find requested query in LDAP server: %q", args.Nick)
+		p.plugger.Logf("Cannot find requested IRC nick in LDAP server: %q", args.Nick)
 		p.plugger.Sendf(cmd, "Cannot find anyone with that IRC nick in the directory. :-(")
 		return
 	}
@@ -320,7 +301,7 @@ func (p *aqlPlugin) poll() error {
 	return nil
 }
 
-func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
+func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) {
 	query := strings.TrimSpace(sms.Message)
 	fields := strings.SplitN(query, " ", 2)
 	for i := range fields {
@@ -328,7 +309,7 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 	}
 	if len(fields) != 2 || len(fields[0]) == 0 || len(fields[1]) == 0 {
 		p.plugger.Logf("Received invalid SMS message text: %q", sms.Message)
-		return nil
+		return
 	}
 	target := fields[0]
 	text := fields[1]
@@ -377,7 +358,6 @@ func (p *aqlPlugin) receiveSMS(conn ldap.Conn, sms *smsMessage) error {
 		_ = p.deleteSMS(sms)
 		return nil
 	})
-	return nil
 }
 
 func (p *aqlPlugin) deleteSMS(sms *smsMessage) error {

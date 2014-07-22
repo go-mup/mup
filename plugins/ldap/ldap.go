@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sync"
-	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
@@ -46,88 +44,48 @@ type ldapPlugin struct {
 	commands chan *mup.Command
 	err      error
 	config   struct {
-		ldap.Config   `bson:",inline"`
-		HandleTimeout bson.DurationString
+		LDAP string
 	}
 }
-
-const defaultHandleTimeout = 500 * time.Millisecond
 
 func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &ldapPlugin{
 		plugger:  plugger,
-		commands: make(chan *mup.Command),
+		commands: make(chan *mup.Command, 5),
 	}
 	plugger.Config(&p.config)
-	if p.config.HandleTimeout.Duration == 0 {
-		p.config.HandleTimeout.Duration = defaultHandleTimeout
-	}
 	p.tomb.Go(p.loop)
 	return p, nil
 }
 
 func (p *ldapPlugin) Stop() error {
-	p.tomb.Kill(nil)
+	close(p.commands)
 	return p.tomb.Wait()
 }
 
 func (p *ldapPlugin) HandleCommand(cmd *mup.Command) error {
 	select {
 	case p.commands <- cmd:
-	case <-time.After(p.config.HandleTimeout.Duration):
-		reply := "The LDAP server seems a bit sluggish right now. Please try again soon."
-		p.mu.Lock()
-		err := p.err
-		p.mu.Unlock()
-		if err != nil {
-			reply = err.Error()
-		}
-		p.plugger.Sendf(cmd, "%s", reply)
+	default:
+		p.plugger.Sendf(cmd, "The LDAP server seems a bit sluggish right now. Please try again soon.")
 	}
 	return nil
 }
 
 func (p *ldapPlugin) loop() error {
 	for {
-		err := p.dial()
-		if !p.tomb.Alive() {
+		cmd, ok := <-p.commands
+		if !ok {
 			return nil
 		}
-		p.mu.Lock()
-		p.err = err
-		p.mu.Unlock()
-		select {
-		case <-p.tomb.Dying():
-			return nil
-		case <-time.After(5 * time.Second):
+		conn, err := p.plugger.LDAP(p.config.LDAP)
+		if err != nil {
+			p.plugger.Sendf(cmd, "Plugin configuration error: %s.", err)
+		} else {
+			p.handle(conn, cmd)
+			conn.Close()
 		}
 	}
-}
-
-func (p *ldapPlugin) dial() error {
-	conn, err := ldap.Dial(&p.config.Config)
-	if err != nil {
-		p.plugger.Logf("%v", err)
-		return err
-	}
-	defer conn.Close()
-	p.mu.Lock()
-	p.err = nil
-	p.mu.Unlock()
-	for err == nil {
-		select {
-		case cmd := <-p.commands:
-			err = p.handle(conn, cmd)
-			if err != nil {
-				p.plugger.Sendf(cmd, "Error talking to LDAP server: %v", err)
-			}
-		case <-time.After(mup.NetworkTimeout):
-			err = conn.Ping()
-		case <-p.tomb.Dying():
-			err = tomb.ErrDying
-		}
-	}
-	return err
 }
 
 var ldapAttributes = []string{
@@ -156,7 +114,7 @@ var ldapFormat = []struct {
 	{"skypePhone", "<skype:%s>", nil},
 }
 
-func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) error {
+func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	var args struct{ Query string }
 	cmd.Args(&args)
 	query := ldap.EscapeFilter(args.Query)
@@ -166,17 +124,15 @@ func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) error {
 	}
 	result, err := conn.Search(&search)
 	if err != nil {
-		p.plugger.Sendf(cmd, "Cannot search LDAP server right now: %v", err)
-		return fmt.Errorf("cannot search LDAP server: %v", err)
-	}
-	if len(result) > 1 {
+		p.plugger.Logf("Cannot search LDAP server: %v", err)
+		p.plugger.Sendf(cmd, "Cannot search LDAP server: %v", err)
+	} else if len(result) > 1 {
 		p.plugger.Sendf(cmd, "%s", p.formatEntries(result))
 	} else if len(result) > 0 {
 		p.plugger.Sendf(cmd, "%s", p.formatEntry(&result[0]))
 	} else {
 		p.plugger.Sendf(cmd, "Cannot find anyone matching this. :-(")
 	}
-	return nil
 }
 
 func (p *ldapPlugin) formatEntry(result *ldap.Result) string {

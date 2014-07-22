@@ -2,12 +2,15 @@ package mup
 
 import (
 	"fmt"
+
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mup.v0/ldap"
 )
 
 type Plugger struct {
 	name    string
-	send    func(*Message) error
+	send    func(msg *Message) error
+	ldap    func(name string) (ldap.Conn, error)
 	config  bson.Raw
 	targets []PluginTarget
 }
@@ -51,13 +54,13 @@ func (t *PluginTarget) String() string {
 	return fmt.Sprintf("account %q", t.address.Account)
 }
 
-
 var emptyDoc = bson.Raw{3, []byte("\x05\x00\x00\x00\x00")}
 
-func newPlugger(name string, send func(msg *Message) error) *Plugger {
+func newPlugger(name string, send func(msg *Message) error, ldap func(name string) (ldap.Conn, error)) *Plugger {
 	return &Plugger{
 		name: name,
 		send: send,
+		ldap: ldap,
 	}
 }
 
@@ -108,6 +111,10 @@ func (p *Plugger) Config(result interface{}) {
 
 func (p *Plugger) Targets() []PluginTarget {
 	return p.targets
+}
+
+func (p *Plugger) LDAP(name string) (ldap.Conn, error) {
+	return p.ldap(name)
 }
 
 func (p *Plugger) Target(msg *Message) *PluginTarget {

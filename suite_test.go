@@ -1,8 +1,9 @@
-package mup
+package mup_test
 
 import (
 	"bufio"
 	"bytes"
+	"flag"
 	"fmt"
 	"net"
 	"os/exec"
@@ -13,6 +14,8 @@ import (
 	"gopkg.in/tomb.v2"
 	"gopkg.in/mgo.v2"
 )
+
+var checkSessions = flag.Bool("check-sessions", false, "Check that mgo sessions are properly closed")
 
 type M map[string]interface{}
 
@@ -217,6 +220,9 @@ func (s *MgoSuite) SetUpTest(c *C) {
 
 func (s *MgoSuite) TearDownTest(c *C) {
 	s.Session.Close()
+	if !*checkSessions {
+		return
+	}
 	for i := 0; ; i++ {
 		stats := mgo.GetStats()
 		if stats.SocketsInUse == 0 && stats.SocketsAlive == 0 {

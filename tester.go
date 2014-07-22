@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 )
 
@@ -17,6 +18,7 @@ type PluginTester struct {
 	stopped bool
 	state   pluginState
 	replies []string
+	ldaps   map[string]ldap.Conn
 }
 
 // NewPluginTester creates a new tester for interacting with an internally
@@ -28,8 +30,9 @@ func NewPluginTester(pluginName string) *PluginTester {
 	}
 	t := &PluginTester{}
 	t.cond.L = &t.mu
+	t.ldaps = make(map[string]ldap.Conn)
 	t.state.spec = spec
-	t.state.plugger = newPlugger(pluginName, t.appendMessage)
+	t.state.plugger = newPlugger(pluginName, t.appendMessage, t.ldap)
 	return t
 }
 
@@ -46,6 +49,16 @@ func (t *PluginTester) appendMessage(msg *Message) error {
 	t.replies = append(t.replies, msgstr)
 	t.cond.Signal()
 	return nil
+}
+
+func (t *PluginTester) ldap(name string) (ldap.Conn, error) {
+	t.mu.Lock()
+	conn, ok := t.ldaps[name]
+	t.mu.Unlock()
+	if ok {
+		return conn, nil
+	}
+	return nil, fmt.Errorf("LDAP connection %q not found", name)
 }
 
 // Plugger returns the plugger that is provided to the plugin.
@@ -91,6 +104,13 @@ func (t *PluginTester) SetTargets(value interface{}) {
 		panic("PluginTester.SetTargets called after Start")
 	}
 	t.state.plugger.setTargets(marshalRaw(value))
+}
+
+// SetLDAP makes the provided LDAP connection available to the plugin.
+func (t *PluginTester) SetLDAP(name string, conn ldap.Conn) {
+	t.mu.Lock()
+	t.ldaps[name] = conn
+	t.mu.Unlock()
 }
 
 func marshalRaw(value interface{}) bson.Raw {

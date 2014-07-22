@@ -1,4 +1,4 @@
-package mup
+package mup_test
 
 import (
 	"strings"
@@ -6,6 +6,9 @@ import (
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2"
+	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/ldap"
+	"gopkg.in/mup.v0/schema"
 )
 
 type ServerSuite struct {
@@ -13,8 +16,8 @@ type ServerSuite struct {
 	MgoSuite
 
 	session *mgo.Session
-	config  *Config
-	server  *Server
+	config  *mup.Config
+	server  *mup.Server
 	lserver *LineServer
 }
 
@@ -34,14 +37,14 @@ func (s *ServerSuite) SetUpTest(c *C) {
 	s.LineServerSuite.SetUpTest(c)
 	s.MgoSuite.SetUpTest(c)
 
-	SetDebug(true)
-	SetLogger(c)
+	mup.SetDebug(true)
+	mup.SetLogger(c)
 
 	var err error
 	s.session, err = mgo.Dial("localhost:50017")
 	c.Assert(err, IsNil)
 
-	s.config = &Config{
+	s.config = &mup.Config{
 		Database: s.session.DB("mup"),
 		Refresh:  -1, // Manual refreshing for testing.
 	}
@@ -53,6 +56,9 @@ func (s *ServerSuite) SetUpTest(c *C) {
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
+	mup.SetDebug(false)
+	mup.SetLogger(nil)
+
 	s.StopServer(c)
 	s.LineServerSuite.TearDownTest(c)
 	s.session.Close()
@@ -75,7 +81,7 @@ func (s *ServerSuite) RestartServer(c *C) {
 	s.StopServer(c)
 	n := s.NextLineServer()
 	var err error
-	s.server, err = Start(s.config)
+	s.server, err = mup.Start(s.config)
 	c.Assert(err, IsNil)
 	s.lserver = s.LineServer(n)
 	s.ReadUser(c)
@@ -219,13 +225,13 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	s.Roundtrip(c)
 	time.Sleep(100 * time.Millisecond)
 
-	var msg Message
+	var msg mup.Message
 	incoming := s.Session.DB("").C("incoming")
 	err := incoming.Find(nil).Sort("$natural").One(&msg)
 	c.Assert(err, IsNil)
 
 	msg.Id = ""
-	c.Assert(msg, DeepEquals, Message{
+	c.Assert(msg, DeepEquals, mup.Message{
 		Account: "one",
 		Nick:    "nick",
 		User:    "~user",
@@ -249,7 +255,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	c.Assert(err, IsNil)
 
 	outgoing := s.Session.DB("").C("outgoing")
-	err = outgoing.Insert(&Message{
+	err = outgoing.Insert(&mup.Message{
 		Account: "one",
 		Nick:    "someone",
 		Text:    "Hello there!",
@@ -266,7 +272,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.ReadLine(c, "PRIVMSG someone :Hello there!")
 
 	// Send another message with the server running.
-	err = outgoing.Insert(&Message{
+	err = outgoing.Insert(&mup.Message{
 		Account: "one",
 		Nick:    "someone",
 		Text:    "Hello again!",
@@ -407,4 +413,105 @@ func (s *ServerSuite) TestSendError(c *C) {
 	log := c.GetTestLog()
 	c.Assert(log, Matches, `(?s).*Plugin "echoA" cannot handle message ".*": \[cmd\] error message.*`)
 	c.Assert(log, Matches, `(?s).*Plugin "echoA" cannot handle message ".*": \[msg\] error message.*`)
+}
+
+var testLDAPSpec = mup.PluginSpec{
+	Name:  "testldap",
+	Start: testLdapStart,
+	Commands: schema.Commands{{
+		Name: "testldap",
+		Args: schema.Args{{
+			Name: "ldapname",
+			Flag: schema.Required,
+		}},
+	}},
+}
+
+func init() {
+	mup.RegisterPlugin(&testLDAPSpec)
+}
+
+type testLdapPlugin struct {
+	plugger *mup.Plugger
+}
+
+func testLdapStart(plugger *mup.Plugger) (mup.Stopper, error) {
+	return &testLdapPlugin{plugger}, nil
+}
+
+func (p *testLdapPlugin) Stop() error {
+	return nil
+}
+
+func (p *testLdapPlugin) HandleCommand(cmd *mup.Command) error {
+	var args struct{ LDAPName string }
+	cmd.Args(&args)
+	conn, err := p.plugger.LDAP(args.LDAPName)
+	if err != nil {
+		p.plugger.Sendf(cmd, "LDAP method error: %v", err)
+		return err
+	}
+	defer conn.Close()
+	results, err := conn.Search(&ldap.Search{})
+	if len(results) != 1 || results[0].DN != "test-dn" || err != nil {
+		p.plugger.Sendf(cmd, "Search method results=%#v err=%v", results, err)
+		return err
+	}
+	p.plugger.Sendf(cmd, "LDAP works fine.")
+	return nil
+}
+
+func (s *ServerSuite) TestLDAP(c *C) {
+	s.SendWelcome(c)
+
+	var dials []*ldap.Config
+	ldap.TestDial = func(config *ldap.Config) (ldap.Conn, error) {
+		dials = append(dials, config)
+		return &ldapConn{}, nil
+	}
+	defer func() {
+		ldap.TestDial = nil
+	}()
+
+	ldaps := s.Session.DB("").C("ldap")
+	plugins := s.Session.DB("").C("plugins")
+	err := ldaps.Insert(M{"_id": "test1", "url": "the-url1", "basedn": "the-basedn", "binddn": "the-binddn", "bindpass": "the-bindpass"})
+	c.Assert(err, IsNil)
+	err = ldaps.Insert(M{"_id": "test2", "url": "the-url2"})
+	c.Assert(err, IsNil)
+	err = plugins.Insert(M{"_id": "testldap", "targets": []M{{"account": "one"}}})
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+	s.Roundtrip(c)
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test1")
+	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test1")
+	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test2")
+	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
+
+	err = ldaps.Insert(M{"_id": "test3", "url": "the-url3"})
+	c.Assert(err, IsNil)
+	err = ldaps.UpdateId("test1", M{"$set": M{"url": "the-url4"}})
+	c.Assert(err, IsNil)
+	err = ldaps.RemoveId("test2")
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+	s.Roundtrip(c)
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test1")
+	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test3")
+	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test2")
+	s.ReadLine(c, `PRIVMSG nick :LDAP method error: LDAP connection "test2" not found`)
+
+	s.StopServer(c)
+
+	c.Assert(dials, HasLen, 4)
+	c.Assert(dials[0], DeepEquals, &ldap.Config{URL: "the-url1", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
+	c.Assert(dials[1], DeepEquals, &ldap.Config{URL: "the-url2"})
+	c.Assert(dials[2], DeepEquals, &ldap.Config{URL: "the-url4", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
+	c.Assert(dials[3], DeepEquals, &ldap.Config{URL: "the-url3"})
 }

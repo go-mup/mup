@@ -109,3 +109,13 @@ func (s *TesterSuite) TestStop(c *C) {
 	c.Assert(err, ErrorMatches, `plugin "echoA" cannot handle message ".*": \[msg\] plugin stopped`)
 }
 
+func (s *TesterSuite) TestSetLDAP(c *C) {
+	conn := &ldapConn{}
+	tester := mup.NewPluginTester("echoA")
+	tester.SetLDAP("test", conn)
+	res, err := tester.Plugger().LDAP("test")
+	c.Assert(err, IsNil)
+	c.Assert(res, Equals, conn)
+	_, err = tester.Plugger().LDAP("unknown")
+	c.Assert(err, ErrorMatches, `LDAP connection "unknown" not found`)
+}

@@ -23,9 +23,7 @@ func Test(t *testing.T) { TestingT(t) }
 
 var _ = Suite(&S{})
 
-type S struct {
-	ldapConfig *ldap.Config
-}
+type S struct{}
 
 type smsTest struct {
 	target       string
@@ -41,6 +39,10 @@ type smsTest struct {
 }
 
 var smsTests = []smsTest{{
+	send:   []string{"sms noldap Hey there"},
+	recv:   []string{`PRIVMSG nick :Plugin configuration error: LDAP connection "unknown" not found.`},
+	config: bson.M{"ldap": "unknown"},
+}, {
 	send: []string{"sms notfound Hey there"},
 	recv: []string{"PRIVMSG nick :Cannot find anyone with that IRC nick in the directory. :-("},
 }, {
@@ -108,16 +110,11 @@ var smsTests = []smsTest{{
 }}
 
 func (s *S) SetUpTest(c *C) {
-	ldap.TestDial = func(config *ldap.Config) (ldap.Conn, error) {
-		s.ldapConfig = config
-		return &ldapConn{config}, nil
-	}
 	mup.SetLogger(c)
 	mup.SetDebug(true)
 }
 
 func (s *S) TearDownTest(c *C) {
-	ldap.TestDial = nil
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
 }
@@ -135,13 +132,16 @@ func (s *S) TestSMS(c *C) {
 		if test.config == nil {
 			test.config = bson.M{}
 		}
+		if test.config["ldap"] == nil {
+			test.config["ldap"] = "test"
+		}
 		test.config["aqlendpoint"] = server.URL() + "/endpoint"
 		test.config["aqlproxy"] = server.URL() + "/proxy"
-		test.config["ldap"] = "the-ldap-server"
 
 		tester := mup.NewPluginTester("aql")
 		tester.SetConfig(test.config)
 		tester.SetTargets(test.targets)
+		tester.SetLDAP("test", ldapConn{})
 		tester.Start()
 		tester.SendAll(test.target, test.send)
 
@@ -164,17 +164,13 @@ func (s *S) TestSMS(c *C) {
 			c.Assert(server.deletedKeys, DeepEquals, test.deletedKeys)
 		}
 
-		c.Assert(s.ldapConfig.LDAP, Equals, "the-ldap-server")
-
 		if c.Failed() {
 			c.FailNow()
 		}
 	}
 }
 
-type ldapConn struct {
-	s *ldap.Config
-}
+type ldapConn struct{}
 
 var nikolaTesla = ldap.Result{
 	Attrs: []ldap.Attr{
@@ -199,15 +195,14 @@ var ldapResults = map[string][]ldap.Result{
 	"(mobile=*5*5*)":               {nikolaTesla},
 }
 
-func (l *ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
+func (l ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
 	if strings.Contains(s.Filter, "=slow)") {
 		time.Sleep(150 * time.Millisecond)
 	}
 	return ldapResults[s.Filter], nil
 }
 
-func (l *ldapConn) Ping() error  { return nil }
-func (l *ldapConn) Close() error { return nil }
+func (l ldapConn) Close() error { return nil }
 
 type aqlServer struct {
 	fail     bool

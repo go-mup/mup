@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/mup.v0/schema"
-	"gopkg.in/tomb.v2"
-
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mup.v0/ldap"
+	"gopkg.in/mup.v0/schema"
+	"gopkg.in/tomb.v2"
 )
 
 // PluginSpec holds the specification of a plugin that may be registered with mup.
@@ -82,16 +82,31 @@ type pluginState struct {
 	plugin  Stopper
 }
 
+type ldapInfo struct {
+	Name   string      `bson:"_id"`
+	Config ldap.Config `bson:",inline"`
+}
+
+type ldapState struct {
+	raw  bson.Raw
+	info ldapInfo
+	conn *ldap.ManagedConn
+}
+
 type pluginManager struct {
 	tomb     tomb.Tomb
 	config   Config
 	session  *mgo.Session
 	database *mgo.Database
-	plugins  map[string]*pluginState
 	requests chan interface{}
 	incoming chan *Message
 	outgoing *mgo.Collection
 	rollback chan bson.ObjectId
+	plugins  map[string]*pluginState
+	ldaps    map[string]*ldapState
+
+	ldapConns      map[string]*ldap.ManagedConn
+	ldapConnsMutex sync.Mutex
 }
 
 func startPluginManager(config Config) (*pluginManager, error) {
@@ -99,6 +114,7 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	m := &pluginManager{
 		config:   config,
 		plugins:  make(map[string]*pluginState),
+		ldaps:    make(map[string]*ldapState),
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
 		rollback: make(chan bson.ObjectId),
@@ -107,15 +123,20 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	m.database = config.Database.With(m.session)
 	m.outgoing = m.database.C("outgoing")
 	m.tomb.Go(m.loop)
-	m.tomb.Go(m.tail)
 	return m, nil
 }
 
 type pluginRequestStop struct{}
 
 func (m *pluginManager) Stop() error {
+	if !m.tomb.Alive() {
+		return m.tomb.Err()
+	}
 	logf("Plugin manager stop requested. Waiting...")
-	m.tomb.Kill(errStop)
+	select {
+	case m.requests <- pluginRequestStop{}:
+	case <-m.tomb.Dying():
+	}
 	err := m.tomb.Wait()
 	m.session.Close()
 	logf("Plugin manager stopped (%v).", err)
@@ -125,13 +146,18 @@ func (m *pluginManager) Stop() error {
 	return nil
 }
 
-type pluginRequestRefresh struct{ done chan struct{} }
+type pluginRequestRefresh struct {
+	done chan struct{}
+}
 
-// Refresh forces reloading all plguins information from the database.
+// Refresh forces reloading all plugin information from the database.
 func (m *pluginManager) Refresh() {
 	req := pluginRequestRefresh{make(chan struct{})}
-	m.requests <- req
-	<-req.done
+	select {
+	case m.requests <- req:
+		<-req.done
+	case <-m.tomb.Dying():
+	}
 }
 
 func (m *pluginManager) die() {
@@ -144,11 +170,29 @@ func (m *pluginManager) die() {
 			wg.Done()
 		}()
 	}
+
+	// Clean this up first so m.ldapConn will never get a connection
+	// after its managed connection loop has already terminated.
+	m.ldapConnsMutex.Lock()
+	m.ldapConns = nil
+	m.ldapConnsMutex.Unlock()
+
+	wg.Add(len(m.ldaps))
+	for _, state := range m.ldaps {
+		close := state.conn.Close
+		go func() {
+			close()
+			wg.Done()
+		}()
+	}
 	wg.Wait()
+	m.tomb.Kill(errStop)
 }
 
 func (m *pluginManager) loop() error {
 	defer m.die()
+
+	m.tomb.Go(m.tail)
 
 	m.handleRefresh()
 	var refresh <-chan time.Time
@@ -158,7 +202,7 @@ func (m *pluginManager) loop() error {
 		refresh = ticker.C
 	}
 	plugins := m.database.C("plugins")
-	for m.tomb.Alive() {
+	for {
 		m.session.Refresh()
 		select {
 		case msg := <-m.incoming:
@@ -179,26 +223,107 @@ func (m *pluginManager) loop() error {
 				}
 			}
 		case req := <-m.requests:
-			switch r := req.(type) {
+			switch req := req.(type) {
+			case pluginRequestStop:
+				return nil
 			case pluginRequestRefresh:
 				m.handleRefresh()
-				close(r.done)
+				close(req.done)
 			default:
 				panic("unknown request received by plugin manager")
 			}
 		case <-refresh:
 			m.handleRefresh()
-		case <-m.tomb.Dying():
 		}
 	}
 	return nil
+}
+
+func (m *pluginManager) handleRefresh() {
+	m.refreshLdaps()
+	m.refreshPlugins()
+}
+
+func (m *pluginManager) refreshLdaps() {
+	changed := false
+	defer func() {
+		if changed {
+			m.ldapConnsMutex.Lock()
+			m.ldapConns = make(map[string]*ldap.ManagedConn)
+			for name, state := range m.ldaps {
+				m.ldapConns[name] = state.conn
+			}
+			m.ldapConnsMutex.Unlock()
+		}
+	}()
+
+	// Start new LDAP instances, and stop/restart updated ones.
+	var raw bson.Raw
+	var infos = make([]ldapInfo, 0, len(m.ldaps))
+	var found int
+	var known = len(m.ldaps)
+	iter := m.database.C("ldap").Find(nil).Iter()
+	for iter.Next(&raw) {
+		var info ldapInfo
+		if err := raw.Unmarshal(&info); err != nil {
+			logf("Cannot unmarshal LDAP document: %v", err)
+			continue
+		}
+		infos = append(infos, info)
+		if state, ok := m.ldaps[info.Name]; ok {
+			found++
+			if bytes.Equal(state.raw.Data, raw.Data) {
+				continue
+			}
+			logf("LDAP connection %q changed. Closing and restarting it.", info.Name)
+			err := state.conn.Close()
+			if err != nil {
+				logf("LDAP connection %q closed with an error: %v", info.Name, err)
+			}
+			delete(m.ldaps, info.Name)
+		} else {
+			logf("LDAP %q starting.", info.Name)
+		}
+
+		m.ldaps[info.Name] = &ldapState{
+			raw:  raw,
+			info: info,
+			conn: ldap.DialManaged(&info.Config),
+		}
+		changed = true
+	}
+	if iter.Err() != nil {
+		// TODO Reduce frequency of logged messages if the database goes down.
+		logf("Cannot fetch LDAP connection information from the database: %v", iter.Err())
+		return
+	}
+
+	// If there are known LDAPs that were not observed in the current
+	// set of LDAPs, they must be stopped and removed.
+	if known != found {
+	NextLDAP:
+		for name, state := range m.ldaps {
+			for i := range infos {
+				if infos[i].Name == name {
+					continue NextLDAP
+				}
+			}
+			logf("LDAP connection %q removed. Closing it.", state.info.Name)
+			err := state.conn.Close()
+			if err != nil {
+				logf("LDAP connection %q closed with an error: %v", state.info.Name, err)
+			}
+			delete(m.ldaps, name)
+			changed = true
+		}
+	}
 }
 
 func pluginChanged(a, b *pluginInfo) bool {
 	return !bytes.Equal(a.Config.Data, b.Config.Data) || !bytes.Equal(a.Targets.Data, b.Targets.Data)
 }
 
-func (m *pluginManager) handleRefresh() {
+func (m *pluginManager) refreshPlugins() {
 	var infos []pluginInfo
 	err := m.database.C("plugins").Find(nil).All(&infos)
 	if err != nil {
@@ -302,7 +427,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 		logf("Plugin is not registered: %s", pluginKey(info.Name))
 		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
-	plugger := newPlugger(info.Name, m.sendMessage)
+	plugger := newPlugger(info.Name, m.sendMessage, m.ldapConn)
 	plugger.setConfig(info.Config)
 	plugger.setTargets(info.Targets)
 	plugin, err := spec.Start(plugger)
@@ -325,7 +450,26 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 }
 
 func (m *pluginManager) sendMessage(msg *Message) error {
+	if !m.tomb.Alive() {
+		panic("plugin attempted to send message after its Stop method returned")
+	}
 	return m.outgoing.Insert(msg)
+}
+
+func (m *pluginManager) ldapConn(name string) (ldap.Conn, error) {
+	if !m.tomb.Alive() {
+		panic("plugin requested an LDAP connection after its Stop method returned")
+	}
+	var conn ldap.Conn
+	m.ldapConnsMutex.Lock()
+	if mconn, ok := m.ldapConns[name]; ok {
+		conn = mconn.Conn()
+	}
+	m.ldapConnsMutex.Unlock()
+	if conn != nil {
+		return conn, nil
+	}
+	return nil, fmt.Errorf("LDAP connection %q not found", name)
 }
 
 const zeroId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")

@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	LDAP     string
+	URL      string
 	BaseDN   string
 	BindDN   string
 	BindPass string
@@ -16,7 +16,6 @@ type Config struct {
 
 type Conn interface {
 	Close() error
-	Ping() error
 	Search(search *Search) ([]Result, error)
 }
 
@@ -65,12 +64,12 @@ func Dial(config *Config) (Conn, error) {
 	}
 	var conn *ldap.Conn
 	var err error
-	if strings.HasPrefix(config.LDAP, "ldaps://") {
-		conn, err = ldap.DialTLS("tcp", config.LDAP[8:], nil)
-	} else if strings.HasPrefix(config.LDAP, "ldap://") {
-		conn, err = ldap.Dial("tcp", config.LDAP[7:])
+	if strings.HasPrefix(config.URL, "ldaps://") {
+		conn, err = ldap.DialTLS("tcp", config.URL[8:], nil)
+	} else if strings.HasPrefix(config.URL, "ldap://") {
+		conn, err = ldap.Dial("tcp", config.URL[7:])
 	} else {
-		conn, err = ldap.Dial("tcp", config.LDAP)
+		conn, err = ldap.Dial("tcp", config.URL)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot dial LDAP server: %v", err)
@@ -88,20 +87,6 @@ func (c *ldapConn) Close() error {
 	return nil
 }
 
-func (c *ldapConn) Ping() error {
-	search := ldap.NewSearchRequest(
-		c.baseDN,
-		ldap.ScopeWholeSubtree,
-		ldap.NeverDerefAliases,
-		0, 0, false,
-		"(mozillaNickname=this-query-is-just-a-ping)",
-		[]string{"mozillaNickname"},
-		nil,
-	)
-	_, err := c.conn.Search(search)
-	return err
-}
-
 func (c *ldapConn) Search(s *Search) ([]Result, error) {
 	search := ldap.NewSearchRequest(
 		c.baseDN,
@@ -114,7 +99,7 @@ func (c *ldapConn) Search(s *Search) ([]Result, error) {
 	)
 	result, err := c.conn.Search(search)
 	if err != nil {
-		return nil, fmt.Errorf("cannot search LDAP server: %v", err)
+		return nil, err
 	}
 	r := make([]Result, len(result.Entries))
 	for ei, entry := range result.Entries {
