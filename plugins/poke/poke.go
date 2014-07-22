@@ -12,7 +12,7 @@ import (
 )
 
 var Plugin = mup.PluginSpec{
-	Name: "ldap",
+	Name: "poke",
 	Help: `Exposes the poke command for searching people on an LDAP directory.
 
 	The search happens against the name (cn) and nick (mozillaNickname)
@@ -37,7 +37,7 @@ func init() {
 	mup.RegisterPlugin(&Plugin)
 }
 
-type ldapPlugin struct {
+type pokePlugin struct {
 	mu       sync.Mutex
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
@@ -49,7 +49,7 @@ type ldapPlugin struct {
 }
 
 func start(plugger *mup.Plugger) (mup.Stopper, error) {
-	p := &ldapPlugin{
+	p := &pokePlugin{
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
 	}
@@ -58,12 +58,12 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	return p, nil
 }
 
-func (p *ldapPlugin) Stop() error {
+func (p *pokePlugin) Stop() error {
 	close(p.commands)
 	return p.tomb.Wait()
 }
 
-func (p *ldapPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *pokePlugin) HandleCommand(cmd *mup.Command) error {
 	select {
 	case p.commands <- cmd:
 	default:
@@ -72,7 +72,7 @@ func (p *ldapPlugin) HandleCommand(cmd *mup.Command) error {
 	return nil
 }
 
-func (p *ldapPlugin) loop() error {
+func (p *pokePlugin) loop() error {
 	for {
 		cmd, ok := <-p.commands
 		if !ok {
@@ -114,7 +114,7 @@ var ldapFormat = []struct {
 	{"skypePhone", "<skype:%s>", nil},
 }
 
-func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
+func (p *pokePlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	var args struct{ Query string }
 	cmd.Args(&args)
 	query := ldap.EscapeFilter(args.Query)
@@ -135,7 +135,7 @@ func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	}
 }
 
-func (p *ldapPlugin) formatEntry(result *ldap.Result) string {
+func (p *pokePlugin) formatEntry(result *ldap.Result) string {
 	var buf bytes.Buffer
 	buf.Grow(250)
 	cn := result.Value("cn")
@@ -162,7 +162,7 @@ func (p *ldapPlugin) formatEntry(result *ldap.Result) string {
 	return buf.String()
 }
 
-func (p *ldapPlugin) formatEntries(results []ldap.Result) string {
+func (p *pokePlugin) formatEntries(results []ldap.Result) string {
 	var buf bytes.Buffer
 	buf.Grow(250)
 	sizehint := 200

@@ -9,7 +9,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
-	_ "gopkg.in/mup.v0/plugins/ldap"
+	_ "gopkg.in/mup.v0/plugins/poke"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -18,7 +18,7 @@ var _ = Suite(&LDAPSuite{})
 
 type LDAPSuite struct{}
 
-var ldapTests = []struct {
+var pokeTests = []struct {
 	target string
 	send   []string
 	recv   []string
@@ -115,9 +115,9 @@ func (s *LDAPSuite) TearDownSuite(c *C) {
 }
 
 func (s *LDAPSuite) TestLDAP(c *C) {
-	for i, test := range ldapTests {
+	for i, test := range pokeTests {
 		c.Logf("Starting test %d with messages: %v", i, test.send)
-		tester := mup.NewPluginTester("ldap")
+		tester := mup.NewPluginTester("poke")
 		if test.config == nil {
 			test.config = bson.M{}
 		}
