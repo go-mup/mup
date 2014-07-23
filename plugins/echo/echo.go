@@ -32,21 +32,21 @@ type echoPlugin struct {
 	}
 }
 
-func start(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) mup.Stopper {
 	p := &echoPlugin{plugger: plugger}
 	plugger.Config(&p.config)
-	return p, nil
+	return p
 }
 
 func (p *echoPlugin) Stop() error {
 	return nil
 }
 
-func (p *echoPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *echoPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Text string }
 	cmd.Args(&args)
 	if p.config.Prefix != "" {
-		return p.plugger.Sendf(cmd, "%s%s", p.config.Prefix, args.Text)
+		p.plugger.Sendf(cmd, "%s%s", p.config.Prefix, args.Text)
 	}
-	return p.plugger.Sendf(cmd, "%s", args.Text)
+	p.plugger.Sendf(cmd, "%s", args.Text)
 }

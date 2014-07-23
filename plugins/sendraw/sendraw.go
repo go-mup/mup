@@ -39,20 +39,20 @@ type sendrawPlugin struct {
 	plugger *mup.Plugger
 }
 
-func start(plugger *mup.Plugger) (mup.Stopper, error) {
-	return &sendrawPlugin{plugger: plugger}, nil
+func start(plugger *mup.Plugger) mup.Stopper {
+	return &sendrawPlugin{plugger: plugger}
 }
 
 func (p *sendrawPlugin) Stop() error {
 	return nil
 }
 
-func (p *sendrawPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *sendrawPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Account, Message string }
 	cmd.Args(&args)
 	if args.Account == "" {
 		args.Account = cmd.Account
 	}
 	p.plugger.Send(mup.ParseOutgoing(args.Account, args.Message))
-	return p.plugger.Sendf(cmd, "Done.")
+	p.plugger.Sendf(cmd, "Done.")
 }

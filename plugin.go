@@ -18,7 +18,7 @@ import (
 type PluginSpec struct {
 	Name     string
 	Help     string
-	Start    func(p *Plugger) (Stopper, error)
+	Start    func(p *Plugger) Stopper
 	Commands schema.Commands
 }
 
@@ -30,12 +30,12 @@ type Stopper interface {
 
 // MessageHandler is implemented by plugins that can handle raw messages.
 type MessageHandler interface {
-	HandleMessage(msg *Message) error
+	HandleMessage(msg *Message)
 }
 
 // CommandHandler is implemented by plugins that can handle commands.
 type CommandHandler interface {
-	HandleCommand(cmd *Command) error
+	HandleCommand(cmd *Command)
 }
 
 type Command struct {
@@ -430,11 +430,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 	plugger := newPlugger(info.Name, m.sendMessage, m.ldapConn)
 	plugger.setConfig(info.Config)
 	plugger.setTargets(info.Targets)
-	plugin, err := spec.Start(plugger)
-	if err != nil {
-		logf("Cannot start plugin %q: %v", info.Name, err)
-		return nil, fmt.Errorf("cannot start plugin %q: %v", info.Name, err)
-	}
+	plugin := spec.Start(plugger)
 	state := &pluginState{
 		info:    *info,
 		spec:    spec,
@@ -534,52 +530,38 @@ NextTail:
 	return nil
 }
 
-func (state *pluginState) handle(msg *Message, cmdName string) error {
-	err1 := state.handleCommand(msg, cmdName)
-	err2 := state.handleMessage(msg)
-	if err1 != nil {
-		return err1
-	}
-	return err2
+func (state *pluginState) handle(msg *Message, cmdName string) {
+	state.handleCommand(msg, cmdName)
+	state.handleMessage(msg)
 }
 
-func (state *pluginState) handleCommand(msg *Message, cmdName string) error {
+func (state *pluginState) handleCommand(msg *Message, cmdName string) {
 	if cmdName == "" {
-		return nil
+		return
 	}
 	handler, ok := state.plugin.(CommandHandler)
 	if !ok {
-		return nil
+		return
 	}
 	cmdSchema := state.spec.Commands.Command(cmdName)
 	if cmdSchema == nil {
-		return nil
+		return
 	}
 	args, err := cmdSchema.Parse(msg.MupText)
 	if err != nil {
 		state.plugger.Sendf(msg, "Oops: %v", err)
-		return err
+		return
 	}
 	cmd := &Command{
 		Message: msg,
 		schema:  cmdSchema,
 		args:    marshalRaw(args),
 	}
-	err = handler.HandleCommand(cmd)
-	if err != nil {
-		logf("Plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
-		return fmt.Errorf("plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
-	}
-	return nil
+	handler.HandleCommand(cmd)
 }
 
-func (state *pluginState) handleMessage(msg *Message) error {
+func (state *pluginState) handleMessage(msg *Message) {
 	if handler, ok := state.plugin.(MessageHandler); ok {
-		err := handler.HandleMessage(msg)
-		if err != nil {
-			logf("Plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
-			return fmt.Errorf("plugin %q cannot handle message %q: %v", state.plugger.Name(), msg, err)
-		}
+		handler.HandleMessage(msg)
 	}
-	return nil
 }

@@ -60,7 +60,7 @@ type alphaPlugin struct {
 	}
 }
 
-func start(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) mup.Stopper {
 	p := &alphaPlugin{
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
@@ -72,7 +72,7 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 		p.config.Endpoint = defaultEndpoint
 	}
 	p.tomb.Go(p.loop)
-	return p, nil
+	return p
 }
 
 func (p *alphaPlugin) Stop() error {
@@ -80,13 +80,12 @@ func (p *alphaPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *alphaPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *alphaPlugin) HandleCommand(cmd *mup.Command) {
 	select {
 	case p.commands <- cmd:
 	default:
 		p.plugger.Sendf(cmd, "The WolframAlpha servers seem a bit sluggish right now. Please try again soon.")
 	}
-	return nil
 }
 
 func (p *alphaPlugin) loop() error {

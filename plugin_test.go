@@ -1,8 +1,6 @@
 package mup_test
 
 import (
-	"errors"
-	"fmt"
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mup.v0"
@@ -96,6 +94,7 @@ func (s *PluginSuite) TestPlugin(c *C) {
 		tester.Sendf(test.target, test.send)
 		tester.Stop()
 		c.Assert(tester.Recv(), Equals, test.recv)
+		c.Assert(tester.Recv(), Equals, "")
 	}
 }
 
@@ -127,53 +126,38 @@ func init() {
 
 type testPlugin struct {
 	plugger *mup.Plugger
-	stopped bool
 	config  struct {
 		Prefix  string
-		Error   string
 	}
 }
 
-func pluginStart(plugger *mup.Plugger) (mup.Stopper, error) {
+func pluginStart(plugger *mup.Plugger) mup.Stopper {
 	p := &testPlugin{plugger: plugger}
 	plugger.Config(&p.config)
-	return p, nil
+	return p
 }
 
 func (p *testPlugin) Stop() error {
-	p.stopped = true
+	p.plugger.Logf("testPlugin.Stop called")
 	return nil
 }
 
-func (p *testPlugin) HandleMessage(msg *mup.Message) error {
-	if p.stopped {
-		return fmt.Errorf("[msg] plugin stopped")
-	}
-	if p.config.Error != "" {
-		return errors.New("[msg] " + p.config.Error)
-	}
+func (p *testPlugin) HandleMessage(msg *mup.Message) {
 	prefix := p.plugger.Name() + "msg "
 	if strings.HasPrefix(msg.MupText, prefix) {
-		return p.echo(msg, "[msg] ", msg.MupText[len(prefix):])
+		p.echo(msg, "[msg] ", msg.MupText[len(prefix):])
 	}
-	return nil
 }
 
-func (p *testPlugin) HandleCommand(cmd *mup.Command) error {
-	if p.stopped {
-		return fmt.Errorf("[cmd] plugin stopped")
-	}
-	if p.config.Error != "" {
-		return errors.New("[cmd] " + p.config.Error)
-	}
+func (p *testPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Text string }
 	cmd.Args(&args)
-	return p.echo(cmd, "[cmd] ", args.Text)
+	p.echo(cmd, "[cmd] ", args.Text)
 }
 
-func (p *testPlugin) echo(to mup.Addressable, prefix, text string) error {
+func (p *testPlugin) echo(to mup.Addressable, prefix, text string) {
 	if p.config.Prefix != "" {
 		prefix += p.config.Prefix
 	}
-	return p.plugger.Sendf(to, "%s%s", prefix, text)
+	p.plugger.Sendf(to, "%s%s", prefix, text)
 }

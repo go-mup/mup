@@ -48,14 +48,14 @@ type pokePlugin struct {
 	}
 }
 
-func start(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) mup.Stopper {
 	p := &pokePlugin{
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
 	}
 	plugger.Config(&p.config)
 	p.tomb.Go(p.loop)
-	return p, nil
+	return p
 }
 
 func (p *pokePlugin) Stop() error {
@@ -63,13 +63,12 @@ func (p *pokePlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *pokePlugin) HandleCommand(cmd *mup.Command) error {
+func (p *pokePlugin) HandleCommand(cmd *mup.Command) {
 	select {
 	case p.commands <- cmd:
 	default:
 		p.plugger.Sendf(cmd, "The LDAP server seems a bit sluggish right now. Please try again soon.")
 	}
-	return nil
 }
 
 func (p *pokePlugin) loop() error {

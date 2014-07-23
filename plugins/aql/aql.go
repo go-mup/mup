@@ -91,7 +91,7 @@ const (
 	defaultPollDelay     = 10 * time.Second
 )
 
-func start(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) mup.Stopper {
 	p := &aqlPlugin{
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
@@ -105,7 +105,7 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 		p.config.AQLEndpoint = "https://gw.aql.com/sms/sms_gw.php"
 	}
 	p.tomb.Go(p.loop)
-	return p, nil
+	return p
 }
 
 func (p *aqlPlugin) Stop() error {
@@ -114,13 +114,12 @@ func (p *aqlPlugin) Stop() error {
 	return p.tomb.Wait()
 }
 
-func (p *aqlPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *aqlPlugin) HandleCommand(cmd *mup.Command) {
 	select {
 	case p.commands <- cmd:
 	default:
 		p.plugger.Sendf(cmd, "The server seems a bit sluggish right now. Please try again soon.")
 	}
-	return nil
 }
 
 func (p *aqlPlugin) loop() error {

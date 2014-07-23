@@ -39,7 +39,7 @@ type pbotPlugin struct {
 
 const defaultAddr = ":10234"
 
-func start(plugger *mup.Plugger) (mup.Stopper, error) {
+func start(plugger *mup.Plugger) mup.Stopper {
 	p := &pbotPlugin{
 		plugger: plugger,
 		accept:  make(map[string][]*mup.PluginTarget),
@@ -60,7 +60,7 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 		}
 	}
 	p.tomb.Go(p.loop)
-	return p, nil
+	return p
 }
 
 func (p *pbotPlugin) Stop() error {

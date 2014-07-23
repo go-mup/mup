@@ -127,8 +127,7 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 		tester.SetConfig(test.config)
 		tester.SetLDAP("test", ldapConn{})
 		tester.Start()
-		err := tester.SendAll(test.target, test.send)
-		c.Assert(err, IsNil)
+		tester.SendAll(test.target, test.send)
 		c.Assert(tester.Stop(), IsNil)
 		c.Assert(tester.RecvAll(), DeepEquals, test.recv)
 	}

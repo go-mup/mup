@@ -74,7 +74,7 @@ func (t *PluginTester) Start() error {
 		panic("PluginTester.Start called more than once")
 	}
 	var err error
-	t.state.plugin, err = t.state.spec.Start(t.state.plugger)
+	t.state.plugin = t.state.spec.Start(t.state.plugger)
 	return err
 }
 
@@ -191,23 +191,19 @@ func (t *PluginTester) RecvAll() []string {
 // Sendf always delivers the message to the plugin, irrespective of which targets
 // are currently setup, as it doesn't make sense to test the plugin with a message
 // that it cannot observe.
-func (t *PluginTester) Sendf(target, format string, args ...interface{}) error {
+func (t *PluginTester) Sendf(target, format string, args ...interface{}) {
 	if target == "" {
 		target = "mup"
 	}
 	msg := ParseIncoming("test", "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
-	return t.state.handle(msg, schema.CommandName(msg.MupText))
+	t.state.handle(msg, schema.CommandName(msg.MupText))
 }
 
 // SendAll sends each entry in text as an individual message to the bot.
 //
 // See Sendf for more details.
-func (t *PluginTester) SendAll(target string, text []string) error {
+func (t *PluginTester) SendAll(target string, text []string) {
 	for _, texti := range text {
-		err := t.Sendf(target, "%s", texti)
-		if err != nil {
-			return err
-		}
+		t.Sendf(target, "%s", texti)
 	}
-	return nil
 }

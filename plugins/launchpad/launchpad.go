@@ -92,24 +92,24 @@ type lpPlugin struct {
 }
 
 const (
-	defaultHandleTimeout    = 500 * time.Millisecond
+	defaultHandleTimeout     = 500 * time.Millisecond
 	defaultEndpoint          = "https://api.launchpad.net/1.0/"
 	defaultEndpointTrackBugs = "https://launchpad.net/"
-	defaultPollDelay        = 10 * time.Second
-	defaultPrefix           = "Bug #%d changed"
+	defaultPollDelay         = 10 * time.Second
+	defaultPrefix            = "Bug #%d changed"
 )
 
-func startShowBugs(plugger *mup.Plugger) (mup.Stopper, error) {
+func startShowBugs(plugger *mup.Plugger) mup.Stopper {
 	return startPlugin(showBugs, plugger)
 }
-func startTrackBugs(plugger *mup.Plugger) (mup.Stopper, error) {
+func startTrackBugs(plugger *mup.Plugger) mup.Stopper {
 	return startPlugin(trackBugs, plugger)
 }
-func startTrackMerges(plugger *mup.Plugger) (mup.Stopper, error) {
+func startTrackMerges(plugger *mup.Plugger) mup.Stopper {
 	return startPlugin(trackMerges, plugger)
 }
 
-func startPlugin(mode pluginMode, plugger *mup.Plugger) (mup.Stopper, error) {
+func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	if mode == 0 {
 		panic("launchpad plugin used under unknown name: " + plugger.Name())
 	}
@@ -148,7 +148,7 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) (mup.Stopper, error) {
 	default:
 		panic("internal error: unknown launchpad plugin mode")
 	}
-	return p, nil
+	return p
 }
 
 func (p *lpPlugin) Stop() error {
@@ -161,38 +161,36 @@ type lpMessage struct {
 	bugs []int
 }
 
-func (p *lpPlugin) HandleMessage(msg *mup.Message) error {
+func (p *lpPlugin) HandleMessage(msg *mup.Message) {
 	if p.mode != showBugs || msg.ToMup {
-		return nil
+		return
 	}
 	bugs := parseBugChat(msg.Text)
 	if len(bugs) == 0 {
-		return nil
+		return
 	}
-	return p.handleMessage(&lpMessage{msg, bugs})
+	p.handleMessage(&lpMessage{msg, bugs})
 }
 
-func (p *lpPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *lpPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Ids string }
 	cmd.Args(&args)
 	bugs, err := parseBugArgs(args.Ids)
 	if err != nil {
 		p.plugger.Sendf(cmd, "Oops: %v", err)
 	}
-	return p.handleMessage(&lpMessage{cmd.Message, bugs})
+	p.handleMessage(&lpMessage{cmd.Message, bugs})
 }
 
-
-func (p *lpPlugin) handleMessage(lpmsg *lpMessage) error {
+func (p *lpPlugin) handleMessage(lpmsg *lpMessage) {
 	if len(lpmsg.bugs) == 0 {
-		return nil
+		return
 	}
 	select {
 	case p.messages <- lpmsg:
 	case <-time.After(p.config.HandleTimeout.Duration):
 		p.plugger.Sendf(lpmsg.msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
 	}
-	return nil
 }
 
 func (p *lpPlugin) loop() error {
@@ -249,7 +247,7 @@ func (p *lpPlugin) showBug(to mup.Addressable, bugId int, prefix string) error {
 	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
 		prefix = "Bug #%d"
 	}
-	format := prefix+": %s%s <https://launchpad.net/bugs/%d>"
+	format := prefix + ": %s%s <https://launchpad.net/bugs/%d>"
 	args := []interface{}{bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId}
 	if to == nil {
 		return p.plugger.Broadcastf(format, args...)

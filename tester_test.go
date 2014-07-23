@@ -14,6 +14,16 @@ var _ = Suite(&TesterSuite{})
 
 type TesterSuite struct{}
 
+func (s *TesterSuite) SetUpTest(c *C) {
+	mup.SetLogger(c)
+	mup.SetDebug(true)
+}
+
+func (s *TesterSuite) TearDownTest(c *C) {
+	mup.SetLogger(nil)
+	mup.SetDebug(false)
+}
+
 func (s *TesterSuite) TestSendfRecv(c *C) {
 	tester := mup.NewPluginTester("echoA")
 	tester.Start()
@@ -87,26 +97,11 @@ func (s *TesterSuite) TestRecvOtherAccount(c *C) {
 	c.Assert(tester.Recv(), Equals, "[other] PRIVMSG #chan :text")
 }
 
-
-func (s *TesterSuite) TestSendError(c *C) {
-	tester := mup.NewPluginTester("echoA")
-	tester.SetConfig(bson.M{"error": "error message"})
-	tester.Start()
-	err1 := tester.Sendf("mup", "echoAcmd foo")
-	err2 := tester.Sendf("mup", "echoAmsg foo")
-	tester.Stop()
-	c.Assert(err1, ErrorMatches, `plugin "echoA" cannot handle message ".*": \[cmd\] error message`)
-	c.Assert(err2, ErrorMatches, `plugin "echoA" cannot handle message ".*": \[msg\] error message`)
-}
-
 func (s *TesterSuite) TestStop(c *C) {
 	tester := mup.NewPluginTester("echoA")
 	tester.Start()
 	tester.Stop()
-	err := tester.Sendf("mup", "echoAcmd repeat")
-	c.Assert(err, ErrorMatches, `plugin "echoA" cannot handle message ".*": \[cmd\] plugin stopped`)
-	err = tester.Sendf("mup", "echoAmsg repeat")
-	c.Assert(err, ErrorMatches, `plugin "echoA" cannot handle message ".*": \[msg\] plugin stopped`)
+	c.Assert(c.GetTestLog(), Matches, "(?s).*testPlugin.Stop called.*")
 }
 
 func (s *TesterSuite) TestSetLDAP(c *C) {

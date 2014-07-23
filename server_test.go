@@ -399,22 +399,6 @@ func (s *ServerSuite) TestPluginUpdates(c *C) {
 	s.ReadLine(c, "PRIVMSG #chan :nick: [cmd] E.D")
 }
 
-func (s *ServerSuite) TestSendError(c *C) {
-	s.SendWelcome(c)
-
-	plugins := s.Session.DB("").C("plugins")
-	err := plugins.Insert(M{"_id": "echoA", "config": M{"error": "error message"}, "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
-	s.server.RefreshPlugins()
-
-	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A")
-	time.Sleep(100 * time.Millisecond)
-
-	log := c.GetTestLog()
-	c.Assert(log, Matches, `(?s).*Plugin "echoA" cannot handle message ".*": \[cmd\] error message.*`)
-	c.Assert(log, Matches, `(?s).*Plugin "echoA" cannot handle message ".*": \[msg\] error message.*`)
-}
-
 var testLDAPSpec = mup.PluginSpec{
 	Name:  "testldap",
 	Start: testLdapStart,
@@ -435,30 +419,29 @@ type testLdapPlugin struct {
 	plugger *mup.Plugger
 }
 
-func testLdapStart(plugger *mup.Plugger) (mup.Stopper, error) {
-	return &testLdapPlugin{plugger}, nil
+func testLdapStart(plugger *mup.Plugger) mup.Stopper {
+	return &testLdapPlugin{plugger}
 }
 
 func (p *testLdapPlugin) Stop() error {
 	return nil
 }
 
-func (p *testLdapPlugin) HandleCommand(cmd *mup.Command) error {
+func (p *testLdapPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ LDAPName string }
 	cmd.Args(&args)
 	conn, err := p.plugger.LDAP(args.LDAPName)
 	if err != nil {
 		p.plugger.Sendf(cmd, "LDAP method error: %v", err)
-		return err
+		return
 	}
 	defer conn.Close()
 	results, err := conn.Search(&ldap.Search{})
 	if len(results) != 1 || results[0].DN != "test-dn" || err != nil {
 		p.plugger.Sendf(cmd, "Search method results=%#v err=%v", results, err)
-		return err
+		return
 	}
 	p.plugger.Sendf(cmd, "LDAP works fine.")
-	return nil
 }
 
 func (s *ServerSuite) TestLDAP(c *C) {
