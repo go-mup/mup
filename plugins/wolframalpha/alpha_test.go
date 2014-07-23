@@ -11,6 +11,7 @@ import (
 	_ "gopkg.in/mup.v0/plugins/wolframalpha"
 
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mup.v0/ldap"
 	"net/url"
 	"strings"
 )
@@ -26,12 +27,14 @@ type inferTest struct {
 	target  string
 	send    string
 	recv    string
+	sendAll []string
 	recvAll []string
 	result  string
 	status  int
 	config  bson.M
 	targets []bson.M
 	form    url.Values
+	ldap    ldap.Conn
 }
 
 var inferTests = []inferTest{{
@@ -43,10 +46,14 @@ var inferTests = []inferTest{{
 		"appid": "theid",
 	},
 	form: url.Values{
-		"ip":     {"host"},
-		"input":  {"the query"},
-		"format": {"plaintext"},
-		"appid":  {"theid"},
+		"ip":            {"host"},
+		"input":         {"the query"},
+		"format":        {"plaintext"},
+		"appid":         {"theid"},
+		"parsetimeout":  {"3"},
+		"scantimeout":   {"5"},
+		"formattimeout": {"3"},
+		"podtimeout":    {"2"},
 	},
 }, {
 	// Ignore input and illustration pods.
@@ -194,7 +201,42 @@ var inferTests = []inferTest{{
 	send:   "infer the query",
 	recv:   "PRIVMSG nick :Cannot parse WolframAlpha response.",
 	result: "bogus",
-}}
+}, {
+	// LDAP location querying.
+	sendAll: []string{"infer query one", "infer query two"},
+	recvAll: []string{"PRIVMSG nick :the result.", "PRIVMSG nick :the result."},
+	result:  "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
+	ldap:    ldapConnFor("nick", "c", "Country", "st", "State", "l", "City"),
+	config: bson.M{
+		"ldap": "test",
+	},
+	form: url.Values{
+		"location":      {"City, State, Country"},
+		"input":         {"query two"},
+		"format":        {"plaintext"},
+	},
+}, {
+	// LDAP location querying without proper attributes.
+	send:   "infer the query",
+	recv:   "PRIVMSG nick :the result.",
+	result: "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
+	ldap:   ldapConnFor("nick", "other", "irrelevant"),
+	config: bson.M{
+		"ldap": "test",
+	},
+	form: url.Values{
+		"ip":            {"host"},
+		"input":         {"the query"},
+		"format":        {"plaintext"},
+	},
+}, {
+	// Bad LDAP connection name
+	send: "infer the query",
+	recv: "PRIVMSG nick :Plugin configuration error: LDAP connection \"unknown\" not found.",
+	config: bson.M{
+		"ldap": "unknown",
+	},
+}, {}}
 
 func (s *S) SetUpTest(c *C) {
 	mup.SetLogger(c)
@@ -223,8 +265,16 @@ func (s *S) TestInfer(c *C) {
 		tester := mup.NewPluginTester("wolframalpha")
 		tester.SetConfig(test.config)
 		tester.SetTargets(test.targets)
+		if test.ldap != nil {
+			tester.SetLDAP("test", test.ldap)
+		}
 		tester.Start()
-		tester.Sendf(test.target, "%s", test.send)
+		if test.send != "" {
+			tester.Sendf(test.target, "%s", test.send)
+		}
+		if test.sendAll != nil {
+			tester.SendAll(test.target, test.sendAll)
+		}
 
 		c.Check(tester.Stop(), IsNil)
 
@@ -238,6 +288,11 @@ func (s *S) TestInfer(c *C) {
 		server.Stop()
 
 		if test.form != nil {
+			for _, k := range []string{"appid", "parsetimeout", "scantimeout", "formattimeout", "podtimeout"} {
+				if test.form[k] == nil {
+					delete(server.form, k)
+				}
+			}
 			c.Check(server.form, DeepEquals, test.form)
 		}
 
@@ -246,6 +301,30 @@ func (s *S) TestInfer(c *C) {
 		}
 	}
 }
+
+type ldapConn struct {
+	nick   string
+	result ldap.Result
+}
+
+func ldapConnFor(nick string, attrs ...string) ldap.Conn {
+	res := ldap.Result{Attrs: []ldap.Attr{
+		{Name: "mozillaNickname", Values: []string{nick}},
+	}}
+	for i := 0; i < len(attrs); i += 2 {
+		res.Attrs = append(res.Attrs, ldap.Attr{Name: attrs[i], Values: []string{attrs[i+1]}})
+	}
+	return ldapConn{nick, res}
+}
+
+func (l ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
+	if s.Filter == "(mozillaNickname="+l.nick+")" {
+		return []ldap.Result{l.result}, nil
+	}
+	return nil, nil
+}
+
+func (l ldapConn) Close() error { return nil }
 
 type alphaServer struct {
 	result string
@@ -285,4 +364,3 @@ eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad
 minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip
 ex ea commodo consequat
 `, "\n", "", -1)
-

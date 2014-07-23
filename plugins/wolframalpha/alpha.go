@@ -3,6 +3,7 @@ package mup
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
 )
@@ -40,13 +42,21 @@ func init() {
 
 var defaultEndpoint = "http://api.wolframalpha.com/v2/query"
 
+type locEntry struct {
+	loc  string
+	when time.Time
+}
+
 type alphaPlugin struct {
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
 	commands chan *mup.Command
+	newLoc   map[string]locEntry
+	oldLoc   map[string]locEntry
 	config   struct {
 		AppID    string
 		Endpoint string
+		LDAP     string
 	}
 }
 
@@ -54,6 +64,8 @@ func start(plugger *mup.Plugger) (mup.Stopper, error) {
 	p := &alphaPlugin{
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
+		newLoc:   make(map[string]locEntry),
+		oldLoc:   make(map[string]locEntry),
 	}
 	plugger.Config(&p.config)
 	if p.config.Endpoint == "" {
@@ -108,6 +120,77 @@ type xmlSubPod struct {
 	Text  string `xml:"plaintext"`
 }
 
+const locCacheLen = 100
+const locCacheExpire = 24 * time.Hour
+
+func (p *alphaPlugin) ldapLocation(cmd *mup.Command) string {
+	if p.config.LDAP == "" {
+		p.plugger.Debugf("No LDAP server configured.")
+		return ""
+	}
+
+	// Two generations of locCacheLen expiring after locCacheExpire.
+	now := time.Now()
+	oldest := now.Add(-locCacheExpire)
+	entry, ok := p.newLoc[cmd.Nick]
+	if ok && entry.when.After(oldest) {
+		p.plugger.Debugf("Obtained location for %q from the new cache generation: %q", cmd.Nick, entry.loc)
+		return entry.loc
+	}
+	entry, ok = p.oldLoc[cmd.Nick]
+	if ok && entry.when.After(oldest) {
+		p.plugger.Debugf("Obtained location for %q from the old cache generation: %q", cmd.Nick, entry.loc)
+		p.newLoc[cmd.Nick] = entry
+		return entry.loc
+	}
+
+	// Not in the cache. Get a connection to look it up.
+	conn, err := p.plugger.LDAP(p.config.LDAP)
+	if err != nil {
+		p.plugger.Logf("Plugin configuration error: %s.", err)
+		p.plugger.Sendf(cmd, "Plugin configuration error: %s.", err)
+		return ""
+	}
+	defer conn.Close()
+
+	// Search for the nick in use, and take city, state, and country.
+	search := &ldap.Search{
+		Filter: fmt.Sprintf("(mozillaNickname=%s)", ldap.EscapeFilter(cmd.Nick)),
+		Attrs:  []string{"l", "st", "c"},
+	}
+	loc := ""
+	results, err := conn.Search(search)
+	if err != nil {
+		p.plugger.Logf("Cannot search LDAP server: %v", err)
+		return ""
+	}
+
+	// Assemble the string as "city, state, country".
+	if len(results) == 0 {
+		p.plugger.Logf("Cannot find requested IRC nick in LDAP server: %q", cmd.Nick)
+	} else {
+		r := results[0]
+		var strs []string
+		for _, name := range search.Attrs {
+			if s := r.Value(name); s != "" {
+				strs = append(strs, s)
+			}
+		}
+		loc = strings.Join(strs, ", ")
+	}
+
+	// Rotate the cache generations if the current one is at the limit.
+	if len(p.newLoc) == locCacheLen {
+		p.oldLoc = p.newLoc
+		p.newLoc = make(map[string]locEntry)
+	}
+
+	// Cache successful positive and negative lookups.
+	p.newLoc[cmd.Nick] = locEntry{loc, now}
+	p.plugger.Debugf("Added location for %q to the cache: %q", cmd.Nick, entry.loc)
+	return loc
+}
+
 func (p *alphaPlugin) handle(cmd *mup.Command) {
 	var args struct {
 		Query string
@@ -116,11 +199,17 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 	cmd.Args(&args)
 
 	form := url.Values{
-		"appid":  {p.config.AppID},
-		"format": {"plaintext"},
-		"input":  {args.Query},
+		"appid":         {p.config.AppID},
+		"input":         {args.Query},
+		"parsetimeout":  {"3"},
+		"scantimeout":   {"5"},
+		"formattimeout": {"3"},
+		"podtimeout":    {"2"},
+		"format":        {"plaintext"},
 	}
-	if cmd.Host != "" {
+	if loc := p.ldapLocation(cmd); loc != "" {
+		form["location"] = []string{loc}
+	} else if cmd.Host != "" {
 		form["ip"] = []string{cmd.Host}
 	}
 
@@ -204,7 +293,7 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 			buf.WriteString(text)
 		}
 		if buf.Len() > 300 {
-			if buf.Len() - mark > 300 {
+			if buf.Len()-mark > 300 {
 				// The pod is too big by itself. Skip it.
 				buf.Truncate(mark)
 			} else {
