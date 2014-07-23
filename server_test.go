@@ -13,57 +13,56 @@ import (
 
 type ServerSuite struct {
 	LineServerSuite
-	MgoSuite
 
-	session *mgo.Session
-	config  *mup.Config
-	server  *mup.Server
-	lserver *LineServer
+	dbserver mup.DBServerHelper
+	session  *mgo.Session
+	config   *mup.Config
+	server   *mup.Server
+	lserver  *LineServer
 }
 
 var _ = Suite(&ServerSuite{})
 
 func (s *ServerSuite) SetUpSuite(c *C) {
+	s.dbserver.SetPath(c.MkDir())
 	s.LineServerSuite.SetUpSuite(c)
-	s.MgoSuite.SetUpSuite(c)
 }
 
 func (s *ServerSuite) TearDownSuite(c *C) {
 	s.LineServerSuite.TearDownSuite(c)
-	s.MgoSuite.TearDownSuite(c)
+	s.dbserver.Stop()
 }
 
 func (s *ServerSuite) SetUpTest(c *C) {
 	s.LineServerSuite.SetUpTest(c)
-	s.MgoSuite.SetUpTest(c)
 
 	mup.SetDebug(true)
 	mup.SetLogger(c)
 
-	var err error
-	s.session, err = mgo.Dial("localhost:50017")
-	c.Assert(err, IsNil)
+	s.session = s.dbserver.Session()
 
+	db := s.session.DB("mup")
 	s.config = &mup.Config{
-		Database: s.session.DB("mup"),
+		Database: db,
 		Refresh:  -1, // Manual refreshing for testing.
 	}
 
-	err = s.config.Database.C("accounts").Insert(M{"_id": "one", "host": s.Addr.String(), "password": "password"})
+	err := db.C("accounts").Insert(M{"_id": "one", "host": s.Addr.String(), "password": "password"})
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
+	s.session.Close()
+
 	mup.SetDebug(false)
 	mup.SetLogger(nil)
 
 	s.StopServer(c)
 	s.LineServerSuite.TearDownTest(c)
-	s.session.Close()
-	s.config.Database.Session.Close()
-	s.MgoSuite.TearDownTest(c)
+	s.dbserver.Reset()
+	s.dbserver.AssertClosed()
 }
 
 func (s *ServerSuite) StopServer(c *C) {
@@ -169,7 +168,7 @@ func (s *ServerSuite) TestQuitPostAuth(c *C) {
 func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendWelcome(c)
 
-	accounts := s.Session.DB("").C("accounts")
+	accounts := s.session.DB("").C("accounts")
 	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}, {"name": "#c3"}, {"name": "#c4"}}}})
 	c.Assert(err, IsNil)
 
@@ -223,10 +222,10 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	s.SendWelcome(c)
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :Hello mup!")
 	s.Roundtrip(c)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	var msg mup.Message
-	incoming := s.Session.DB("").C("incoming")
+	incoming := s.session.DB("").C("incoming")
 	err := incoming.Find(nil).Sort("$natural").One(&msg)
 	c.Assert(err, IsNil)
 
@@ -250,11 +249,11 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	// Stop default server to test the behavior of outgoing messages on start up.
 	s.StopServer(c)
 
-	accounts := s.Session.DB("").C("accounts")
+	accounts := s.session.DB("").C("accounts")
 	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#test"}}}})
 	c.Assert(err, IsNil)
 
-	outgoing := s.Session.DB("").C("outgoing")
+	outgoing := s.session.DB("").C("outgoing")
 	err = outgoing.Insert(&mup.Message{
 		Account: "one",
 		Nick:    "someone",
@@ -300,7 +299,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoBmsg B1")
 	s.Roundtrip(c)
 
-	plugins := s.Session.DB("").C("plugins")
+	plugins := s.session.DB("").C("plugins")
 	err := plugins.Insert(M{"_id": "echoA", "config": M{"prefix": "A."}, "targets": []M{{"account": "one"}}})
 	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
@@ -342,7 +341,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 func (s *ServerSuite) TestPluginTarget(c *C) {
 	s.SendWelcome(c)
 
-	plugins := s.Session.DB("").C("plugins")
+	plugins := s.session.DB("").C("plugins")
 	err := plugins.Insert(
 		M{"_id": "echoA", "config": M{"prefix": "A."}, "targets": []M{{"account": "one", "channel": "#chan1"}}},
 		M{"_id": "echoB", "config": M{"prefix": "B."}, "targets": []M{{"account": "one", "channel": "#chan2"}}},
@@ -367,7 +366,7 @@ func (s *ServerSuite) TestPluginTarget(c *C) {
 func (s *ServerSuite) TestPluginUpdates(c *C) {
 	s.SendWelcome(c)
 
-	plugins := s.Session.DB("").C("plugins")
+	plugins := s.session.DB("").C("plugins")
 	err := plugins.Insert(
 		M{"_id": "echoA", "config": M{"prefix": "A."}, "targets": []M{{"account": "one"}}},
 		M{"_id": "echoB", "config": M{"prefix": "B."}, "targets": []M{{"account": "one", "target": "none"}}},
@@ -456,8 +455,8 @@ func (s *ServerSuite) TestLDAP(c *C) {
 		ldap.TestDial = nil
 	}()
 
-	ldaps := s.Session.DB("").C("ldap")
-	plugins := s.Session.DB("").C("plugins")
+	ldaps := s.session.DB("").C("ldap")
+	plugins := s.session.DB("").C("plugins")
 	err := ldaps.Insert(M{"_id": "test1", "url": "the-url1", "basedn": "the-basedn", "binddn": "the-binddn", "bindpass": "the-bindpass"})
 	c.Assert(err, IsNil)
 	err = ldaps.Insert(M{"_id": "test2", "url": "the-url2"})
@@ -497,4 +496,47 @@ func (s *ServerSuite) TestLDAP(c *C) {
 	c.Assert(dials[1], DeepEquals, &ldap.Config{URL: "the-url2"})
 	c.Assert(dials[2], DeepEquals, &ldap.Config{URL: "the-url4", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
 	c.Assert(dials[3], DeepEquals, &ldap.Config{URL: "the-url3"})
+}
+
+var testDBSpec = mup.PluginSpec{
+	Name:  "testdb",
+	Start: testDBStart,
+	Commands: schema.Commands{{Name: "testdb"}},
+}
+
+
+func init() {
+	mup.RegisterPlugin(&testDBSpec)
+}
+
+type testDBPlugin struct {
+	plugger *mup.Plugger
+}
+
+func testDBStart(plugger *mup.Plugger) mup.Stopper {
+	return &testDBPlugin{plugger}
+}
+
+func (p *testDBPlugin) Stop() error {
+	return nil
+}
+
+func (p *testDBPlugin) HandleCommand(cmd *mup.Command) {
+	session, c := p.plugger.Collection("mine")
+	defer session.Close()
+	n, err := c.Database.C("accounts").Count()
+	p.plugger.Sendf(cmd, "Number of accounts found: %d (err=%v)", n, err)
+}
+
+func (s *ServerSuite) TestDatabase(c *C) {
+	s.SendWelcome(c)
+
+	plugins := s.session.DB("").C("plugins")
+	err := plugins.Insert(M{"_id": "testdb", "targets": []M{{"account": "one"}}})
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+	s.Roundtrip(c)
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
+	s.ReadLine(c, "PRIVMSG nick :Number of accounts found: 1 (err=<nil>)")
 }

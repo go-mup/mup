@@ -3,8 +3,10 @@ package mup
 import (
 	"fmt"
 
+	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
+	"strings"
 )
 
 type Plugger struct {
@@ -13,6 +15,7 @@ type Plugger struct {
 	ldap    func(name string) (ldap.Conn, error)
 	config  bson.Raw
 	targets []PluginTarget
+	db      *mgo.Database
 }
 
 type PluginTarget struct {
@@ -64,6 +67,10 @@ func newPlugger(name string, send func(msg *Message) error, ldap func(name strin
 	}
 }
 
+func (p *Plugger) setDatabase(db *mgo.Database) {
+	p.db = db
+}
+
 func (p *Plugger) setConfig(config bson.Raw) {
 	if config.Kind == 0 {
 		p.config = emptyDoc
@@ -107,6 +114,23 @@ func (p *Plugger) Debugf(format string, args ...interface{}) {
 
 func (p *Plugger) Config(result interface{}) {
 	p.config.Unmarshal(result)
+}
+
+func (p *Plugger) SharedCollection(name string) (*mgo.Session, *mgo.Collection) {
+	if p.db == nil {
+		panic("plugger has no database available")
+	}
+	session := p.db.Session.Copy()
+	return session, p.db.C("shared." + name).With(session)
+}
+
+func (p *Plugger) Collection(name string) (*mgo.Session, *mgo.Collection) {
+	if p.db == nil {
+		panic("plugger has no database available")
+	}
+	session := p.db.Session.Copy()
+	pname := strings.Replace(p.Name(), "/", "_", -1)
+	return session, p.db.C("plugin." + pname + "." + name).With(session)
 }
 
 func (p *Plugger) Targets() []PluginTarget {

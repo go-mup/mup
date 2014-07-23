@@ -428,6 +428,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
 	plugger := newPlugger(info.Name, m.sendMessage, m.ldapConn)
+	plugger.setDatabase(m.database)
 	plugger.setConfig(info.Config)
 	plugger.setTargets(info.Targets)
 	plugin := spec.Start(plugger)

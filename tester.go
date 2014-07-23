@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
@@ -76,6 +77,16 @@ func (t *PluginTester) Start() error {
 	var err error
 	t.state.plugin = t.state.spec.Start(t.state.plugger)
 	return err
+}
+
+// SetDatabase sets the database to offer the plugin being tested.
+func (t *PluginTester) SetDatabase(db *mgo.Database) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state.plugin != nil {
+		panic("PluginTester.SetDatabase called after Start")
+	}
+	t.state.plugger.setDatabase(db)
 }
 
 // SetConfig changes the configuration of the plugin being tested.
