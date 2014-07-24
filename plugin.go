@@ -325,7 +325,10 @@ func pluginChanged(a, b *pluginInfo) bool {
 
 func (m *pluginManager) refreshPlugins() {
 	var infos []pluginInfo
-	err := m.database.C("plugins").Find(nil).All(&infos)
+
+	plugins := m.database.C("plugins")
+
+	err := plugins.Find(nil).All(&infos)
 	if err != nil {
 		// TODO Reduce frequency of logged messages if the database goes down.
 		logf("Cannot fetch server information from the database: %v", err)
@@ -358,6 +361,12 @@ func (m *pluginManager) refreshPlugins() {
 			logf("Plugin %q failed to start: %v", info.Name, err)
 			continue
 		}
+
+		err = plugins.UpdateId(info.Name, bson.D{{"$set", bson.D{{"commands", state.spec.Commands}}}})
+		if err != nil {
+			logf("Cannot update commands schema for plugin %q: %v", info.Name, err) 
+		}
+
 		m.plugins[info.Name] = state
 		if rollbackId == "" || rollbackId > state.info.LastId {
 			rollbackId = state.info.LastId

@@ -18,13 +18,13 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "sendraw",
-	Help: "Send the provided text as a raw IRC protocol messagae.",
+	Help: "Sends the provided text as a raw IRC protocol messagae.",
 	Args: schema.Args{{
 		Name: "-account",
 		Help: "Account to send the message to. Defaults to the current one.",
 		Type: schema.String,
 	}, {
-		Name: "message",
+		Name: "text",
 		Help: "Raw IRC message to send.",
 		Type: schema.String,
 		Flag: schema.Required | schema.Trailing,
@@ -48,11 +48,11 @@ func (p *sendrawPlugin) Stop() error {
 }
 
 func (p *sendrawPlugin) HandleCommand(cmd *mup.Command) {
-	var args struct{ Account, Message string }
+	var args struct{ Account, Text string }
 	cmd.Args(&args)
 	if args.Account == "" {
 		args.Account = cmd.Account
 	}
-	p.plugger.Send(mup.ParseOutgoing(args.Account, args.Message))
+	p.plugger.Send(mup.ParseOutgoing(args.Account, args.Text))
 	p.plugger.Sendf(cmd, "Done.")
 }

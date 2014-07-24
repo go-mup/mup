@@ -43,12 +43,12 @@ var ShowBugsCommands = schema.Commands{{
 	Name: "bug",
 	Help: `Displays details of the provided Launchpad bugs.
 
-	This commands allows directly asking the bot for a bug. The lpshowbugs
-	plugin can also monitor channel conversations and report bugs mentioned.
+	This command reports details about the provided bug numbers or URLs. The plugin it
+	is part of (lpshowbugs) also monitors channel conversations and reports bugs
+	mentioned.
 	`,
 	Args: schema.Args{{
-		Name: "ids",
-		Help: "One or more bug ids or urls.",
+		Name: "bugs",
 		Flag: schema.Trailing,
 	}},
 }}
@@ -173,9 +173,9 @@ func (p *lpPlugin) HandleMessage(msg *mup.Message) {
 }
 
 func (p *lpPlugin) HandleCommand(cmd *mup.Command) {
-	var args struct{ Ids string }
+	var args struct{ Bugs string }
 	cmd.Args(&args)
-	bugs, err := parseBugArgs(args.Ids)
+	bugs, err := parseBugArgs(args.Bugs)
 	if err != nil {
 		p.plugger.Sendf(cmd, "Oops: %v", err)
 	}

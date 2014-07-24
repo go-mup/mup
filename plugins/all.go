@@ -4,6 +4,7 @@ package plugins
 import (
 	_ "gopkg.in/mup.v0/plugins/aql"
 	_ "gopkg.in/mup.v0/plugins/echo"
+	_ "gopkg.in/mup.v0/plugins/help"
 	_ "gopkg.in/mup.v0/plugins/launchpad"
 	_ "gopkg.in/mup.v0/plugins/poke"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
