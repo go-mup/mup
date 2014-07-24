@@ -18,14 +18,15 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "sendraw",
-	Help: "Sends the provided text as a raw IRC protocol messagae.",
+	Help: `Sends the provided text as a raw IRC protocol message.
+	
+	If an account name is not provided, it defaults to the current one.
+	`,
 	Args: schema.Args{{
 		Name: "-account",
-		Help: "Account to send the message to. Defaults to the current one.",
 		Type: schema.String,
 	}, {
 		Name: "text",
-		Help: "Raw IRC message to send.",
 		Type: schema.String,
 		Flag: schema.Required | schema.Trailing,
 	}},

@@ -22,7 +22,7 @@ type sendrawTest struct {
 var sendrawTests = []sendrawTest{
 	{
 		"sendraw",
-		[]string{"PRIVMSG nick :Oops: missing input for argument: message"},
+		[]string{"PRIVMSG nick :Oops: missing input for argument: text"},
 	}, {
 		"sendraw NOTICE foo :text",
 		[]string{"NOTICE foo :text", "PRIVMSG nick :Done."},

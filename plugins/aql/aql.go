@@ -24,7 +24,7 @@ var Plugin = mup.PluginSpec{
 	Help: `Integrates the bot with AQL's SMS delivery gateway.
 
 	The configured LDAP directory is queried for a person with the
-	provided IRC nick (mozillaNickname) and a phone (mobile) in
+	provided IRC nick ("mozillaNickname") and a phone ("mobile") in
 	international format (+NN...). The message sender must also be
 	registered in the LDAP directory with the IRC nick in use.
 
@@ -48,14 +48,18 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "sms",
-	Help: "Sends an SMS message.",
+	Help: `Sends an SMS message.
+
+	The configured LDAP directory is queried for a person with the
+	provided IRC nick ("mozillaNickname") and a phone ("mobile") in
+	international format (+NN...). The message sender must also be
+	registered in the LDAP directory with the IRC nick in use.
+	`,
 	Args: schema.Args{{
 		Name: "nick",
-		Help: "IRC nick of the person whose phone number should receive the SMS message.",
 		Flag: schema.Required,
 	}, {
 		Name: "message",
-		Help: "Message to be sent.",
 		Flag: schema.Required | schema.Trailing,
 	}},
 }}

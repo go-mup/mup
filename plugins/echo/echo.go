@@ -14,9 +14,9 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "echo",
+	Help: "Repeats the provided text back at you.",
 	Args: schema.Args{{
 		Name: "text",
-		Help: "Text to echo back.",
 		Flag: schema.Trailing | schema.Required,
 	}},
 }}

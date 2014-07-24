@@ -25,10 +25,13 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "poke",
-	Help: "Searches people in the LDAP directory.",
+	Help: `Searches people in the LDAP directory.
+	
+	The provided query will be searched for as an exact IRC nick ("mozillaNickname")
+	or part of a name ("cn").
+	`,
 	Args: schema.Args{{
 		Name: "query",
-		Help: "Exact IRC nick (mozillaNickname) or part of the name (cn).",
 		Flag: schema.Required | schema.Trailing,
 	}},
 }}

@@ -18,7 +18,7 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "help",
-	Help: "Displays available commands or information for a command.",
+	Help: "Displays available commands or details for a specific command.",
 	Args: schema.Args{{
 		Name: "cmdname",
 	}},
@@ -56,7 +56,12 @@ func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 	var buf bytes.Buffer
 	buf.Grow(512)
 	formatUsage(&buf, command)
-	buf.WriteString(" — ")
+	if buf.Len() > 50 {
+		p.plugger.Sendf(cmd, "%s", buf.Bytes())
+		buf.Reset()
+	} else {
+		buf.WriteString(" — ")
+	}
 
 	lines := helpLines(command.Help)
 	summary := lines[0]
@@ -65,28 +70,7 @@ func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 	}
 	buf.WriteString(summary)
 
-	p.plugger.Sendf(cmd, "%s", buf.String())
-
-	argFmt := make([]string, 0, len(command.Args))
-	argFmtPad := 0
-	for _, arg := range command.Args {
-		if arg.Help != "" {
-			buf.Reset()
-			formatArg(&buf, &arg)
-			argFmt = append(argFmt, buf.String())
-			if l := buf.Len(); l > argFmtPad {
-				argFmtPad = l
-			}
-		}
-	}
-	i := 0
-	for _, arg := range command.Args {
-		if arg.Help != "" {
-			p.plugger.Sendf(cmd, "  %*s — %s", argFmtPad, argFmt[i], arg.Help)
-			i++
-		}
-	}
-
+	p.plugger.Sendf(cmd, "%s", buf.Bytes())
 	for _, line := range lines[1:] {
 		p.plugger.Sendf(cmd, "%s", line)
 	}

@@ -23,26 +23,21 @@ var commands = schema.Commands{{
 	Help: help("cmd1"),
 	Args: schema.Args{{
 		Name: "arg0",
-		Help: help("arg0"),
 		Flag: schema.Required,
 	}, {
 		Name: "arg1",
-		Help: help("arg1"),
 		Flag: schema.Required,
 	}, {
 		Name: "arg2",
-		Help: help("arg2"),
 	}},
 }, {
 	Name: "cmd2",
 	Help: help("cmd2"),
 	Args: schema.Args{{
 		Name: "arg0",
-		Help: help("arg0"),
 		Flag: schema.Required,
 	}, {
 		Name: "arg1",
-		Help: help("arg1"),
 		Flag: schema.Required | schema.Trailing,
 	}},
 }, {
@@ -50,31 +45,25 @@ var commands = schema.Commands{{
 	Help: help("cmd3"),
 	Args: schema.Args{{
 		Name: "-arg2",
-		Help: help("arg2"),
 		Flag: schema.Required,
 		Type: schema.Bool,
 	}, {
 		Name: "-arg3",
-		Help: help("arg3"),
 		Type: schema.Bool,
 	}, {
 		Name: "arg0",
-		Help: help("arg0"),
 		Flag: schema.Required,
 	}, {
 		Name: "arg1",
-		Help: help("arg1"),
 	}},
 }, {
 	Name: "cmd4",
 	Help: help("cmd4"),
 	Args: schema.Args{{
 		Name: "arg0",
-		Help: help("arg0"),
 		Type: schema.String,
 	}, {
 		Name: "-arg1",
-		Help: help("arg1"),
 		Type: schema.String,
 	}},
 }, {
@@ -82,27 +71,21 @@ var commands = schema.Commands{{
 	Help: help("cmd6"),
 	Args: schema.Args{{
 		Name: "stringA",
-		Help: help("stringA"),
 		Type: schema.String,
 	}, {
 		Name: "intA",
-		Help: help("intA"),
 		Type: schema.Int,
 	}, {
 		Name: "boolA",
-		Help: help("boolA"),
 		Type: schema.Bool,
 	}, {
 		Name: "-stringB",
-		Help: help("stringB"),
 		Type: schema.String,
 	}, {
 		Name: "-intB",
-		Help: help("intB"),
 		Type: schema.Int,
 	}, {
 		Name: "-boolB",
-		Help: help("boolB"),
 		Type: schema.Bool,
 	}},
 }, {
@@ -110,10 +93,8 @@ var commands = schema.Commands{{
 	Help: help("çmd6"),
 	Args: schema.Args{{
 		Name: "-árg0",
-		Help: help("árg0"),
 	}, {
 		Name: "árg1",
-		Help: help("árg1"),
 	}},
 }}
 

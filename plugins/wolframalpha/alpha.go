@@ -26,7 +26,11 @@ var Plugin = mup.PluginSpec{
 
 var Commands = schema.Commands{{
 	Name: "infer",
-	Help: "Queries the WolframAlpha engine.",
+	Help: `Queries the WolframAlpha engine.
+
+	If -all is provided, all known information about the query is displayed
+	rather than just the primary results.
+	`,
 	Args: schema.Args{{
 		Name: "-all",
 		Type: schema.Bool,

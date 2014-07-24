@@ -21,7 +21,6 @@ type Args []Arg
 type Arg struct {
 	Name string
 	Hint string
-	Help string
 	Type ValueType
 	Flag int
 }

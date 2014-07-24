@@ -65,11 +65,8 @@ var helpTests = []helpTest{{
 }, {
 	send: "help cmdname",
 	recv: []string{
-		`PRIVMSG nick :cmdname -arg0 [-arg1=<string>] [-arg2=<hint>] <arg3> [<arg4>] [<arg5 ...>] — Does nothing.`,
-		`PRIVMSG nick :           -arg0 — Argument zero.`,
-		`PRIVMSG nick :  -arg1=<string> — Argument one.`,
-		`PRIVMSG nick :    -arg2=<hint> — Argument two.`,
-		`PRIVMSG nick :          <arg3> — Argument three.`,
+		`PRIVMSG nick :cmdname -arg0 [-arg1=<string>] [-arg2=<hint>] <arg3> [<arg4>] [<arg5 ...>]`,
+		`PRIVMSG nick :Does nothing.`,
 	},
 	cmds: schema.Commands{{
 		Name: "cmdname",
@@ -78,18 +75,14 @@ var helpTests = []helpTest{{
 			Name: "-arg0",
 			Flag: schema.Required,
 			Type: schema.Bool,
-			Help: "Argument zero.",
 		}, {
 			Name: "-arg1",
-			Help: "Argument one.",
 		}, {
 			Name: "-arg2",
 			Hint: "hint",
-			Help: "Argument two.",
 		}, {
 			Name: "arg3",
 			Flag: schema.Required,
-			Help: "Argument three.",
 		}, {
 			Name: "arg4",
 		}, {
