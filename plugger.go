@@ -230,11 +230,42 @@ func (p *Plugger) Broadcast(msg *Message) error {
 	return first
 }
 
+const maxTextLen = 300
+const minTextLen = 50
+
 func (p *Plugger) Send(msg *Message) error {
-	err := p.send(msg)
-	if err != nil {
-		logf("Cannot put message in outgoing queue: %v", err)
-		return fmt.Errorf("cannot put message in outgoing queue: %v", err)
+	if len(msg.Text) <= maxTextLen {
+		if err := p.send(msg); err != nil {
+			logf("Cannot put message in outgoing queue: %v", err)
+			return fmt.Errorf("cannot put message in outgoing queue: %v", err)
+		}
+		return nil
+	}
+
+	text := strings.TrimRight(msg.Text, " ")
+	copy := *msg
+	for len(text) > maxTextLen {
+		split := maxTextLen
+		if i := strings.LastIndex(text[:split], " "); i > 0 {
+			split = i
+			if len(text)-split < minTextLen {
+				suffix := text[(len(text)+1)/2:]
+				if j := strings.Index(suffix, " "); j >= 0 {
+					split = len(text) - len(suffix) + j
+				}
+			}
+		} else if len(text)-maxTextLen < minTextLen {
+			split = (len(text) + 1) / 2
+		}
+		copy.Text = strings.TrimRight(text[:split], " ")
+		text = strings.TrimLeft(text[split:], " ")
+		if err := p.Send(&copy); err != nil {
+			return err
+		}
+	}
+	if len(text) > 0 {
+		copy.Text = text
+		return p.Send(&copy)
 	}
 	return nil
 }

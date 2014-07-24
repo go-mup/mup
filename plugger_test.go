@@ -8,6 +8,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
+	"strings"
 )
 
 var _ = Suite(&PluggerSuite{})
@@ -222,4 +223,42 @@ func (c *ldapConn) Close() error { return nil }
 
 func (c *ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
 	return []ldap.Result{{DN: "test-dn"}}, nil
+}
+
+var lineBreakTests = []struct{
+	text string
+	sent []string
+}{{
+	text: strings.Repeat("123456789 ", 60),
+	sent: []string{
+		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
+		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
+	},
+}, {
+	text: strings.Repeat("123456789 ", 30) + "A",
+	sent: []string{
+		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 16)[:159],
+		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 14) + "A",
+	},
+}, {
+	text: "A" + strings.Repeat("1234567890", 30),
+	sent: []string{
+		"[one] PRIVMSG nick :A" + strings.Repeat("1234567890", 15),
+		"[one] PRIVMSG nick :" + strings.Repeat("1234567890", 15),
+	},
+}, {
+	text: strings.Repeat("123456789 ", 30) + "          ",
+	sent: []string{
+		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
+	},
+}}
+
+func (s *PluggerSuite) TestTextLineBreak(c *C) {
+	p := s.plugger(nil, nil, nil)
+	for _, test := range lineBreakTests {
+		err := p.Send(&mup.Message{Account: "one", Nick: "nick", Text: test.text})
+		c.Assert(err, IsNil)
+		c.Assert(s.sent, DeepEquals, test.sent)
+		s.sent = nil
+	}
 }
