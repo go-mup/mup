@@ -9,6 +9,7 @@ import (
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
+	"time"
 )
 
 var Plugin = mup.PluginSpec{
@@ -108,12 +109,22 @@ var ldapFormat = []struct {
 	filter func(string) string
 }{
 	{"mail", "<%s>", nil},
-	{"mozillaCustom4", "<time:%s>", nil}, //ldapLocalTime},
+	{"mozillaCustom4", "<time:%s>", ldapLocalTime},
 	{"telephoneNumber", "<phone:%s>", nil},
 	{"mobile", "<mobile:%s>", nil},
 	{"homePhone", "<home:%s>", nil},
 	{"voipPhone", "<voip:%s>", nil},
 	{"skypePhone", "<skype:%s>", nil},
+}
+
+func ldapLocalTime(v string) string {
+	t, err := time.Parse("2006 -0700", "0001 "+v)
+	if err != nil {
+		return v
+	}
+	t = t.UTC()
+	there := time.Now().UTC().Add(time.Time{}.Sub(t))
+	return there.Format("15h04") + v
 }
 
 func (p *pokePlugin) handle(conn ldap.Conn, cmd *mup.Command) {

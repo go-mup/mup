@@ -1,6 +1,7 @@
 package mup_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,15 @@ var nikolaTesla = ldap.Result{
 	},
 }
 
+var johnNash = ldap.Result{
+	Attrs: []ldap.Attr{
+		{Name: "mozillaNickname", Values: []string{"jnash"}},
+		{Name: "cn", Values: []string{"John Nash"}},
+		{Name: "mail", Values: []string{"nash@example.com"}},
+		{Name: "mozillaCustom4", Values: []string{"-0400"}},
+	},
+}
+
 func ldapResult(nick, name string) ldap.Result {
 	return ldap.Result{Attrs: []ldap.Attr{
 		{Name: "mozillaNickname", Values: []string{nick}},
@@ -91,6 +101,7 @@ var ldapResults = map[string][]ldap.Result{
 	"(|(mozillaNickname=eu)(cn=*eu*))":                     {ldapEntries[1], ldapEntries[2]},
 	"(|(mozillaNickname=e)(cn=*e*))":                       ldapEntries,
 	`(|(mozillaNickname=ri\c3\a9mann)(cn=*ri\c3\a9mann*))`: {ldapEntries[3]},
+	"(|(mozillaNickname=jnash)(cn=*jnash*))":               {johnNash},
 }
 
 type ldapConn struct{}
@@ -130,5 +141,23 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 		tester.SendAll(test.target, test.send)
 		c.Assert(tester.Stop(), IsNil)
 		c.Assert(tester.RecvAll(), DeepEquals, test.recv)
+	}
+}
+
+func (s *LDAPSuite) TestTimeFormat(c *C) {
+	tester := mup.NewPluginTester("poke")
+	tester.SetConfig(bson.M{"ldap": "test"})
+	tester.SetLDAP("test", ldapConn{})
+	tester.Start()
+	tester.Sendf("", "poke jnash")
+	c.Assert(tester.Stop(), IsNil)
+	line := tester.Recv()
+
+	t1 := time.Now().UTC().Add(-4 * time.Hour)
+	t2 := t1.Add(-1 * time.Minute)
+	f1 := fmt.Sprintf("<time:%s-0400>", t1.Format("15h04"))
+	f2 := fmt.Sprintf("<time:%s-0400>", t2.Format("15h04"))
+	if !strings.Contains(line, f1) && !strings.Contains(line, f2) {
+		c.Fatalf("Reply should contain either %q or %q: %s", f2, f1, line)
 	}
 }
