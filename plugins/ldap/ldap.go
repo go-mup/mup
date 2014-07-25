@@ -13,7 +13,7 @@ import (
 )
 
 var Plugin = mup.PluginSpec{
-	Name: "poke",
+	Name: "ldap",
 	Help: `Exposes the poke command for searching people on an LDAP directory.
 
 	The search happens against the name (cn) and nick (mozillaNickname)
@@ -41,7 +41,7 @@ func init() {
 	mup.RegisterPlugin(&Plugin)
 }
 
-type pokePlugin struct {
+type ldapPlugin struct {
 	mu       sync.Mutex
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
@@ -53,7 +53,7 @@ type pokePlugin struct {
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
-	p := &pokePlugin{
+	p := &ldapPlugin{
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
 	}
@@ -62,12 +62,12 @@ func start(plugger *mup.Plugger) mup.Stopper {
 	return p
 }
 
-func (p *pokePlugin) Stop() error {
+func (p *ldapPlugin) Stop() error {
 	close(p.commands)
 	return p.tomb.Wait()
 }
 
-func (p *pokePlugin) HandleCommand(cmd *mup.Command) {
+func (p *ldapPlugin) HandleCommand(cmd *mup.Command) {
 	select {
 	case p.commands <- cmd:
 	default:
@@ -75,7 +75,7 @@ func (p *pokePlugin) HandleCommand(cmd *mup.Command) {
 	}
 }
 
-func (p *pokePlugin) loop() error {
+func (p *ldapPlugin) loop() error {
 	for {
 		cmd, ok := <-p.commands
 		if !ok {
@@ -127,7 +127,7 @@ func ldapLocalTime(v string) string {
 	return there.Format("15h04") + v
 }
 
-func (p *pokePlugin) handle(conn ldap.Conn, cmd *mup.Command) {
+func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	var args struct{ Query string }
 	cmd.Args(&args)
 	query := ldap.EscapeFilter(args.Query)
@@ -148,7 +148,7 @@ func (p *pokePlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	}
 }
 
-func (p *pokePlugin) formatEntry(result *ldap.Result) string {
+func (p *ldapPlugin) formatEntry(result *ldap.Result) string {
 	var buf bytes.Buffer
 	buf.Grow(250)
 	cn := result.Value("cn")
@@ -175,7 +175,7 @@ func (p *pokePlugin) formatEntry(result *ldap.Result) string {
 	return buf.String()
 }
 
-func (p *pokePlugin) formatEntries(results []ldap.Result) string {
+func (p *ldapPlugin) formatEntries(results []ldap.Result) string {
 	var buf bytes.Buffer
 	buf.Grow(250)
 	sizehint := 200
