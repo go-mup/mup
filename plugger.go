@@ -223,11 +223,20 @@ func (p *Plugger) Broadcast(msg *Message) error {
 	return first
 }
 
-const maxTextLen = 300
+// MaxTextLen is the maximum amount of text accepted on the Text field
+// of a message before the line is automatically broken down into
+// multiple messages. The line breaking algorithm attempts to break the
+// line on spaces, and attempts to preserve a minimum amount of content
+// on the last line to prevent the output from looking awkward.
+const MaxTextLen = 300
+
+// minTextLen defines the minimum amount of content to attempt
+// to preserve on the last line when the auto-line-breaking
+// algorithm takes place to enforce MaxTextLen.
 const minTextLen = 50
 
 func (p *Plugger) Send(msg *Message) error {
-	if len(msg.Text) <= maxTextLen {
+	if len(msg.Text) <= MaxTextLen {
 		if err := p.send(msg); err != nil {
 			logf("Cannot put message in outgoing queue: %v", err)
 			return fmt.Errorf("cannot put message in outgoing queue: %v", err)
@@ -237,8 +246,8 @@ func (p *Plugger) Send(msg *Message) error {
 
 	text := strings.TrimRight(msg.Text, " ")
 	copy := *msg
-	for len(text) > maxTextLen {
-		split := maxTextLen
+	for len(text) > MaxTextLen {
+		split := MaxTextLen
 		if i := strings.LastIndex(text[:split], " "); i > 0 {
 			split = i
 			if len(text)-split < minTextLen {
@@ -247,7 +256,7 @@ func (p *Plugger) Send(msg *Message) error {
 					split = len(text) - len(suffix) + j
 				}
 			}
-		} else if len(text)-maxTextLen < minTextLen {
+		} else if len(text)-MaxTextLen < minTextLen {
 			split = (len(text) + 1) / 2
 		}
 		copy.Text = strings.TrimRight(text[:split], " ")

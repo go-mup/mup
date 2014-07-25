@@ -295,8 +295,8 @@ func (p *alphaPlugin) handle(cmd *mup.Command) {
 			}
 			buf.WriteString(text)
 		}
-		if buf.Len() > 300 {
-			if buf.Len()-mark > 300 {
+		if buf.Len() > mup.MaxTextLen {
+			if buf.Len()-mark > mup.MaxTextLen {
 				// The pod is too big by itself. Skip it.
 				buf.Truncate(mark)
 			} else {

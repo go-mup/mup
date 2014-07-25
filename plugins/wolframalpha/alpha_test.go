@@ -23,7 +23,6 @@ var _ = Suite(&S{})
 type S struct{}
 
 type inferTest struct {
-	summary string
 	target  string
 	send    string
 	recv    string
@@ -236,7 +235,7 @@ var inferTests = []inferTest{{
 	config: bson.M{
 		"ldap": "unknown",
 	},
-}, {}}
+}}
 
 func (s *S) SetUpTest(c *C) {
 	mup.SetLogger(c)
