@@ -189,11 +189,22 @@ func (m *pluginManager) die() {
 	m.tomb.Kill(errStop)
 }
 
+func (m *pluginManager) updateKnown() {
+	known := m.database.C("plugins.known")
+	for name, spec := range registeredPlugins {
+		_, err := known.UpsertId(name, bson.D{{"_id", name}, {"commands", spec.Commands}})
+		if err != nil {
+			logf("Failed to update information about known plugin %q: %v", name, err)
+		}
+	}
+}
+
 func (m *pluginManager) loop() error {
 	defer m.die()
 
 	m.tomb.Go(m.tail)
 
+	m.updateKnown()
 	m.handleRefresh()
 	var refresh <-chan time.Time
 	if m.config.Refresh > 0 {
@@ -209,7 +220,7 @@ func (m *pluginManager) loop() error {
 			if msg.Command == cmdPong {
 				continue
 			}
-			cmdName := schema.CommandName(msg.MupText)
+			cmdName := schema.CommandName(msg.BotText)
 			for name, state := range m.plugins {
 				if state.info.LastId >= msg.Id || state.plugger.Target(msg) == nil {
 					continue
@@ -557,7 +568,7 @@ func (state *pluginState) handleCommand(msg *Message, cmdName string) {
 	if cmdSchema == nil {
 		return
 	}
-	args, err := cmdSchema.Parse(msg.MupText)
+	args, err := cmdSchema.Parse(msg.BotText)
 	if err != nil {
 		state.plugger.Sendf(msg, "Oops: %v", err)
 		return

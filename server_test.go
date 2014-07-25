@@ -9,6 +9,7 @@ import (
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
+	_ "gopkg.in/mup.v0/plugins/help"
 )
 
 type ServerSuite struct {
@@ -237,11 +238,9 @@ func (s *ServerSuite) TestIncoming(c *C) {
 		Host:    "host",
 		Command: "PRIVMSG",
 		Text:    "Hello mup!",
+		BotText: "Hello mup!",
 		Bang:    "!",
 		AsNick:  "mup",
-
-		ToMup:   true,
-		MupText: "Hello mup!",
 	})
 }
 
@@ -539,4 +538,26 @@ func (s *ServerSuite) TestDatabase(c *C) {
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
 	s.ReadLine(c, "PRIVMSG nick :Number of accounts found: 1 (err=<nil>)")
+}
+
+func (s *ServerSuite) TestHelp(c *C) {
+	s.SendWelcome(c)
+
+	plugins := s.session.DB("").C("plugins")
+	err := plugins.Insert(M{"_id": "help", "targets": []M{{"account": "one"}}})
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :help help")
+	s.ReadLine(c, "PRIVMSG nick :help [<cmdname>] — Displays available commands or details for a specific command.")
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
+	s.ReadLine(c, `PRIVMSG nick :Plugin "testdb" is not running.`)
+
+	err = plugins.Insert(M{"_id": "testdb", "targets": []M{{"account": "other"}}})
+	c.Assert(err, IsNil)
+	s.server.RefreshPlugins()
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
+	s.ReadLine(c, `PRIVMSG nick :Plugin "testdb" is not enabled here.`)
 }

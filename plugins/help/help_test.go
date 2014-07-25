@@ -6,7 +6,7 @@ import (
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
-	_ "gopkg.in/mup.v0/plugins/help"
+	"gopkg.in/mup.v0/plugins/help"
 	"gopkg.in/mup.v0/schema"
 )
 
@@ -31,31 +31,34 @@ func (s *HelpSuite) TearDownTest(c *C) {
 }
 
 type helpTest struct {
-	send string
-	recv []string
-	cmds schema.Commands
+	send    string
+	recv    string
+	sendAll []string
+	recvAll []string
+	cmds    schema.Commands
+	targets []bson.M
+	known   bool
 }
 
 var helpTests = []helpTest{{
 	send: "help cmdname",
-	recv: []string{
-		`PRIVMSG nick :Command "cmdname" not found.`,
-	},
+	recv: `PRIVMSG nick :Command "cmdname" not found.`,
 }, {
 	send: "help cmdname",
-	recv: []string{
-		`PRIVMSG nick :cmdname — The author of this command is unhelpful.`,
-	},
+	recv: `PRIVMSG nick :cmdname — The author of this command is unhelpful.`,
 	cmds: schema.Commands{{Name: "cmdname"}},
 }, {
 	send: "help cmdname",
-	recv: []string{
-		`PRIVMSG nick :cmdname — Does nothing.`,
-	},
+	recv: `PRIVMSG nick :cmdname — Does nothing.`,
 	cmds: schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
 }, {
 	send: "help cmdname",
-	recv: []string{
+	recv: `PRIVMSG nick :cmdname — Does nothing.`,
+	cmds: schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
+	known: true,
+}, {
+	send: "help cmdname",
+	recvAll: []string{
 		`PRIVMSG nick :cmdname — Line one.`,
 		`PRIVMSG nick :Line two. Line three.`,
 		`PRIVMSG nick :Line five. Line six.`,
@@ -64,7 +67,7 @@ var helpTests = []helpTest{{
 	cmds: schema.Commands{{Name: "cmdname", Help: "\n \tLine one.\n \tLine two.\n Line three.\n \n \t Line five.\n Line six.\n \n \nLine nine.\n\n"}},
 }, {
 	send: "help cmdname",
-	recv: []string{
+	recvAll: []string{
 		`PRIVMSG nick :cmdname -arg0 [-arg1=<string>] [-arg2=<hint>] <arg3> [<arg4>] [<arg5 ...>]`,
 		`PRIVMSG nick :Does nothing.`,
 	},
@@ -90,20 +93,61 @@ var helpTests = []helpTest{{
 			Flag: schema.Trailing,
 		}},
 	}},
+}, {
+	sendAll: []string{"foo", "foo"},
+	recvAll: []string{
+		"PRIVMSG nick :I apologize, but I'm pretty strict about only responding to known commands.",
+		"PRIVMSG nick :In-com-pre-hen-si-ble-ness.",
+	},
+}, {
+	send:    "cmdname",
+	recv:    `PRIVMSG nick :Plugin "test" is not enabled here.`,
+	targets: []bson.M{{"account": "other"}},
+	cmds:    schema.Commands{{Name: "cmdname"}},
+}, {
+	send:    "cmdname",
+	recv:    `PRIVMSG nick :Plugin "test" is not running.`,
+	cmds:    schema.Commands{{Name: "cmdname"}},
+	known:   true,
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {
 	db := s.dbserver.Session().DB("mup")
+	plugins := db.C("plugins")
+	known := db.C("plugins.known")
 	for _, test := range helpTests {
-		err := db.C("plugins").Insert(bson.M{"_id": "test", "commands": test.cmds})
+		if test.known {
+			err := known.Insert(bson.M{"_id": "test", "commands": test.cmds})
+			c.Assert(err, IsNil)
+		} else {
+			err := plugins.Insert(bson.M{"_id": "test", "commands": test.cmds, "targets": []bson.M{{"account": "test"}}})
+			c.Assert(err, IsNil)
+			if test.targets != nil {
+				err = plugins.UpdateId("test", bson.M{"$set": bson.M{"targets": test.targets}})
+				c.Assert(err, IsNil)
+			}
+		}
+		err := plugins.Insert(bson.M{"_id": "help", "commands": help.Plugin.Commands, "targets": []bson.M{{"account": "test"}}})
 		c.Assert(err, IsNil)
+
 
 		tester := mup.NewPluginTester("help")
 		tester.SetDatabase(db)
 		tester.Start()
-		tester.Sendf("", test.send)
+		if test.send != "" {
+			tester.Sendf("", test.send)
+		}
+		if test.sendAll != nil {
+			tester.SendAll("", test.sendAll)
+		}
 		tester.Stop()
-		c.Assert(tester.RecvAll(), DeepEquals, test.recv)
+
+		if test.recv != "" {
+			c.Assert(tester.Recv(), Equals, test.recv)
+		}
+		if test.recvAll != nil {
+			c.Assert(tester.RecvAll(), DeepEquals, test.recvAll)
+		}
 
 		s.dbserver.Reset()
 	}

@@ -1,7 +1,8 @@
-package mup
+package mup_test
 
 import (
 	. "gopkg.in/check.v1"
+	"gopkg.in/mup.v0"
 )
 
 type MessageSuite struct{}
@@ -10,52 +11,52 @@ var _ = Suite(&MessageSuite{})
 
 type parseTest struct {
 	line string
-	msg  Message
+	msg  mup.Message
 }
 
 var parseIncomingTests = []parseTest{
 	{
 		"CMD",
-		Message{
+		mup.Message{
 			Command: "CMD",
 		},
 	}, {
 		"CMD some params",
-		Message{
+		mup.Message{
 			Command: "CMD",
 			Params:  []string{"some", "params"},
 		},
 	}, {
 		"CMD some params :Some text",
-		Message{
+		mup.Message{
 			Command: "CMD",
 			Params:  []string{"some", "params"},
 			Text:    "Some text",
 		},
 	}, {
 		"PRIVMSG #channel :Some text",
-		Message{
+		mup.Message{
 			Channel: "#channel",
 			Command: "PRIVMSG",
 			Text:    "Some text",
 		},
 	}, {
 		"NOTICE #channel :Some text",
-		Message{
+		mup.Message{
 			Channel: "#channel",
 			Command: "NOTICE",
 			Text:    "Some text",
 		},
 	}, {
 		"CMD some:param :Some text",
-		Message{
+		mup.Message{
 			Command: "CMD",
 			Params:  []string{"some:param"},
 			Text:    "Some text",
 		},
 	}, {
 		":nick!user CMD",
-		Message{
+		mup.Message{
 			Nick:    "nick",
 			User:    "user",
 			Command: "CMD",
@@ -63,7 +64,7 @@ var parseIncomingTests = []parseTest{
 		},
 	}, {
 		":nick@host CMD",
-		Message{
+		mup.Message{
 			Nick:    "nick",
 			Host:    "host",
 			Command: "CMD",
@@ -71,7 +72,7 @@ var parseIncomingTests = []parseTest{
 		},
 	}, {
 		":nick!user@host CMD",
-		Message{
+		mup.Message{
 			Nick:    "nick",
 			User:    "user",
 			Host:    "host",
@@ -83,7 +84,7 @@ var parseIncomingTests = []parseTest{
 	// Empty nick shouldn't be interpreted.
 	{
 		"PRIVMSG #channel :: Text",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Channel: "#channel",
 			Text:    ": Text",
@@ -93,13 +94,13 @@ var parseIncomingTests = []parseTest{
 	// AsNick interpretation
 	{
 		"CMD",
-		Message{
+		mup.Message{
 			Command: "CMD",
 			AsNick:  "mup",
 		},
 	}, {
 		"PRIVMSG #channel :Text",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Channel: "#channel",
 			Text:    "Text",
@@ -107,67 +108,57 @@ var parseIncomingTests = []parseTest{
 		},
 	}, {
 		"PRIVMSG mup :Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Text:    "Hello there",
+			BotText: "Hello there",
 			AsNick:  "mup",
-
-			ToMup:   true,
-			MupText: "Hello there",
 		},
 	}, {
 		"PRIVMSG mup :mup: Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Text:    "mup: Hello there",
+			BotText: "Hello there",
 			AsNick:  "mup",
-
-			ToMup:   true,
-			MupText: "Hello there",
 		},
 	}, {
 		"PRIVMSG mup :mup, Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Text:    "mup, Hello there",
+			BotText: "Hello there",
 			AsNick:  "mup",
-
-			ToMup:   true,
-			MupText: "Hello there",
 		},
 	}, {
 		"PRIVMSG #channel :mup: Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Channel: "#channel",
 			Text:    "mup: Hello there",
-
-			ToMup:   true,
+			BotText: "Hello there",
 			AsNick:  "mup",
-			MupText: "Hello there",
 		},
 	}, {
 		"PRIVMSG mup :mup, Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Text:    "mup, Hello there",
+			BotText: "Hello there",
 			AsNick:  "mup",
-
-			ToMup:   true,
-			MupText: "Hello there",
 		},
 	},
 
 	// Bang prefix handling
 	{
 		"CMD",
-		Message{
+		mup.Message{
 			Command: "CMD",
 			Bang:    "!",
 		},
 	}, {
 		"PRIVMSG #channel :Text",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Channel: "#channel",
 			Text:    "Text",
@@ -175,25 +166,21 @@ var parseIncomingTests = []parseTest{
 		},
 	}, {
 		"PRIVMSG #channel :!Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Channel: "#channel",
 			Text:    "!Hello there",
+			BotText: "Hello there",
 			Bang:    "!",
-
-			ToMup:   true,
-			MupText: "Hello there",
 		},
 	}, {
 		"PRIVMSG mup :mup: !Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Text:    "mup: !Hello there",
+			BotText: "Hello there",
 			Bang:    "!",
-
-			ToMup:   true,
 			AsNick:  "mup",
-			MupText: "Hello there",
 		},
 	},
 }
@@ -201,7 +188,7 @@ var parseIncomingTests = []parseTest{
 var parseOutgoingTests = []parseTest{
 	{
 		"PRIVMSG nick :mup: !Hello there",
-		Message{
+		mup.Message{
 			Command: "PRIVMSG",
 			Text:    "mup: !Hello there",
 			Nick:    "nick",
@@ -212,7 +199,7 @@ var parseOutgoingTests = []parseTest{
 func (s *MessageSuite) TestParseIncoming(c *C) {
 	for _, test := range parseIncomingTests {
 		c.Logf("Parsing incoming line: %s", test.line)
-		msg := ParseIncoming("", "mup", "!", test.line)
+		msg := mup.ParseIncoming("", "mup", "!", test.line)
 		test.msg.AsNick = "mup"
 		test.msg.Bang = "!"
 		c.Assert(msg, DeepEquals, &test.msg)
@@ -222,63 +209,63 @@ func (s *MessageSuite) TestParseIncoming(c *C) {
 func (s *MessageSuite) TestParseOutgoing(c *C) {
 	for _, test := range parseOutgoingTests {
 		c.Logf("Parsing outgoing line: %s", test.line)
-		msg := ParseOutgoing("", test.line)
+		msg := mup.ParseOutgoing("", test.line)
 		c.Assert(msg, DeepEquals, &test.msg)
 	}
 }
 
 func (s *MessageSuite) TestParseIncomingAccount(c *C) {
-	msg := ParseIncoming("account", "", "", "CMD")
+	msg := mup.ParseIncoming("account", "", "", "CMD")
 	c.Assert(msg.Account, Equals, "account")
 }
 
 func (s *MessageSuite) TestParseOutgoingAccount(c *C) {
-	msg := ParseOutgoing("account", "CMD")
+	msg := mup.ParseOutgoing("account", "CMD")
 	c.Assert(msg.Account, Equals, "account")
 }
 
 var stringTests = []struct {
-	msg  Message
+	msg  mup.Message
 	line string
 }{
 	{
-		Message{Command: "CMD"},
+		mup.Message{Command: "CMD"},
 		"CMD",
 	}, {
-		Message{Text: "Text", AsNick: "mup"},
+		mup.Message{Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		Message{Command: "PRIVMSG", Text: "Text", AsNick: "mup"},
+		mup.Message{Command: "PRIVMSG", Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		Message{Command: "PRIVMSG", Params: []string{"ignored"}, Text: "Text", AsNick: "mup"},
+		mup.Message{Command: "PRIVMSG", Params: []string{"ignored"}, Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		Message{Command: "CMD", Nick: "nick", User: "user", Host: "host"},
+		mup.Message{Command: "CMD", Nick: "nick", User: "user", Host: "host"},
 		"CMD",
 	}, {
-		Message{Command: "CMD", Nick: "nick", AsNick: "mup"},
+		mup.Message{Command: "CMD", Nick: "nick", AsNick: "mup"},
 		":nick CMD",
 	}, {
-		Message{Command: "CMD", Nick: "nick", User: "user", AsNick: "mup"},
+		mup.Message{Command: "CMD", Nick: "nick", User: "user", AsNick: "mup"},
 		":nick!user CMD",
 	}, {
-		Message{Command: "CMD", Nick: "nick", Host: "host", AsNick: "mup"},
+		mup.Message{Command: "CMD", Nick: "nick", Host: "host", AsNick: "mup"},
 		":nick@host CMD",
 	}, {
-		Message{Command: "CMD", Nick: "nick", User: "user", Host: "host", AsNick: "mup"},
+		mup.Message{Command: "CMD", Nick: "nick", User: "user", Host: "host", AsNick: "mup"},
 		":nick!user@host CMD",
 	}, {
-		Message{Command: "PING", Text: "text"},
+		mup.Message{Command: "PING", Text: "text"},
 		"PING :text",
 	}, {
-		Message{Command: "CMD", Params: []string{"some", "params"}, Text: "some text"},
+		mup.Message{Command: "CMD", Params: []string{"some", "params"}, Text: "some text"},
 		"CMD some params :some text",
 	}, {
-		Message{Command: "A\rB\n", Params: []string{"\rC\nD"}, Text: "E\rF\nG\x00"},
+		mup.Message{Command: "A\rB\n", Params: []string{"\rC\nD"}, Text: "E\rF\nG\x00"},
 		"A_B_ _C_D :E_F_G_",
 	}, {
-		Message{Command: "PRIVMSG", Channel: "\rC\nD", Text: "E\rF\nG\x00"},
+		mup.Message{Command: "PRIVMSG", Channel: "\rC\nD", Text: "E\rF\nG\x00"},
 		"PRIVMSG _C_D :E_F_G_",
 	},
 }
@@ -292,5 +279,112 @@ func (s *MessageSuite) TestMessageString(c *C) {
 	}
 	for _, test := range parseOutgoingTests {
 		c.Assert(test.msg.String(), Equals, test.line)
+	}
+}
+
+var addrContainsTests = []struct {
+	contains  mup.Address
+	contained mup.Address
+	result    bool
+}{{
+	mup.Address{},
+	mup.Address{},
+	true,
+}, {
+	mup.Address{},
+	mup.Address{Account: "one"},
+	true,
+}, {
+	mup.Address{Account: "one"},
+	mup.Address{Account: "one"},
+	true,
+}, {
+	mup.Address{Account: "one"},
+	mup.Address{Account: "two"},
+	false,
+}, {
+	mup.Address{Account: "two"},
+	mup.Address{},
+	false,
+}, {
+	mup.Address{},
+	mup.Address{Channel: "#one"},
+	true,
+}, {
+	mup.Address{Channel: "#one"},
+	mup.Address{Channel: "#one"},
+	true,
+}, {
+	mup.Address{Channel: "#one"},
+	mup.Address{Channel: "#two"},
+	false,
+}, {
+	mup.Address{Channel: "#two"},
+	mup.Address{},
+	false,
+}, {
+	mup.Address{},
+	mup.Address{Nick: "one"},
+	true,
+}, {
+	mup.Address{Nick: "one"},
+	mup.Address{Nick: "one"},
+	true,
+}, {
+	mup.Address{Nick: "one"},
+	mup.Address{Nick: "two"},
+	false,
+}, {
+	mup.Address{Nick: "two"},
+	mup.Address{},
+	false,
+}, {
+	mup.Address{},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Account: "one"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Channel: "#one"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Nick: "nickone"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Account: "one", Channel: "#one"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Account: "one", Nick: "nickone"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	true,
+}, {
+	mup.Address{Account: "two", Channel: "#one", Nick: "nickone"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	false,
+}, {
+	mup.Address{Account: "one", Channel: "#two", Nick: "nickone"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	false,
+}, {
+	mup.Address{Account: "one", Channel: "#one", Nick: "nicktwo"},
+	mup.Address{Account: "one", Channel: "#one", Nick: "nickone"},
+	false,
+}}
+
+func (s *MessageSuite) TestAddressContains(c *C) {
+	for _, test := range addrContainsTests {
+		if test.contains.Contains(test.contained) != test.result {
+			c.Fatalf("%#v.Contains(%#v) returned %v", test.contains, test.contained, !test.result)
+		}
+		c.Assert(test.contains.Contains(test.contained), Equals, test.result)
 	}
 }

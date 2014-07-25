@@ -162,7 +162,7 @@ type lpMessage struct {
 }
 
 func (p *lpPlugin) HandleMessage(msg *mup.Message) {
-	if p.mode != showBugs || msg.ToMup {
+	if p.mode != showBugs || msg.BotText != "" {
 		return
 	}
 	bugs := parseBugChat(msg.Text)

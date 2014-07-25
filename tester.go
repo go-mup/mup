@@ -207,7 +207,7 @@ func (t *PluginTester) Sendf(target, format string, args ...interface{}) {
 		target = "mup"
 	}
 	msg := ParseIncoming("test", "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
-	t.state.handle(msg, schema.CommandName(msg.MupText))
+	t.state.handle(msg, schema.CommandName(msg.BotText))
 }
 
 // SendAll sends each entry in text as an individual message to the bot.

@@ -142,18 +142,11 @@ func (p *Plugger) LDAP(name string) (ldap.Conn, error) {
 }
 
 func (p *Plugger) Target(msg *Message) *PluginTarget {
+	addr := msg.Address()
 	for i := range p.targets {
-		t := &p.targets[i]
-		if t.address.Account != msg.Account {
-			continue
+		if p.targets[i].address.Contains(addr) {
+			return &p.targets[i]
 		}
-		if t.address.Nick != "" && t.address.Nick != msg.Nick {
-			continue
-		}
-		if t.address.Channel != "" && t.address.Channel != msg.Channel {
-			continue
-		}
-		return t
 	}
 	return nil
 }

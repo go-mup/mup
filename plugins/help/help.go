@@ -2,10 +2,10 @@ package help
 
 import (
 	"bytes"
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
+	"math/rand"
 	"strings"
 )
 
@@ -30,29 +30,105 @@ func init() {
 
 type helpPlugin struct {
 	plugger *mup.Plugger
+	rand    *rand.Rand
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
-	return &helpPlugin{plugger: plugger}
+	return &helpPlugin{
+		plugger: plugger,
+		rand:    rand.New(rand.NewSource(42)),
+	}
 }
 
 func (p *helpPlugin) Stop() error {
 	return nil
 }
 
+func (p *helpPlugin) HandleMessage(msg *mup.Message) {
+	if msg.BotText == "" {
+		return
+	}
+	cmdname := schema.CommandName(msg.BotText)
+	if cmdname != "" {
+		infos, err := p.pluginsWith(cmdname, false)
+		if err == nil && len(infos) == 0 {
+			infos, err = p.pluginsWith(cmdname, true)
+			if len(infos) > 0 {
+				p.sendNotUsable(msg, &infos[0], "running", "")
+				return
+			}
+		}
+		if err != nil {
+			p.plugger.Logf("Cannot list available commands: %v", err)
+			p.plugger.Sendf(msg, "Cannot list available commands: %v", err)
+			return
+		}
+		if len(infos) == 0 {
+			p.sendNotKnown(msg)
+			return
+		}
+		addr := msg.Address()
+		for _, info := range infos {
+			for _, target := range info.Targets {
+				if target.Contains(addr) {
+					return
+				}
+			}
+		}
+		p.sendNotUsable(msg, &infos[0], "enabled", "here")
+	}
+}
+
+var unknownReplies = []string{
+	"Nope.. I don't understand it.",
+	"Unknown commands are unknown.",
+	"Strictly speaking, I'm not intelligent enough to understand that.",
+	"Sorry, but I don't understand.",
+	"Excuse moi, parlez vous anglais?",
+	"I apologize, but I'm pretty strict about only responding to known commands.",
+	"I apologize. I'm a program with a limited vocabulary.",
+	"I really wish I understood what you're trying to do.",
+	"Roses are red, violets are blue, and I don't understand what you just said.",
+	"Can't grasp that.",
+	"That's incomprehensible to my small and non-existent mind.",
+	"In-com-pre-hen-si-ble-ness.",
+}
+
+func (p *helpPlugin) sendNotKnown(msg *mup.Message) {
+	// Don't use Intn, so it remains stable when adding entries.
+	p.plugger.Sendf(msg, "%s", unknownReplies[p.rand.Intn(len(unknownReplies))])
+}
+
+func (p *helpPlugin) sendNotUsable(msg *mup.Message, info *pluginInfo, what, where string) {
+	pluginName := info.Name
+	if i := strings.Index(pluginName, "/"); i > 0 {
+		pluginName = pluginName[:i]
+	}
+	p.plugger.Logf("Plugin %q not %s for account=%q, channel=%q, nick=%q: %s",
+		pluginName, what, msg.Account, msg.Channel, msg.Nick, msg.BotText)
+	if where != "" {
+		what += " " + where
+	}
+	p.plugger.Sendf(msg, "Plugin %q is not %s.", pluginName, what)
+}
+
 func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ CmdName string }
 	cmd.Args(&args)
-	command, err := p.findSchema(args.CmdName)
-	if err == mgo.ErrNotFound {
-		p.plugger.Sendf(cmd, "Command %q not found.", args.CmdName)
-		return
+	infos, err := p.pluginsWith(args.CmdName, false)
+	if err == nil && len(infos) == 0 {
+		infos, err = p.pluginsWith(args.CmdName, true)
 	}
 	if err != nil {
 		p.plugger.Logf("Cannot list available commands: %v", err)
 		p.plugger.Sendf(cmd, "Cannot list available commands: %v", err)
 		return
 	}
+	if len(infos) == 0 {
+		p.plugger.Sendf(cmd, "Command %q not found.", args.CmdName)
+		return
+	}
+	command := infos[0].Command
 	var buf bytes.Buffer
 	buf.Grow(512)
 	formatUsage(&buf, command)
@@ -76,23 +152,35 @@ func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 	}
 }
 
-func (p *helpPlugin) findSchema(name string) (*schema.Command, error) {
+type pluginInfo struct {
+	Name    string          `bson:"_id"`
+	Command *schema.Command `bson:"commands"`
+	Targets []mup.Address
+}
+
+func (p *helpPlugin) pluginsWith(cmdname string, known bool) ([]pluginInfo, error) {
 	session, c := p.plugger.Collection("dummy")
 	defer session.Close()
 
-	plugins := c.Database.C("plugins")
-	var result struct{ Commands schema.Commands }
-	err := plugins.Find(bson.D{{"commands.name", name}}).Select(bson.D{{"commands", 1}}).One(&result)
+	var pipeline = []bson.M{
+		{"$match": bson.M{"commands.name": cmdname}},
+		{"$project": bson.M{"id": 1, "commands": 1, "targets": 1}},
+		{"$match": bson.M{"commands.name": cmdname}},
+		{"$unwind": "$commands"},
+	}
+
+	cname := "plugins"
+	if known {
+		cname = "plugins.known"
+	}
+	plugins := c.Database.C(cname)
+
+	var infos []pluginInfo
+	err := plugins.Pipe(pipeline).All(&infos)
 	if err != nil {
 		return nil, err
 	}
-	for i := range result.Commands {
-		command := &result.Commands[i]
-		if command.Name == name {
-			return command, nil
-		}
-	}
-	panic("got a valid result which missed the command searched for")
+	return infos, nil
 }
 
 func formatUsage(buf *bytes.Buffer, command *schema.Command) {

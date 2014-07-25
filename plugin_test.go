@@ -112,7 +112,6 @@ func pluginCommands(name string) schema.Commands {
 		Name: name,
 		Args: schema.Args{{
 			Name: "text",
-			Help: "Text to echo back.",
 			Flag: schema.Trailing | schema.Required,
 		}},
 	}}
@@ -144,8 +143,8 @@ func (p *testPlugin) Stop() error {
 
 func (p *testPlugin) HandleMessage(msg *mup.Message) {
 	prefix := p.plugger.Name() + "msg "
-	if strings.HasPrefix(msg.MupText, prefix) {
-		p.echo(msg, "[msg] ", msg.MupText[len(prefix):])
+	if strings.HasPrefix(msg.BotText, prefix) {
+		p.echo(msg, "[msg] ", msg.BotText[len(prefix):])
 	}
 }
 

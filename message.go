@@ -26,16 +26,16 @@ type Message struct {
 	// The trailing message text for all relevant commands.
 	Text string `bson:",omitempty"`
 
+	// The stripped text that was targetted at the bot in a direct message
+	// or a channel message prefixed by the bot's nick.
+	BotText string `bson:",omitempty"`
+
 	// The bang prefix setting used to address messages to mup
 	// that was in place when the message was received.
 	Bang string `bson:",omitempty"`
 
 	// The mup nick that was in place when the message was received.
 	AsNick string `bson:",omitempty"`
-
-	// TODO Drop these.
-	ToMup   bool   `bson:",omitempty"`
-	MupText string `bson:",omitempty"`
 }
 
 // Address holds the fully qualified address of an incoming or outgoing message.
@@ -50,6 +50,15 @@ type Address struct {
 // Address returns a itself so it also implements Addressable.
 func (a Address) Address() Address {
 	return a
+}
+
+// Contains returns whether address a contains address b.
+// For containment purposes an empty value on address a is considered
+// as a wildcard, and User and Host are both ignored.
+func (a Address) Contains(b Address) bool {
+	return (a.Account == "" || a.Account == b.Account) &&
+		(a.Nick == "" || a.Nick == b.Nick) &&
+		(a.Channel == "" || a.Channel == b.Channel)
 }
 
 // Addressable is implemented by types that have a meaningful message address.
@@ -222,24 +231,21 @@ func parse(account, asnick, bang, line string) *Message {
 		}
 
 		if asnick != "" {
-			// ToMup, MupText
+			// BotText
 			text := m.Text
 			nl := len(m.AsNick)
 			if nl > 0 && len(m.Text) > nl+1 && (m.Text[nl] == ':' || m.Text[nl] == ',') && m.Text[:nl] == m.AsNick {
-				m.ToMup = true
-				m.MupText = strings.TrimSpace(m.Text[nl+1:])
-				text = m.MupText
+				m.BotText = strings.TrimSpace(m.Text[nl+1:])
+				text = m.BotText
 			} else if m.Channel == "" {
-				m.ToMup = true
-				m.MupText = strings.TrimSpace(m.Text)
-				text = m.MupText
+				m.BotText = strings.TrimSpace(m.Text)
+				text = m.BotText
 			}
 
 			// Bang
 			bl := len(m.Bang)
 			if bl > 0 && len(text) >= bl && text[:bl] == m.Bang && (len(text) == bl || unicode.IsLetter(rune(text[bl]))) {
-				m.ToMup = true
-				m.MupText = text[bl:]
+				m.BotText = text[bl:]
 			}
 		}
 	} else {
