@@ -230,7 +230,7 @@ func parse(account, asnick, bang, line string) *Message {
 			m.Text = line[i+1:]
 		}
 
-		if asnick != "" {
+		if asnick != "" && m.Command == cmdPrivMsg {
 			// BotText
 			text := m.Text
 			nl := len(m.AsNick)

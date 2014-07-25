@@ -179,8 +179,32 @@ var parseIncomingTests = []parseTest{
 			Command: "PRIVMSG",
 			Text:    "mup: !Hello there",
 			BotText: "Hello there",
-			Bang:    "!",
 			AsNick:  "mup",
+			Bang:    "!",
+		},
+	},
+
+	// Don't take notices personally.
+	{
+		"NOTICE mup :Hello there",
+		mup.Message{
+			Command: "NOTICE",
+			Text:    "Hello there",
+			AsNick:  "mup",
+		},
+	}, {
+		"NOTICE #chan :mup, Hello there",
+		mup.Message{
+			Command: "NOTICE",
+			Channel: "#chan",
+			Text:    "mup, Hello there",
+		},
+	}, {
+		"NOTICE #chan :!Hello there",
+		mup.Message{
+			Command: "NOTICE",
+			Channel: "#chan",
+			Text:    "!Hello there",
 		},
 	},
 }
