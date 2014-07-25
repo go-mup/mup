@@ -3,6 +3,7 @@ package mup_test
 import (
 	. "gopkg.in/check.v1"
 	"gopkg.in/mup.v0"
+	"time"
 )
 
 type MessageSuite struct{}
@@ -223,7 +224,12 @@ var parseOutgoingTests = []parseTest{
 func (s *MessageSuite) TestParseIncoming(c *C) {
 	for _, test := range parseIncomingTests {
 		c.Logf("Parsing incoming line: %s", test.line)
+		before := time.Now().Add(-1 * time.Second)
 		msg := mup.ParseIncoming("", "mup", "!", test.line)
+		after := time.Now().Add(1 * time.Second)
+		c.Assert(msg.Time.After(before), Equals, true)
+		c.Assert(msg.Time.Before(after), Equals, true)
+		msg.Time = time.Time{}
 		test.msg.AsNick = "mup"
 		test.msg.Bang = "!"
 		c.Assert(msg, DeepEquals, &test.msg)
@@ -233,7 +239,12 @@ func (s *MessageSuite) TestParseIncoming(c *C) {
 func (s *MessageSuite) TestParseOutgoing(c *C) {
 	for _, test := range parseOutgoingTests {
 		c.Logf("Parsing outgoing line: %s", test.line)
+		before := time.Now().Add(-1 * time.Second)
 		msg := mup.ParseOutgoing("", test.line)
+		after := time.Now().Add(1 * time.Second)
+		c.Assert(msg.Time.After(before), Equals, true)
+		c.Assert(msg.Time.Before(after), Equals, true)
+		msg.Time = time.Time{}
 		c.Assert(msg, DeepEquals, &test.msg)
 	}
 }

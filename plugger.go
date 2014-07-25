@@ -7,6 +7,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"strings"
+	"time"
 )
 
 type Plugger struct {
@@ -236,16 +237,18 @@ const MaxTextLen = 300
 const minTextLen = 50
 
 func (p *Plugger) Send(msg *Message) error {
-	if len(msg.Text) <= MaxTextLen {
-		if err := p.send(msg); err != nil {
+	copy := *msg
+	copy.Time = time.Now()
+	copy.Text = strings.TrimRight(copy.Text, " \t")
+	if len(copy.Text) <= MaxTextLen {
+		if err := p.send(&copy); err != nil {
 			logf("Cannot put message in outgoing queue: %v", err)
 			return fmt.Errorf("cannot put message in outgoing queue: %v", err)
 		}
 		return nil
 	}
 
-	text := strings.TrimRight(msg.Text, " ")
-	copy := *msg
+	text := copy.Text
 	for len(text) > MaxTextLen {
 		split := MaxTextLen
 		if i := strings.LastIndex(text[:split], " "); i > 0 {

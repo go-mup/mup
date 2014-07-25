@@ -220,6 +220,8 @@ func waitFor(condition func() bool) {
 }
 
 func (s *ServerSuite) TestIncoming(c *C) {
+	before := time.Now().Add(-2 * time.Second)
+
 	s.SendWelcome(c)
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :Hello mup!")
 	s.Roundtrip(c)
@@ -230,6 +232,14 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	err := incoming.Find(nil).Sort("$natural").One(&msg)
 	c.Assert(err, IsNil)
 
+	after := time.Now().Add(2 * time.Second)
+
+	c.Logf("Message time: %s", msg.Time)
+
+	c.Assert(msg.Time.After(before), Equals, true)
+	c.Assert(msg.Time.Before(after), Equals, true)
+
+	msg.Time = time.Time{}
 	msg.Id = ""
 	c.Assert(msg, DeepEquals, mup.Message{
 		Account: "one",

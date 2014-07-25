@@ -2,13 +2,14 @@ package mup_test
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
-	"strings"
 )
 
 var _ = Suite(&PluggerSuite{})
@@ -16,6 +17,7 @@ var _ = Suite(&PluggerSuite{})
 type PluggerSuite struct {
 	dbserver mup.DBServerHelper
 	sent     []string
+	msgs     []*mup.Message
 	ldap     map[string]ldap.Conn
 }
 
@@ -41,9 +43,11 @@ func (s *PluggerSuite) TearDownTest(c *C) {
 
 func (s *PluggerSuite) plugger(db *mgo.Database, config, targets interface{}) *mup.Plugger {
 	s.sent = nil
+	s.msgs = nil
 	s.ldap = make(map[string]ldap.Conn)
 	send := func(msg *mup.Message) error {
 		s.sent = append(s.sent, "["+msg.Account+"] "+msg.String())
+		s.msgs = append(s.msgs, msg)
 		return nil
 	}
 	ldap := func(name string) (ldap.Conn, error) {
@@ -122,8 +126,16 @@ func (s *PluggerSuite) TestSendfNoNick(c *C) {
 func (s *PluggerSuite) TestSend(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := &mup.Message{Account: "myaccount", Command: "TEST", Params: []string{"some", "params"}}
+	before := time.Now()
 	p.Send(msg)
-	c.Assert(s.sent, DeepEquals, []string{"[myaccount] TEST some params"})
+	after := time.Now()
+	c.Assert(s.msgs, HasLen, 1)
+	sent := s.msgs[0]
+	c.Assert(sent.Time.After(before), Equals, true)
+	c.Assert(sent.Time.Before(after), Equals, true)
+	c.Assert(msg.Time.IsZero(), Equals, true)
+	sent.Time = time.Time{}
+	c.Assert(sent, DeepEquals, msg)
 }
 
 func (s *PluggerSuite) TestDirectfPrivate(c *C) {
@@ -225,7 +237,7 @@ func (c *ldapConn) Search(s *ldap.Search) ([]ldap.Result, error) {
 	return []ldap.Result{{DN: "test-dn"}}, nil
 }
 
-var lineBreakTests = []struct{
+var lineBreakTests = []struct {
 	text string
 	sent []string
 }{{

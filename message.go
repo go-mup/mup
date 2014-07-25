@@ -4,11 +4,15 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
 type Message struct {
 	Id bson.ObjectId `bson:"_id,omitempty"`
+
+	// When the message was received or queued out.
+	Time time.Time
 
 	// These fields form the message Address.
 	Account string `bson:",omitempty"`
@@ -26,15 +30,16 @@ type Message struct {
 	// The trailing message text for all relevant commands.
 	Text string `bson:",omitempty"`
 
-	// The stripped text that was targetted at the bot in a direct message
-	// or a channel message prefixed by the bot's nick.
+	// The text that was targetted at the bot in a direct message or
+	// a channel message prefixed by the bot's nick or the bang string.
+	// The bot nick and the bang string prefixes are stripped out.
 	BotText string `bson:",omitempty"`
 
 	// The bang prefix setting used to address messages to mup
 	// that was in place when the message was received.
 	Bang string `bson:",omitempty"`
 
-	// The mup nick that was in place when the message was received.
+	// The bot nick that was in place when the message was received.
 	AsNick string `bson:",omitempty"`
 }
 
@@ -151,7 +156,7 @@ func ParseOutgoing(account, line string) *Message {
 }
 
 func parse(account, asnick, bang, line string) *Message {
-	m := &Message{Account: account, AsNick: asnick, Bang: bang}
+	m := &Message{Account: account, AsNick: asnick, Bang: bang, Time: time.Now()}
 	i := 0
 	l := len(line)
 	for i < l && line[i] == ' ' {
