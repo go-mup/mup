@@ -189,28 +189,34 @@ func (s *PluggerSuite) TestTargets(c *C) {
 		{"account": "two", "nick": "nick"},
 		{"account": "three", "channel": "#other", "nick": "nick"},
 		{"account": "four"},
+		{"channel": "#other"},
+		{"account": ""},
 	})
 	targets := p.Targets()
 	c.Assert(targets[0].Address(), Equals, mup.Address{Account: "one", Channel: "#chan"})
 	c.Assert(targets[1].Address(), Equals, mup.Address{Account: "two", Nick: "nick"})
 	c.Assert(targets[2].Address(), Equals, mup.Address{Account: "three", Channel: "#other", Nick: "nick"})
 	c.Assert(targets[3].Address(), Equals, mup.Address{Account: "four"})
-	c.Assert(targets, HasLen, 4)
+	c.Assert(targets[4].Address(), Equals, mup.Address{Channel: "#other"})
+	c.Assert(targets[5].Address(), Equals, mup.Address{})
+	c.Assert(targets, HasLen, 6)
 
 	c.Assert(p.Target(&mup.Message{Account: "one", Channel: "#chan"}), Equals, &targets[0])
 	c.Assert(p.Target(&mup.Message{Account: "two", Nick: "nick"}), Equals, &targets[1])
 	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other", Nick: "nick"}), Equals, &targets[2])
 	c.Assert(p.Target(&mup.Message{Account: "four", Nick: "nick"}), Equals, &targets[3])
 	c.Assert(p.Target(&mup.Message{Account: "four", Channel: "#chan"}), Equals, &targets[3])
-	c.Assert(p.Target(&mup.Message{Account: "one", Nick: "nick"}), IsNil)
-	c.Assert(p.Target(&mup.Message{Account: "two", Channel: "#chan"}), IsNil)
-	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other"}), IsNil)
-	c.Assert(p.Target(&mup.Message{Account: "three", Nick: "nick"}), IsNil)
+	c.Assert(p.Target(&mup.Message{Account: "one", Nick: "nick"}), Equals, &targets[5])
+	c.Assert(p.Target(&mup.Message{Account: "two", Channel: "#chan"}), Equals, &targets[5])
+	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other"}), Equals, &targets[4])
+	c.Assert(p.Target(&mup.Message{Account: "three", Nick: "nick"}), Equals, &targets[5])
 
 	c.Assert(targets[0].CanSend(), Equals, true)
 	c.Assert(targets[1].CanSend(), Equals, true)
 	c.Assert(targets[2].CanSend(), Equals, true)
 	c.Assert(targets[3].CanSend(), Equals, false)
+	c.Assert(targets[4].CanSend(), Equals, false)
+	c.Assert(targets[5].CanSend(), Equals, false)
 }
 
 func (s *PluggerSuite) TestBroadcastf(c *C) {

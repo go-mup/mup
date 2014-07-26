@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Plugger provides the interface between a plugin and the bot infrastructure.
 type Plugger struct {
 	name    string
 	send    func(msg *Message) error
@@ -19,29 +20,31 @@ type Plugger struct {
 	db      *mgo.Database
 }
 
+// PluginTarget defines an Account, Channel, and/or Nick that the
+// plugin will observe messages from, and may choose to broadcast
+// messages to. Empty fields are ignored when deciding whether a
+// message matches the plugin target.
+//
+// A PluginTarget may also define per-target configuration options.
 type PluginTarget struct {
 	address Address
 	config  bson.Raw
 }
 
 // Address returns the address for the plugin target.
-//
-// Note that PluginTarget addresses may have both Channel and Nick empty when
-// the target is configured to listen to messages on the entire account.
 func (t *PluginTarget) Address() Address {
 	return t.address
 }
 
-// Config unmarshals into result the plugin target configuration for t.
+// Config unmarshals into result the plugin target configuration using the bson package.
 func (t *PluginTarget) Config(result interface{}) {
 	t.config.Unmarshal(result)
 }
 
 // CanSend returns whether the plugin target may have messages sent to it.
-// Plugin targets that have both Nick and Channel unset act only as an
-// incoming message selector.
+// For that, it must have an Account set, and at least one of Channel and Nick.
 func (t *PluginTarget) CanSend() bool {
-	return t.address.Nick != "" || t.address.Channel != ""
+	return t.address.Account != "" && (t.address.Nick != "" || t.address.Channel != "")
 }
 
 // String returns a string representation of the plugin target suitable for log messages.
@@ -101,18 +104,22 @@ func (p *Plugger) setTargets(targets bson.Raw) {
 	}
 }
 
+// Name returns the plugin name including the label, if any ("name/label").
 func (p *Plugger) Name() string {
 	return p.name
 }
 
+// Logf logs a message assembled by providing format and args to fmt.Sprintf.
 func (p *Plugger) Logf(format string, args ...interface{}) {
 	logf("["+p.name+"] "+format, args...)
 }
 
+// Debugf logs a debug message assembled by providing format and args to fmt.Sprintf.
 func (p *Plugger) Debugf(format string, args ...interface{}) {
 	debugf("["+p.name+"] "+format, args...)
 }
 
+// Config unmarshals into result the plugin configuration using the bson package.
 func (p *Plugger) Config(result interface{}) {
 	p.config.Unmarshal(result)
 }
@@ -120,6 +127,8 @@ func (p *Plugger) Config(result interface{}) {
 // SharedCollection returns a database collection that may be shared
 // across multiple instances of the same plugin, or across multiple plugins.
 // The collection is named "shared.<suffix>".
+//
+// See Plugger.UniqueCollection.
 func (p *Plugger) SharedCollection(suffix string) (*mgo.Session, *mgo.Collection) {
 	if p.db == nil {
 		panic("plugger has no database available")
@@ -132,6 +141,8 @@ func (p *Plugger) SharedCollection(suffix string) (*mgo.Session, *mgo.Collection
 // use to store data. The collection is named "unique.<plugin name>.<suffix>",
 // or "unique.<plugin name>" if the suffix is empty. If the plugin name has
 // a label ("echo/label") the slash is replaced by an underline ("echo_label").
+//
+// See Plugger.SharedCollection.
 func (p *Plugger) UniqueCollection(suffix string) (*mgo.Session, *mgo.Collection) {
 	if p.db == nil {
 		panic("plugger has no database available")
@@ -146,14 +157,14 @@ func (p *Plugger) UniqueCollection(suffix string) (*mgo.Session, *mgo.Collection
 	return session, p.db.C(name).With(session)
 }
 
+// Targets returns all targets enabled for the plugin.
 func (p *Plugger) Targets() []PluginTarget {
 	return p.targets
 }
 
-func (p *Plugger) LDAP(name string) (ldap.Conn, error) {
-	return p.ldap(name)
-}
-
+// Target returns the plugin target that matches the provided message.
+// All messages provided to the plugin for handling are guaranteed
+// to have a matching target.
 func (p *Plugger) Target(msg *Message) *PluginTarget {
 	addr := msg.Address()
 	for i := range p.targets {
@@ -162,6 +173,12 @@ func (p *Plugger) Target(msg *Message) *PluginTarget {
 		}
 	}
 	return nil
+}
+
+// LDAP returns the LDAP connection with the given name from the pool.
+// The returned connection must be closed after its use.
+func (p *Plugger) LDAP(name string) (ldap.Conn, error) {
+	return p.ldap(name)
 }
 
 // Sendf sends a message to the address obtained from the provided addressable.
@@ -248,6 +265,7 @@ const MaxTextLen = 300
 // algorithm takes place to enforce MaxTextLen.
 const minTextLen = 50
 
+// Send sends msg to its defined address.
 func (p *Plugger) Send(msg *Message) error {
 	copy := *msg
 	copy.Time = time.Now()
