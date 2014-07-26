@@ -32,13 +32,18 @@ func init() {
 type helpPlugin struct {
 	plugger *mup.Plugger
 	rand    *rand.Rand
+	config  struct {
+		Boring bool
+	}
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
-	return &helpPlugin{
+	p := &helpPlugin{
 		plugger: plugger,
 		rand:    rand.New(rand.NewSource(42)),
 	}
+	plugger.Config(&p.config)
+	return p
 }
 
 func (p *helpPlugin) Stop() error {
@@ -65,7 +70,7 @@ func (p *helpPlugin) HandleMessage(msg *mup.Message) {
 			return
 		}
 		if len(infos) == 0 {
-			p.sendNotKnown(msg)
+			p.sendNotKnown(msg, cmdname)
 			return
 		}
 		addr := msg.Address()
@@ -95,9 +100,12 @@ var unknownReplies = []string{
 	"In-com-pre-hen-si-ble-ness.",
 }
 
-func (p *helpPlugin) sendNotKnown(msg *mup.Message) {
-	// Don't use Intn, so it remains stable when adding entries.
-	p.plugger.Sendf(msg, "%s", unknownReplies[p.rand.Intn(len(unknownReplies))])
+func (p *helpPlugin) sendNotKnown(msg *mup.Message, cmdname string) {
+	if p.config.Boring {
+		p.plugger.Sendf(msg, "Command %q not found.", cmdname)
+	} else {
+		p.plugger.Sendf(msg, "%s", unknownReplies[p.rand.Intn(len(unknownReplies))])
+	}
 }
 
 func (p *helpPlugin) sendNotUsable(msg *mup.Message, info *pluginInfo, what, where string) {

@@ -92,6 +92,11 @@ func (am *accountManager) die() {
 func (am *accountManager) loop() error {
 	defer am.die()
 
+	if am.config.Accounts != nil && len(am.config.Accounts) == 0 {
+		<-am.tomb.Dying()
+		return nil
+	}
+
 	am.handleRefresh()
 	var refresh <-chan time.Time
 	if am.config.Refresh > 0 {
@@ -139,6 +144,18 @@ func (am *accountManager) loop() error {
 	return nil
 }
 
+func (m *accountManager) accountOn(name string) bool {
+	if m.config.Accounts == nil {
+		return true
+	}
+	for _, cname := range m.config.Accounts {
+		if name == cname || len(name) > len(cname) && name[len(cname)] == '/' && name[:len(cname)] == cname {
+			return true
+		}
+	}
+	return false
+}
+
 func (am *accountManager) handleRefresh() {
 	var infos []accountInfo
 	err := am.database.C("accounts").Find(nil).All(&infos)
@@ -148,16 +165,21 @@ func (am *accountManager) handleRefresh() {
 		return
 	}
 
+	good := make(map[string]bool)
+	for i := range infos {
+		info := &infos[i]
+		if am.accountOn(info.Name) {
+			good[info.Name] = true
+		}
+	}
+
 	// Drop clients for dead or deleted accounts.
-NextClient:
 	for _, client := range am.clients {
 		select {
 		case <-client.Dying:
 		default:
-			for i := range infos {
-				if client.Account == infos[i].Name {
-					continue NextClient
-				}
+			if good[client.Account] {
+				continue
 			}
 		}
 		client.Stop()
@@ -167,6 +189,9 @@ NextClient:
 	// Bring new clients up and update existing ones.
 	for i := range infos {
 		info := &infos[i]
+		if !good[info.Name] {
+			continue
+		}
 		if info.Nick == "" {
 			info.Nick = "mup"
 		}
@@ -203,10 +228,13 @@ func (am *accountManager) tail(client *ircClient) error {
 	}
 
 	for am.tomb.Alive() {
-
 		// Prepare a new tailing iterator.
 		session.Refresh()
-		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"account", client.Account}})
+		filter := bson.D{{"_id", bson.D{{"$gt", lastId}}}}
+		if am.config.Accounts != nil {
+			filter = append(filter, bson.DocElem{"account", bson.D{{"$in", am.config.Accounts}}})
+		}
+		query := outgoing.Find(filter)
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
 		// Loop while iterator remains valid.

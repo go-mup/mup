@@ -38,6 +38,7 @@ type CommandHandler interface {
 	HandleCommand(cmd *Command)
 }
 
+// Command holds a message that was properly parsed as an existing command.
 type Command struct {
 	*Message
 
@@ -45,10 +46,13 @@ type Command struct {
 	args   bson.Raw
 }
 
+// Schema returns the command schema.
 func (c *Command) Schema() *schema.Command {
 	return c.schema
 }
 
+// Args unmarshals into result the command arguments parsed.
+// The unmarshaling is performed by the bson package.
 func (c *Command) Args(result interface{}) {
 	c.args.Unmarshal(result)
 }
@@ -56,7 +60,7 @@ func (c *Command) Args(result interface{}) {
 var registeredPlugins = make(map[string]*PluginSpec)
 
 // RegisterPlugin registers with mup the plugin defined via the provided
-// specification, so that it may be loaded when configured to do so.
+// specification, so that it may be loaded when configured to be.
 func RegisterPlugin(spec *PluginSpec) {
 	if spec.Name == "" {
 		panic("cannot register plugin with an empty name")
@@ -192,6 +196,9 @@ func (m *pluginManager) die() {
 func (m *pluginManager) updateKnown() {
 	known := m.database.C("plugins.known")
 	for name, spec := range registeredPlugins {
+		if !m.pluginOn(name) {
+			continue
+		}
 		_, err := known.UpsertId(name, bson.D{{"_id", name}, {"commands", spec.Commands}})
 		if err != nil {
 			logf("Failed to update information about known plugin %q: %v", name, err)
@@ -201,6 +208,11 @@ func (m *pluginManager) updateKnown() {
 
 func (m *pluginManager) loop() error {
 	defer m.die()
+
+	if m.config.Plugins != nil && len(m.config.Plugins) == 0 {
+		<-m.tomb.Dying()
+		return nil
+	}
 
 	m.tomb.Go(m.tail)
 
@@ -334,12 +346,23 @@ func pluginChanged(a, b *pluginInfo) bool {
 	return !bytes.Equal(a.Config.Data, b.Config.Data) || !bytes.Equal(a.Targets.Data, b.Targets.Data)
 }
 
-func (m *pluginManager) refreshPlugins() {
-	var infos []pluginInfo
+func (m *pluginManager) pluginOn(name string) bool {
+	if m.config.Plugins == nil {
+		return true
+	}
+	for _, cname := range m.config.Plugins {
+		if name == cname || len(name) > len(cname) && name[len(cname)] == '/' && name[:len(cname)] == cname {
+			return true
+		}
+	}
+	return false
+}
 
+func (m *pluginManager) refreshPlugins() {
 	plugins := m.database.C("plugins")
 
-	err := plugins.Find(nil).All(&infos)
+	var infos []pluginInfo
+	err := plugins.Find(nil).Select(bson.D{{"commands", 0}}).All(&infos)
 	if err != nil {
 		// TODO Reduce frequency of logged messages if the database goes down.
 		logf("Cannot fetch server information from the database: %v", err)
@@ -348,10 +371,15 @@ func (m *pluginManager) refreshPlugins() {
 
 	// Start new plugins, and stop/restart updated ones.
 	var known = len(m.plugins)
+	var seen = make(map[string]bool)
 	var found int
 	var rollbackId bson.ObjectId
 	for i := range infos {
 		info := &infos[i]
+		if !m.pluginOn(info.Name) {
+			continue
+		}
+		seen[info.Name] = true
 		if state, ok := m.plugins[info.Name]; ok {
 			found++
 			if !pluginChanged(&state.info, info) {
@@ -387,12 +415,9 @@ func (m *pluginManager) refreshPlugins() {
 	// If there are known plugins that were not observed in the current
 	// set of plugins, they must be stopped and removed.
 	if known != found {
-	NextPlugin:
 		for name, state := range m.plugins {
-			for i := range infos {
-				if infos[i].Name == name {
-					continue NextPlugin
-				}
+			if seen[name] {
+				continue
 			}
 			logf("Plugin %q removed. Stopping it.", state.info.Name)
 			err := state.plugin.Stop()
@@ -429,7 +454,7 @@ func (m *pluginManager) refreshPlugins() {
 // rollbackLimit defines how long messages can be waiting in the
 // incoming queue while still being submitted to plugins.
 const (
-	rollbackLimit   = 5 * time.Second
+	rollbackLimit   = 10 * time.Second
 	rollbackAccount = "<rollback>"
 	rollbackText    = "<rollback>"
 )

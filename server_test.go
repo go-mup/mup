@@ -8,8 +8,8 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
-	"gopkg.in/mup.v0/schema"
 	_ "gopkg.in/mup.v0/plugins/help"
+	"gopkg.in/mup.v0/schema"
 )
 
 type ServerSuite struct {
@@ -508,11 +508,10 @@ func (s *ServerSuite) TestLDAP(c *C) {
 }
 
 var testDBSpec = mup.PluginSpec{
-	Name:  "testdb",
-	Start: testDBStart,
+	Name:     "testdb",
+	Start:    testDBStart,
 	Commands: schema.Commands{{Name: "testdb"}},
 }
-
 
 func init() {
 	mup.RegisterPlugin(&testDBSpec)
@@ -570,4 +569,73 @@ func (s *ServerSuite) TestHelp(c *C) {
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
 	s.ReadLine(c, `PRIVMSG nick :Plugin "testdb" is not enabled here.`)
+}
+
+func (s *ServerSuite) TestPluginSelection(c *C) {
+	s.StopServer(c)
+
+	plugins := s.session.DB("").C("plugins")
+	known := s.session.DB("").C("plugins.known")
+
+	// Must exist for the following logic to be meaningful.
+	n, err := known.Find(M{"_id": "testdb"}).Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 1)
+
+	err = plugins.Insert(M{"_id": "help", "config": M{"boring": true}, "targets": []M{{"account": "one"}}})
+	c.Assert(err, IsNil)
+	err = plugins.Insert(M{"_id": "testdb", "targets": []M{{"account": "one"}}})
+	c.Assert(err, IsNil)
+
+	_, err = known.RemoveAll(nil)
+	c.Assert(err, IsNil)
+
+	s.config.Plugins = []string{"help"}
+	s.RestartServer(c)
+	s.SendWelcome(c)
+
+	var ks []struct {
+		Name string "_id"
+	}
+	err = known.Find(nil).All(&ks)
+	c.Assert(err, IsNil)
+	c.Assert(ks, HasLen, 1)
+	c.Assert(ks[0].Name, Equals, "help")
+
+	// The following test ensures that the help plugin is properly loaded
+	// and that the testdb is not loaded nor is known. The message is sent
+	// twice to ensure a roundtrip, giving a chance for both plugins to reply.
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
+	s.ReadLine(c, `PRIVMSG nick :Command "testdb" not found.`)
+	s.ReadLine(c, `PRIVMSG nick :Command "testdb" not found.`)
+}
+
+func (s *ServerSuite) TestAccountSelection(c *C) {
+	s.StopServer(c)
+
+	db := s.session.DB("")
+	err := db.C("accounts").Insert(M{"_id": "two", "host": s.Addr.String(), "password": "password"})
+	c.Assert(err, IsNil)
+
+	plugins := db.C("plugins")
+	err = plugins.Insert(M{"_id": "echoA/one", "config": M{"prefix": "one:"}, "targets": []M{{"account": "one"}}})
+	c.Assert(err, IsNil)
+	err = plugins.Insert(M{"_id": "echoA/two", "config": M{"prefix": "two:"}, "targets": []M{{"account": "two"}}})
+	c.Assert(err, IsNil)
+
+	s.config.Accounts = []string{"two"}
+	s.RestartServer(c)
+	s.SendWelcome(c)
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A1")
+	s.ReadLine(c, "PRIVMSG nick :[cmd] two:A1")
+
+	s.StopServer(c)
+	s.config.Accounts = []string{"one"}
+	s.RestartServer(c)
+	s.SendWelcome(c)
+
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A1")
+	s.ReadLine(c, "PRIVMSG nick :[cmd] one:A1")
 }

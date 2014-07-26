@@ -38,6 +38,7 @@ type helpTest struct {
 	cmds    schema.Commands
 	targets []bson.M
 	known   bool
+	config  bson.M
 }
 
 var helpTests = []helpTest{{
@@ -52,9 +53,9 @@ var helpTests = []helpTest{{
 	recv: `PRIVMSG nick :cmdname — Does nothing.`,
 	cmds: schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
 }, {
-	send: "help cmdname",
-	recv: `PRIVMSG nick :cmdname — Does nothing.`,
-	cmds: schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
+	send:  "help cmdname",
+	recv:  `PRIVMSG nick :cmdname — Does nothing.`,
+	cmds:  schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
 	known: true,
 }, {
 	send: "help cmdname",
@@ -100,15 +101,19 @@ var helpTests = []helpTest{{
 		"PRIVMSG nick :In-com-pre-hen-si-ble-ness.",
 	},
 }, {
+	send:   "foo",
+	recv:   `PRIVMSG nick :Command "foo" not found.`,
+	config: bson.M{"boring": true},
+}, {
 	send:    "cmdname",
 	recv:    `PRIVMSG nick :Plugin "test" is not enabled here.`,
 	targets: []bson.M{{"account": "other"}},
 	cmds:    schema.Commands{{Name: "cmdname"}},
 }, {
-	send:    "cmdname",
-	recv:    `PRIVMSG nick :Plugin "test" is not running.`,
-	cmds:    schema.Commands{{Name: "cmdname"}},
-	known:   true,
+	send:  "cmdname",
+	recv:  `PRIVMSG nick :Plugin "test" is not running.`,
+	cmds:  schema.Commands{{Name: "cmdname"}},
+	known: true,
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {
@@ -132,9 +137,9 @@ func (s *HelpSuite) TestHelp(c *C) {
 		err := plugins.Insert(bson.M{"_id": "help", "commands": help.Plugin.Commands, "targets": []bson.M{{"account": "test"}}})
 		c.Assert(err, IsNil)
 
-
 		tester := mup.NewPluginTester("help")
 		tester.SetDatabase(db)
+		tester.SetConfig(test.config)
 		tester.Start()
 		if test.send != "" {
 			tester.Sendf("", test.send)

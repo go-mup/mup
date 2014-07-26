@@ -495,7 +495,7 @@ loop:
 		case msg := <-w.Outgoing:
 			line := msg.String()
 			if msg.Command != cmdPong {
-				debugf("[%s] Sending: %s", w.account, line)
+				logf("[%s] Sending: %s", w.account, line)
 			}
 			if (msg.Command == cmdPrivMsg || msg.Command == "") && msg.Id != "" {
 				send = []string{line, "\r\nPING :sent:", msg.Id.Hex(), "\r\n"}
@@ -592,7 +592,7 @@ func (r *ircReader) loop() error {
 		}
 		msg := ParseIncoming(r.account, r.activeNick, "!", string(line))
 		if msg.Command != cmdPong && msg.Command != cmdPing {
-			debugf("[%s] Received: %s", r.account, line)
+			logf("[%s] Received: %s", r.account, line)
 		}
 		switch msg.Command {
 		case cmdNick:
