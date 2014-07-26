@@ -9,9 +9,9 @@ var Plugin = mup.PluginSpec{
 	Name:  "log",
 	Help:  `Stores observed messages persistently.
 	
-	Messages are stored in the collection "shared.log.<account name>".
-	If "database" is provided in the configuration, it will be used for
-	these collections. Otherwise, they go into the default one.
+	Messages are stored in the collection "shared.log", either in
+	the main bot database, or in the database name defined via the
+	"database" configuration option.
 	`,
 	Start: start,
 }
@@ -28,9 +28,7 @@ type logPlugin struct {
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
-	p := &logPlugin{
-		plugger: plugger,
-	}
+	p := &logPlugin{plugger: plugger}
 	plugger.Config(&p.config)
 	return p
 }
@@ -42,7 +40,7 @@ func (p *logPlugin) Stop() error {
 func (p *logPlugin) HandleMessage(msg *mup.Message) {
 	var c *mgo.Collection
 	var session *mgo.Session
-	session, c = p.plugger.SharedCollection("log." + msg.Account)
+	session, c = p.plugger.SharedCollection("log")
 	defer session.Close()
 	if p.config.Database != "" {
 		c = session.DB(p.config.Database).C(c.Name)
