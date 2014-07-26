@@ -80,6 +80,13 @@ var parseIncomingTests = []parseTest{
 			Command: "CMD",
 			AsNick:  "mup",
 		},
+	}, {
+		":host.com CMD",
+		mup.Message{
+			Host:    "host.com",
+			Command: "CMD",
+			AsNick:  "mup",
+		},
 	},
 
 	// Empty nick shouldn't be interpreted.

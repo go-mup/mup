@@ -99,6 +99,10 @@ func (m *Message) String() string {
 			line = append(line, m.Host...)
 		}
 		line = append(line, ' ')
+	} else if m.Host != "" && m.AsNick != "" {
+		line = append(line, ':')
+		line = append(line, m.Host...)
+		line = append(line, ' ')
 	}
 	cmd := m.Command
 	if cmd == "" {
@@ -198,6 +202,10 @@ func parse(account, asnick, bang, line string) *Message {
 			if asnick != "" {
 				m.Host = line[mark+1:i]
 			}
+		}
+		if m.User == "" && m.Host == "" && strings.Contains(m.Nick, ".") {
+			m.Host = m.Nick
+			m.Nick = ""
 		}
 	}
 	for i < l && line[i] == ' ' {
