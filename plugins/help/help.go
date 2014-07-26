@@ -2,11 +2,12 @@ package help
 
 import (
 	"bytes"
+	"math/rand"
+	"strings"
+
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
-	"math/rand"
-	"strings"
 )
 
 var Plugin = mup.PluginSpec{
@@ -159,7 +160,7 @@ type pluginInfo struct {
 }
 
 func (p *helpPlugin) pluginsWith(cmdname string, known bool) ([]pluginInfo, error) {
-	session, c := p.plugger.Collection("dummy")
+	session, c := p.plugger.SharedCollection("dummy")
 	defer session.Close()
 
 	var pipeline = []bson.M{

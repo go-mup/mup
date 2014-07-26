@@ -112,7 +112,9 @@ var helpTests = []helpTest{{
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {
-	db := s.dbserver.Session().DB("mup")
+	session := s.dbserver.Session()
+	defer session.Close()
+	db := session.DB("mup")
 	plugins := db.C("plugins")
 	known := db.C("plugins.known")
 	for _, test := range helpTests {

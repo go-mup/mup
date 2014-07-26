@@ -80,13 +80,21 @@ func (s *PluggerSuite) TestDebugf(c *C) {
 	c.Assert(c.GetTestLog(), Not(Matches), `(?m).*\[theplugin/label\] <one>.*`)
 }
 
-func (s *PluggerSuite) TestCollection(c *C) {
+func (s *PluggerSuite) TestUniqueCollection(c *C) {
 	master := s.dbserver.Session()
 	defer master.Close()
+
 	p := s.plugger(master.DB("mup"), nil, nil)
-	session, coll := p.Collection("thecoll")
+
+	session, coll := p.UniqueCollection("mine")
 	defer session.Close()
-	c.Assert(coll.Name, Equals, "plugin.theplugin_label.thecoll")
+	c.Assert(coll.Name, Equals, "plugin.theplugin_label.mine")
+	c.Assert(coll.Database.Session, Equals, session)
+	c.Assert(master, Not(Equals), session)
+
+	session, coll = p.UniqueCollection("")
+	defer session.Close()
+	c.Assert(coll.Name, Equals, "plugin.theplugin_label")
 	c.Assert(coll.Database.Session, Equals, session)
 	c.Assert(master, Not(Equals), session)
 }
@@ -94,10 +102,12 @@ func (s *PluggerSuite) TestCollection(c *C) {
 func (s *PluggerSuite) TestSharedCollection(c *C) {
 	master := s.dbserver.Session()
 	defer master.Close()
+
 	p := s.plugger(master.DB("mup"), nil, nil)
-	session, coll := p.SharedCollection("thecoll")
+
+	session, coll := p.SharedCollection("ours")
 	defer session.Close()
-	c.Assert(coll.Name, Equals, "shared.thecoll")
+	c.Assert(coll.Name, Equals, "shared.ours")
 	c.Assert(coll.Database.Session, Equals, session)
 	c.Assert(master, Not(Equals), session)
 }

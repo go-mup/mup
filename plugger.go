@@ -117,21 +117,33 @@ func (p *Plugger) Config(result interface{}) {
 	p.config.Unmarshal(result)
 }
 
-func (p *Plugger) SharedCollection(name string) (*mgo.Session, *mgo.Collection) {
+// SharedCollection returns a database collection that may be shared
+// across multiple instances of the same plugin, or across multiple plugins.
+// The collection is named "shared.<suffix>".
+func (p *Plugger) SharedCollection(suffix string) (*mgo.Session, *mgo.Collection) {
 	if p.db == nil {
 		panic("plugger has no database available")
 	}
 	session := p.db.Session.Copy()
-	return session, p.db.C("shared." + name).With(session)
+	return session, p.db.C("shared." + suffix).With(session)
 }
 
-func (p *Plugger) Collection(name string) (*mgo.Session, *mgo.Collection) {
+// UniqueCollection returns a unique database collection that the plugin may
+// use to store data. The collection is named "unique.<plugin name>.<suffix>",
+// or "unique.<plugin name>" if the suffix is empty. If the plugin name has
+// a label ("echo/label") the slash is replaced by an underline ("echo_label").
+func (p *Plugger) UniqueCollection(suffix string) (*mgo.Session, *mgo.Collection) {
 	if p.db == nil {
 		panic("plugger has no database available")
 	}
 	session := p.db.Session.Copy()
-	pname := strings.Replace(p.Name(), "/", "_", -1)
-	return session, p.db.C("plugin." + pname + "." + name).With(session)
+	name := strings.Replace(p.Name(), "/", "_", -1)
+	if suffix == "" {
+		name = "plugin." + name
+	} else {
+		name = "plugin." + name + "." + suffix
+	}
+	return session, p.db.C(name).With(session)
 }
 
 func (p *Plugger) Targets() []PluginTarget {
