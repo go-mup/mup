@@ -149,7 +149,7 @@ func (m *accountManager) accountOn(name string) bool {
 		return true
 	}
 	for _, cname := range m.config.Accounts {
-		if name == cname || len(name) > len(cname) && name[len(cname)] == '/' && name[:len(cname)] == cname {
+		if name == cname {
 			return true
 		}
 	}
@@ -230,11 +230,7 @@ func (am *accountManager) tail(client *ircClient) error {
 	for am.tomb.Alive() {
 		// Prepare a new tailing iterator.
 		session.Refresh()
-		filter := bson.D{{"_id", bson.D{{"$gt", lastId}}}}
-		if am.config.Accounts != nil {
-			filter = append(filter, bson.DocElem{"account", bson.D{{"$in", am.config.Accounts}}})
-		}
-		query := outgoing.Find(filter)
+		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"account", client.Account}})
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
 		// Loop while iterator remains valid.

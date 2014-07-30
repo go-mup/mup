@@ -279,6 +279,14 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	// Then the message and the PING asking for confirmation, handled by ReadLine.
 	s.ReadLine(c, "PRIVMSG someone :Hello there!")
 
+	// This must be ignored. Different account.
+	err = outgoing.Insert(&mup.Message{
+		Account: "two",
+		Nick:    "someone",
+		Text:    "Ignore me.",
+	})
+	c.Assert(err, IsNil)
+
 	// Send another message with the server running.
 	err = outgoing.Insert(&mup.Message{
 		Account: "one",
