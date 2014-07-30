@@ -42,6 +42,14 @@ type helpTest struct {
 }
 
 var helpTests = []helpTest{{
+	send: "help",
+	recv: "PRIVMSG nick :No known commands available. Go load some plugins.",
+}, {
+	send: "help",
+	recv: `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
+	known: true,
+	cmds:  schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}},
+}, {
 	send: "help cmdname",
 	recv: `PRIVMSG nick :Command "cmdname" not found.`,
 }, {

@@ -8,6 +8,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
+	"sort"
 )
 
 var Plugin = mup.PluginSpec{
@@ -124,6 +125,21 @@ func (p *helpPlugin) sendNotUsable(msg *mup.Message, info *pluginInfo, what, whe
 func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ CmdName string }
 	cmd.Args(&args)
+	if args.CmdName == "" {
+		cmdnames, err := p.cmdList()
+		if err != nil {
+			p.plugger.Logf("Cannot list available commands: %v", err)
+			p.plugger.Sendf(cmd, "Cannot list available commands: %v", err)
+			return
+		}
+		if len(cmdnames) == 0 {
+			p.plugger.Sendf(cmd, "No known commands available. Go load some plugins.")
+			return
+		}
+		p.plugger.Sendf(cmd, `Run "help <cmdname>" for details on: %s`, strings.Join(cmdnames, ", "))
+		return
+	}
+
 	infos, err := p.pluginsWith(args.CmdName, false)
 	if err == nil && len(infos) == 0 {
 		infos, err = p.pluginsWith(args.CmdName, true)
@@ -190,6 +206,33 @@ func (p *helpPlugin) pluginsWith(cmdname string, known bool) ([]pluginInfo, erro
 		return nil, err
 	}
 	return infos, nil
+}
+
+func (p *helpPlugin) cmdList() ([]string, error) {
+	session, c := p.plugger.SharedCollection("dummy")
+	defer session.Close()
+	plugins := c.Database.C("plugins.known")
+	var known []struct {
+		Commands []struct {
+			Name string
+		}
+	}
+	err := plugins.Find(nil).All(&known)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool)
+	for _, plugin := range known {
+		for _, cmd := range plugin.Commands {
+			seen[cmd.Name] = true
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for cmdname := range seen {
+		result = append(result, cmdname)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func formatUsage(buf *bytes.Buffer, command *schema.Command) {
