@@ -89,16 +89,27 @@ type lpPlugin struct {
 		PrefixNew string
 		PrefixOld string
 
-		PollDelay     bson.DurationString
+		JustShownTimeout bson.DurationString
+		PollDelay        bson.DurationString
 	}
 
 	overhear map[*mup.PluginTarget]bool
+
+	justShownList [30]justShownBug
+	justShownNext int
+}
+
+type justShownBug struct {
+	id   int
+	addr mup.Address
+	when time.Time
 }
 
 const (
 	defaultEndpoint          = "https://api.launchpad.net/1.0/"
 	defaultEndpointTrackBugs = "https://launchpad.net/"
 	defaultPollDelay         = 10 * time.Second
+	defaultJustShownTimeout  = 1 * time.Minute
 	defaultPrefix            = "Bug #%d changed"
 )
 
@@ -119,12 +130,15 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	p := &lpPlugin{
 		mode:     mode,
 		plugger:  plugger,
-		messages: make(chan *lpMessage, 5),
+		messages: make(chan *lpMessage, 10),
 		overhear: make(map[*mup.PluginTarget]bool),
 	}
 	plugger.Config(&p.config)
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
+	}
+	if p.config.JustShownTimeout.Duration == 0 {
+		p.config.JustShownTimeout.Duration = defaultJustShownTimeout
 	}
 	if p.config.Endpoint == "" {
 		if mode == bugWatch {
@@ -166,6 +180,7 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 }
 
 func (p *lpPlugin) Stop() error {
+	close(p.messages)
 	p.tomb.Kill(nil)
 	return p.tomb.Wait()
 }
@@ -203,6 +218,7 @@ func (p *lpPlugin) handleMessage(lpmsg *lpMessage, reportError bool) {
 	select {
 	case p.messages <- lpmsg:
 	default:
+		p.plugger.Logf("Message queue is full. Dropping message: %s", lpmsg.msg.String())
 		if reportError {
 			p.plugger.Sendf(lpmsg.msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
 		}
@@ -211,24 +227,35 @@ func (p *lpPlugin) handleMessage(lpmsg *lpMessage, reportError bool) {
 
 func (p *lpPlugin) loop() error {
 	for {
-		select {
-		case lpmsg := <-p.messages:
-			err := p.handle(lpmsg)
-			if err != nil {
-				p.plugger.Logf("Error talking to Launchpad: %v")
-			}
-		case <-p.tomb.Dying():
-			return nil
+		lpmsg, ok := <-p.messages
+		if !ok {
+			break
 		}
+		p.handle(lpmsg)
 	}
 	return nil
 }
 
-func (p *lpPlugin) handle(lpmsg *lpMessage) error {
+func (p *lpPlugin) handle(lpmsg *lpMessage) {
+	msg := lpmsg.msg
+	overheard := msg.BotText == ""
+	addr := msg.Address()
 	for _, id := range lpmsg.bugs {
-		_ = p.showBug(lpmsg.msg, id, "")
+		if overheard && p.justShown(addr, id) {
+			continue
+		}
+		p.showBug(msg, id, "")
 	}
-	return nil
+}
+
+func (p *lpPlugin) justShown(addr mup.Address, bugId int) bool {
+	oldest := time.Now().Add(-p.config.JustShownTimeout.Duration)
+	for _, shown := range p.justShownList {
+		if shown.id == bugId && shown.when.After(oldest) && shown.addr.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 type lpBug struct {
@@ -247,17 +274,23 @@ type lpBugEntry struct {
 	AssigneeLink string `json:"assignee_link"`
 }
 
-func (p *lpPlugin) showBug(to mup.Addressable, bugId int, prefix string) error {
+func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 	var bug lpBug
 	var tasks lpBugTasks
 	err := p.request("/bugs/"+strconv.Itoa(bugId), &bug)
 	if err != nil {
-		return err
+		if msg.BotText != "" {
+			p.plugger.Sendf(msg, "Oops: %v", err)
+		}
+		return
 	}
 	if bug.TasksLink != "" {
 		err = p.request(bug.TasksLink, &tasks)
 		if err != nil {
-			return err
+			if msg.BotText != "" {
+				p.plugger.Sendf(msg, "Oops: %v", err)
+			}
+			return
 		}
 	}
 	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
@@ -265,10 +298,20 @@ func (p *lpPlugin) showBug(to mup.Addressable, bugId int, prefix string) error {
 	}
 	format := prefix + ": %s%s <https://launchpad.net/bugs/%d>"
 	args := []interface{}{bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId}
-	if to == nil {
-		return p.plugger.Broadcastf(format, args...)
+	switch {
+	case msg == nil:
+		p.plugger.BroadcastNoticef(format, args...)
+	case msg.BotText == "":
+		p.plugger.SendChannelNoticef(msg, format, args...)
+		addr := msg.Address()
+		if addr.Channel != "" {
+			addr.Nick = ""
+		}
+		p.justShownList[p.justShownNext] = justShownBug{bugId, addr, time.Now()}
+		p.justShownNext = (p.justShownNext + 1) % len(p.justShownList)
+	default:
+		p.plugger.Sendf(msg, format, args...)
 	}
-	return p.plugger.Channelf(to, format, args...)
 }
 
 func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
@@ -309,6 +352,10 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 		}
 	}
 	resp, err := httpClient.Get(url)
+	if err == nil && resp.StatusCode != 200 {
+		resp.Body.Close()
+		err = fmt.Errorf("%s", resp.Status)
+	}
 	if err != nil {
 		p.plugger.Logf("Cannot perform Launchpad request: %v", err)
 		return fmt.Errorf("cannot perform Launchpad request: %v", err)
@@ -345,9 +392,20 @@ func parseBugChat(text string) []int {
 		if err != nil {
 			panic("bug id not an int, which must never happen (regexp is broken)")
 		}
-		bugs = append(bugs, id)
+		if !containsInt(bugs, id) {
+			bugs = append(bugs, id)
+		}
 	}
 	return bugs
+}
+
+func containsInt(ns []int, n int) bool {
+	for _, i := range ns {
+		if i == n {
+			return true
+		}
+	}
+	return false
 }
 
 func parseBugArgs(text string) ([]int, error) {
@@ -362,7 +420,9 @@ func parseBugArgs(text string) ([]int, error) {
 		if err != nil {
 			panic("bug id not an int, which must never happen (regexp is broken)")
 		}
-		bugs = append(bugs, id)
+		if !containsInt(bugs, id) {
+			bugs = append(bugs, id)
+		}
 	}
 	return bugs, nil
 }
@@ -484,7 +544,7 @@ func (p *lpPlugin) pollMerges() error {
 			if !ok || first {
 				continue
 			}
-			p.plugger.Broadcastf("Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
+			p.plugger.BroadcastNoticef("Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
 		}
 		first = false
 	}

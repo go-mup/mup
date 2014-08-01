@@ -31,57 +31,80 @@ type lpTest struct {
 	targets  []bson.M
 	bugsText [][]int
 	bugsForm url.Values
+	fail     bool
 }
 
 var lpTests = []lpTest{
 	{
+		// Bug ids are numeric.
 		plugin: "lpbugdata",
 		send:   []string{"bug foo"},
 		recv:   []string{"PRIVMSG nick :Oops: cannot parse bug id from argument: foo"},
 	}, {
+		// The trivial case.
 		plugin: "lpbugdata",
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>"},
 	}, {
+		// With using the bug command report errors.
 		plugin: "lpbugdata",
-		send:   []string{"bug 111 +bug/222 bugs/333"},
+		fail:   true,
+		send:   []string{"bug #123"},
+		recv:   []string{"PRIVMSG nick :Oops: cannot perform Launchpad request: 500 Internal Server Error"},
+	}, {
+		// Multiple bugs in a single command. Repetitions are dropped.
+		plugin: "lpbugdata",
+		send:   []string{"bug 111 #111 +bug/222 bugs/333"},
 		recv: []string{
 			"PRIVMSG nick :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
 			"PRIVMSG nick :Bug #222: Title of 222 <https://launchpad.net/bugs/222>",
 			"PRIVMSG nick :Bug #333: Title of 333 <https://launchpad.net/bugs/333>",
 		},
 	}, {
+		// Overhearing is disabled by default.
 		plugin:  "lpbugdata",
-		config:  bson.M{"overhear": false},
 		targets: []bson.M{{"account": ""}},
 		target:  "#chan",
 		send:    []string{"foo bug #111"},
 		recv:    []string(nil),
 	}, {
+		// With overhearing enabled third-party messages are observed.
 		plugin:  "lpbugdata",
 		config:  bson.M{"overhear": true},
 		targets: []bson.M{{"account": ""}},
 		target:  "#chan",
 		send:    []string{"foo bug #111"},
-		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		recv:    []string{"NOTICE #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
+		// When overhearing, do not report errors.
 		plugin:  "lpbugdata",
+		config:  bson.M{"overhear": true},
+		targets: []bson.M{{"account": ""}},
+		target:  "#chan",
+		fail:    true,
+		send:    []string{"foo bug #111"},
+		recv:    []string(nil),
+	}, {
+		// Overhearing may be enabled on the target configuration.
+		plugin: "lpbugdata",
 		targets: []bson.M{
 			{"account": "", "config": bson.M{"overhear": true}},
 		},
-		target:  "#chan",
-		send:    []string{"foo bug #111"},
-		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		target: "#chan",
+		send:   []string{"foo bug #111"},
+		recv:   []string{"NOTICE #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
-		plugin:  "lpbugdata",
+		// First matching target wins.
+		plugin: "lpbugdata",
 		targets: []bson.M{
 			{"channel": "#chan", "config": bson.M{"overhear": false}},
 			{"account": "", "config": bson.M{"overhear": true}},
 		},
-		target:  "#chan",
-		send:    []string{"foo bug #111"},
-		recv:    []string(nil),
+		target: "#chan",
+		send:   []string{"foo bug #111"},
+		recv:   []string(nil),
 	}, {
+		// Polling of bug changes.
 		plugin: "lpbugwatch",
 		config: bson.M{
 			"project":   "some-project",
@@ -98,12 +121,13 @@ var lpTests = []lpTest{
 			"foo": {"bar"},
 		},
 		recv: []string{
-			"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
-			"PRIVMSG #chan :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
-			"PRIVMSG #chan :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
-			"PRIVMSG #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
+			"NOTICE #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
+			"NOTICE #chan :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
+			"NOTICE #chan :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
+			"NOTICE #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
 		},
 	}, {
+		// Polling of merge changes.
 		plugin: "lpmergewatch",
 		config: bson.M{
 			"project":   "some-project",
@@ -113,10 +137,10 @@ var lpTests = []lpTest{
 			{"account": "test", "channel": "#chan"},
 		},
 		recv: []string{
-			"PRIVMSG #chan :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
-			"PRIVMSG #chan :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
-			"PRIVMSG #chan :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
-			"PRIVMSG #chan :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
+			"NOTICE #chan :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"NOTICE #chan :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
+			"NOTICE #chan :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"NOTICE #chan :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
 		},
 	},
 }
@@ -136,6 +160,7 @@ func (s *S) TestLaunchpad(c *C) {
 		c.Logf("Testing message #%d: %s", i, test.send)
 		server := lpServer{
 			bugsText: test.bugsText,
+			fail:     test.fail,
 		}
 		server.Start()
 		if test.config == nil {
@@ -160,8 +185,45 @@ func (s *S) TestLaunchpad(c *C) {
 	}
 }
 
+func (s *S) TestJustShown(c *C) {
+	server := lpServer{}
+	server.Start()
+	tester := mup.NewPluginTester("lpbugdata")
+	tester.SetConfig(bson.M{
+		"endpoint": server.URL(),
+		"overhear": true,
+		"justshowntimeout": "200ms",
+	})
+	tester.SetTargets([]bson.M{{"account": ""}})
+	tester.Start()
+	tester.Sendf("#chan1", "foo bug 111")
+	tester.Sendf("#chan2", "foo bug 111")
+	tester.Sendf("#chan1", "foo bug 222")
+	tester.Sendf("#chan1", "foo bug 111")
+	tester.Sendf("#chan2", "foo bug 111")
+	tester.Sendf("#chan1", "foo bug 333")
+	time.Sleep(250 * time.Millisecond)
+	tester.Sendf("#chan1", "foo bug 111")
+	tester.Sendf("#chan2", "foo bug 111")
+	tester.Sendf("#chan1", "foo bug 444")
+	tester.Stop()
+	server.Stop()
+
+	c.Assert(tester.RecvAll(), DeepEquals, []string{
+		"NOTICE #chan1 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"NOTICE #chan2 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"NOTICE #chan1 :Bug #222: Title of 222 <https://launchpad.net/bugs/222>",
+		"NOTICE #chan1 :Bug #333: Title of 333 <https://launchpad.net/bugs/333>",
+		"NOTICE #chan1 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"NOTICE #chan2 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"NOTICE #chan1 :Bug #444: Title of 444 <https://launchpad.net/bugs/444>",
+	})
+}
+
 type lpServer struct {
 	server *httptest.Server
+
+	fail bool
 
 	bugForm url.Values
 
@@ -185,6 +247,10 @@ func (s *lpServer) URL() string {
 }
 
 func (s *lpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if s.fail {
+		w.WriteHeader(500)
+		return
+	}
 	req.ParseForm()
 	switch {
 	case strings.HasPrefix(req.URL.Path, "/bugs/"):
