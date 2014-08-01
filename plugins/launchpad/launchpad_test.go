@@ -35,28 +35,54 @@ type lpTest struct {
 
 var lpTests = []lpTest{
 	{
-		plugin: "lpshowbugs",
+		plugin: "lpbugdata",
 		send:   []string{"bug foo"},
 		recv:   []string{"PRIVMSG nick :Oops: cannot parse bug id from argument: foo"},
 	}, {
-		plugin: "lpshowbugs",
+		plugin: "lpbugdata",
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>"},
 	}, {
-		plugin: "lpshowbugs",
+		plugin: "lpbugdata",
 		send:   []string{"bug 111 +bug/222 bugs/333"},
-		recv:   []string{
+		recv: []string{
 			"PRIVMSG nick :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
 			"PRIVMSG nick :Bug #222: Title of 222 <https://launchpad.net/bugs/222>",
 			"PRIVMSG nick :Bug #333: Title of 333 <https://launchpad.net/bugs/333>",
 		},
 	}, {
-		plugin: "lpshowbugs",
-		target: "#chan",
-		send:   []string{"foo bug #111"},
-		recv:   []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		plugin:  "lpbugdata",
+		config:  bson.M{"overhear": false},
+		targets: []bson.M{{"account": ""}},
+		target:  "#chan",
+		send:    []string{"foo bug #111"},
+		recv:    []string(nil),
 	}, {
-		plugin: "lptrackbugs",
+		plugin:  "lpbugdata",
+		config:  bson.M{"overhear": true},
+		targets: []bson.M{{"account": ""}},
+		target:  "#chan",
+		send:    []string{"foo bug #111"},
+		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+	}, {
+		plugin:  "lpbugdata",
+		targets: []bson.M{
+			{"account": "", "config": bson.M{"overhear": true}},
+		},
+		target:  "#chan",
+		send:    []string{"foo bug #111"},
+		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+	}, {
+		plugin:  "lpbugdata",
+		targets: []bson.M{
+			{"channel": "#chan", "config": bson.M{"overhear": false}},
+			{"account": "", "config": bson.M{"overhear": true}},
+		},
+		target:  "#chan",
+		send:    []string{"foo bug #111"},
+		recv:    []string(nil),
+	}, {
+		plugin: "lpbugwatch",
 		config: bson.M{
 			"project":   "some-project",
 			"polldelay": "50ms",
@@ -78,7 +104,7 @@ var lpTests = []lpTest{
 			"PRIVMSG #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
 		},
 	}, {
-		plugin: "lptrackmerges",
+		plugin: "lpmergewatch",
 		config: bson.M{
 			"project":   "some-project",
 			"polldelay": "50ms",

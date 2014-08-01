@@ -20,32 +20,34 @@ import (
 )
 
 var Plugins = []mup.PluginSpec{{
-	Name: "lpshowbugs",
-	Help: `Monitors conversations and reports metadata about Launchpad bug numbers mentioned.
+	Name: "lpbugdata",
+	Help: `Reports metadata about Launchpad bugs via a command or overhearing conversations.
 
-	Lookups are performed on text such as "#12345", "bug 12", or "/+bug/123".
-	Entries such as "RT#123" or "#12" alone (under 10000) are ignored to prevent
-	matching unrelated conversations.
+	By default the plugin only provides bug metadata via the "bug" command. If the "overhear"
+	configuration option is true for the whole plugin or for a specific plugin target, the
+	bot will also search third-party conversations for text similar to "#12345", "bug 12",
+	or "/+bug/123". Entries such as "RT#123" or "#12" alone (no bug prefix and under 10000)
+	are ignored.
 	`,
-	Start:    startShowBugs,
-	Commands: ShowBugsCommands,
+	Start:    startBugData,
+	Commands: BugDataCommands,
 }, {
-	Name:  "lptrackbugs",
+	Name:  "lpbugwatch",
 	Help:  "Shows status changes on bugs for a selected Launchpad project.",
-	Start: startTrackBugs,
+	Start: startBugWatch,
 }, {
-	Name:  "lptrackmerges",
+	Name:  "lpmergewatch",
 	Help:  "Shows status changes on merges for a selected Launchpad project.",
-	Start: startTrackMerges,
+	Start: startMergeWatch,
 }}
 
-var ShowBugsCommands = schema.Commands{{
+var BugDataCommands = schema.Commands{{
 	Name: "bug",
 	Help: `Displays details of the provided Launchpad bugs.
 
 	This command reports details about the provided bug numbers or URLs. The plugin it
-	is part of (lpshowbugs) also monitors channel conversations and reports bugs
-	mentioned.
+	is part of (lpbugdata) can also overhear third-party conversations for bug patterns
+	and report bugs mentioned.
 	`,
 	Args: schema.Args{{
 		Name: "bugs",
@@ -64,9 +66,9 @@ var httpClient = http.Client{Timeout: mup.NetworkTimeout}
 type pluginMode int
 
 const (
-	showBugs pluginMode = iota + 1
-	trackBugs
-	trackMerges
+	bugData pluginMode = iota + 1
+	bugWatch
+	mergeWatch
 )
 
 type lpPlugin struct {
@@ -82,51 +84,50 @@ type lpPlugin struct {
 
 		Endpoint  string
 		Project   string
+		Overhear  bool
 		Options   string
 		PrefixNew string
 		PrefixOld string
 
-		HandleTimeout bson.DurationString
 		PollDelay     bson.DurationString
 	}
+
+	overhear map[*mup.PluginTarget]bool
 }
 
 const (
-	defaultHandleTimeout     = 500 * time.Millisecond
 	defaultEndpoint          = "https://api.launchpad.net/1.0/"
 	defaultEndpointTrackBugs = "https://launchpad.net/"
 	defaultPollDelay         = 10 * time.Second
 	defaultPrefix            = "Bug #%d changed"
 )
 
-func startShowBugs(plugger *mup.Plugger) mup.Stopper {
-	return startPlugin(showBugs, plugger)
+func startBugData(plugger *mup.Plugger) mup.Stopper {
+	return startPlugin(bugData, plugger)
 }
-func startTrackBugs(plugger *mup.Plugger) mup.Stopper {
-	return startPlugin(trackBugs, plugger)
+func startBugWatch(plugger *mup.Plugger) mup.Stopper {
+	return startPlugin(bugWatch, plugger)
 }
-func startTrackMerges(plugger *mup.Plugger) mup.Stopper {
-	return startPlugin(trackMerges, plugger)
+func startMergeWatch(plugger *mup.Plugger) mup.Stopper {
+	return startPlugin(mergeWatch, plugger)
 }
 
 func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	if mode == 0 {
-		panic("launchpad plugin used under unknown name: " + plugger.Name())
+		panic("launchpad plugin used under unknown mode: " + plugger.Name())
 	}
 	p := &lpPlugin{
 		mode:     mode,
 		plugger:  plugger,
-		messages: make(chan *lpMessage),
+		messages: make(chan *lpMessage, 5),
+		overhear: make(map[*mup.PluginTarget]bool),
 	}
 	plugger.Config(&p.config)
-	if p.config.HandleTimeout.Duration == 0 {
-		p.config.HandleTimeout.Duration = defaultHandleTimeout
-	}
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}
 	if p.config.Endpoint == "" {
-		if mode == trackBugs {
+		if mode == bugWatch {
 			p.config.Endpoint = defaultEndpointTrackBugs
 		} else {
 			p.config.Endpoint = defaultEndpoint
@@ -138,12 +139,25 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	if p.config.PrefixOld == "" {
 		p.config.PrefixOld = defaultPrefix
 	}
+
+	if p.mode == bugData {
+		targets := plugger.Targets()
+		for i := range targets {
+			var tconfig struct{ Overhear bool }
+			target := &targets[i]
+			target.Config(&tconfig)
+			if p.config.Overhear || tconfig.Overhear {
+				p.overhear[target] = true
+			}
+		}
+	}
+
 	switch p.mode {
-	case showBugs:
+	case bugData:
 		p.tomb.Go(p.loop)
-	case trackBugs:
+	case bugWatch:
 		p.tomb.Go(p.pollBugs)
-	case trackMerges:
+	case mergeWatch:
 		p.tomb.Go(p.pollMerges)
 	default:
 		panic("internal error: unknown launchpad plugin mode")
@@ -162,14 +176,14 @@ type lpMessage struct {
 }
 
 func (p *lpPlugin) HandleMessage(msg *mup.Message) {
-	if p.mode != showBugs || msg.BotText != "" {
+	if p.mode != bugData || msg.BotText != "" || !p.overhear[p.plugger.Target(msg)] {
 		return
 	}
 	bugs := parseBugChat(msg.Text)
 	if len(bugs) == 0 {
 		return
 	}
-	p.handleMessage(&lpMessage{msg, bugs})
+	p.handleMessage(&lpMessage{msg, bugs}, false)
 }
 
 func (p *lpPlugin) HandleCommand(cmd *mup.Command) {
@@ -179,17 +193,19 @@ func (p *lpPlugin) HandleCommand(cmd *mup.Command) {
 	if err != nil {
 		p.plugger.Sendf(cmd, "Oops: %v", err)
 	}
-	p.handleMessage(&lpMessage{cmd.Message, bugs})
+	p.handleMessage(&lpMessage{cmd.Message, bugs}, true)
 }
 
-func (p *lpPlugin) handleMessage(lpmsg *lpMessage) {
+func (p *lpPlugin) handleMessage(lpmsg *lpMessage, reportError bool) {
 	if len(lpmsg.bugs) == 0 {
 		return
 	}
 	select {
 	case p.messages <- lpmsg:
-	case <-time.After(p.config.HandleTimeout.Duration):
-		p.plugger.Sendf(lpmsg.msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
+	default:
+		if reportError {
+			p.plugger.Sendf(lpmsg.msg, "The Launchpad server seems a bit sluggish right now. Please try again soon.")
+		}
 	}
 }
 
