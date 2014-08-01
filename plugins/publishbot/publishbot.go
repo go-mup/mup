@@ -138,7 +138,7 @@ func (p *pbotPlugin) handle(conn net.Conn) {
 				continue
 			}
 			p.plugger.Logf("Forwarding message to %s: %s", target, text)
-			err := p.plugger.Sendf(target, "%s", text)
+			err := p.plugger.SendNoticef(target, "%s", text)
 			if err != nil {
 				p.plugger.Logf("Cannot forward received message: %v", err)
 			}

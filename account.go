@@ -31,7 +31,7 @@ func startAccountManager(config Config) (*accountManager, error) {
 	}
 	am.session = config.Database.Session.Copy()
 	am.database = config.Database.With(am.session)
-	if err := am.createCollections(); err != nil {
+	if err := createCollections(am.database); err != nil {
 		logf("Cannot create collections: %v", err)
 		return nil, fmt.Errorf("cannot create collections: %v", err)
 	}
@@ -41,13 +41,13 @@ func startAccountManager(config Config) (*accountManager, error) {
 
 const mb = 1024 * 1024
 
-func (am *accountManager) createCollections() error {
+func createCollections(db *mgo.Database) error {
 	capped := mgo.CollectionInfo{
 		Capped:   true,
 		MaxBytes: 4 * mb,
 	}
 	for _, c := range []string{"incoming", "outgoing"} {
-		err := am.database.C(c).Create(&capped)
+		err := db.C(c).Create(&capped)
 		if err != nil && err.Error() != "collection already exists" {
 			return err
 		}
@@ -255,14 +255,14 @@ func (am *accountManager) tail(client *ircClient) error {
 		}
 
 		// Iterator is not valid anymore.
-		if err := iter.Close(); err != nil {
+		err := iter.Close()
+		if !am.tomb.Alive() {
+			break
+		}
+		if err != nil {
 			logf("Error iterating over outgoing collection: %v", err)
 		}
-
-		// Only sleep if a stop was not requested. Speeds tests up a bit.
-		if am.tomb.Alive() {
-			time.Sleep(100 * time.Millisecond)
-		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return nil

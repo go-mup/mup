@@ -126,6 +126,10 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	m.session = config.Database.Session.Copy()
 	m.database = config.Database.With(m.session)
 	m.outgoing = m.database.C("outgoing")
+	if err := createCollections(m.database); err != nil {
+		logf("Cannot create collections: %v", err)
+		return nil, fmt.Errorf("cannot create collections: %v", err)
+	}
 	m.tomb.Go(m.loop)
 	return m, nil
 }
@@ -564,14 +568,14 @@ NextTail:
 		}
 
 		// Iterator is not valid anymore.
-		if err := iter.Close(); err != nil {
+		err := iter.Close()
+		if !m.tomb.Alive() {
+			break
+		}
+		if err != nil {
 			logf("Error iterating over incoming collection: %v", err)
 		}
-
-		// Only sleep if a stop was not requested. Speeds tests up a bit.
-		if m.tomb.Alive() {
-			time.Sleep(100 * time.Millisecond)
-		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	return nil
 }

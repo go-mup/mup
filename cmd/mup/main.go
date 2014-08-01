@@ -49,9 +49,11 @@ func run() error {
 	mup.SetLogger(logger)
 	mup.SetDebug(*debug)
 
+	logger.Printf("Connecting to MongoDB: %s", *db)
+
 	session, err := mgo.Dial(*db)
 	if err != nil {
-		return fmt.Errorf("cannot connect to database %s: %v", db, err)
+		return fmt.Errorf("cannot connect to database %s: %v", *db, err)
 	}
 
 	config := &mup.Config{

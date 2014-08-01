@@ -86,6 +86,11 @@ func (t *PluginTester) SetDatabase(db *mgo.Database) {
 	if t.state.plugin != nil {
 		panic("PluginTester.SetDatabase called after Start")
 	}
+	// Ensure tests run with capped collections properly created.
+	err := createCollections(db)
+	if err != nil {
+		panic("PluginTester.SetDatabase cannot create default collections: " + err.Error())
+	}
 	t.state.plugger.setDatabase(db)
 }
 

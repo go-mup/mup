@@ -644,6 +644,6 @@ func (s *ServerSuite) TestAccountSelection(c *C) {
 	s.RestartServer(c)
 	s.SendWelcome(c)
 
-	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A1")
-	s.ReadLine(c, "PRIVMSG nick :[cmd] one:A1")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A2")
+	s.ReadLine(c, "PRIVMSG nick :[cmd] one:A2")
 }
