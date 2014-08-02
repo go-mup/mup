@@ -286,7 +286,11 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 	err := p.request("/bugs/"+strconv.Itoa(bugId), &bug)
 	if err != nil {
 		if msg.BotText != "" {
-			p.plugger.Sendf(msg, "Oops: %v", err)
+			if err == errNotFound {
+				p.plugger.Sendf(msg, "Bug not found.")
+			} else {
+				p.plugger.Sendf(msg, "Oops: %v", err)
+			}
 		}
 		return
 	}
@@ -363,6 +367,8 @@ func (p *lpPlugin) authHeader() string {
 		p.config.OAuthAccessToken, "&"+p.config.OAuthSecretToken, nonce, timestamp)
 }
 
+var errNotFound = fmt.Errorf("resource not found")
+
 func (p *lpPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = p.config.Endpoint + url
@@ -381,8 +387,11 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 	}
 	req.Header.Add("Authorization", p.authHeader())
 	resp, err := httpClient.Do(req)
+	if err == nil && resp.StatusCode == 404 {
+		resp.Body.Close()
+		return errNotFound
+	}
 	if err == nil && resp.StatusCode != 200 {
-		// TODO Better message for 404.
 		resp.Body.Close()
 		err = fmt.Errorf("%s", resp.Status)
 	}

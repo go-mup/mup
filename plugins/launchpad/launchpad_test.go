@@ -48,11 +48,16 @@ var lpTests = []lpTest{
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>"},
 	}, {
-		// The bug command report errors.
+		// The bug command reports errors.
 		plugin: "lpbugdata",
 		status: 500,
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Oops: cannot perform Launchpad request: 500 Internal Server Error"},
+	}, {
+		plugin: "lpbugdata",
+		status: 404,
+		send:   []string{"bug #123"},
+		recv:   []string{"PRIVMSG nick :Bug not found."},
 	}, {
 		// Multiple bugs in a single command. Repetitions are dropped.
 		plugin: "lpbugdata",
