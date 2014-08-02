@@ -2,6 +2,10 @@
 
 package plugins
 
-import "testing"
+import (
+	"testing"
+
+	_ "gopkg.in/check.v1"
+)
 
 func Test(t *testing.T) {}

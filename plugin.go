@@ -532,6 +532,18 @@ func (m *pluginManager) tail() error {
 
 NextTail:
 	for m.tomb.Alive() {
+
+		// Must be able to rollback even if iteration is failing so
+		// that the main loop doesn't get blocked on the channel.
+		select {
+		case rollbackId := <-m.rollback:
+			if rollbackId < lastId {
+				logf("Rolling back tail iterator to consider older incoming messages.")
+				lastId = rollbackId
+			}
+		default:
+		}
+
 		// Prepare a new tailing iterator.
 		session.Refresh()
 		query := incoming.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}})
@@ -549,7 +561,7 @@ NextTail:
 					msg = nil
 				case rollbackId := <-m.rollback:
 					if rollbackId < lastId {
-						logf("Rolling back tail iterator to consider older incoming messages")
+						logf("Rolling back tail iterator to consider older incoming messages.")
 						lastId = rollbackId
 						iter.Close()
 						continue NextTail

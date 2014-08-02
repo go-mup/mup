@@ -40,19 +40,18 @@ type logTest struct {
 var logTests = []logTest{{
 	send:       "Text.",
 	stored:     ":nick!~user@host PRIVMSG mup :Text.",
-	database:   "mup",
 }, {
 	send:       "Text.",
-	config:     bson.M{"database": "other"},
+	config:     bson.M{"database": "test2"},
 	stored:     ":nick!~user@host PRIVMSG mup :Text.",
-	database:   "other",
+	database:   "test2",
 }}
 
 func (s *HelpSuite) TestLog(c *C) {
 	session := s.dbserver.Session()
 	defer session.Close()
 
-	db := session.DB("mup")
+	db := session.DB("")
 
 	for _, test := range logTests {
 		tester := mup.NewPluginTester("log")

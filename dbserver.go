@@ -2,14 +2,16 @@ package mup
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"time"
 
 	"gopkg.in/mgo.v2"
-	"time"
+	"gopkg.in/tomb.v2"
+	"strconv"
 )
-
-const dbServerAddr = "127.0.0.1:50017"
 
 // DBServerHelper is a simple utility to be used strictly within
 // test suites for controlling the MongoDB server process.
@@ -21,6 +23,8 @@ type DBServerHelper struct {
 	output  bytes.Buffer
 	server  *exec.Cmd
 	dbpath  string
+	host    string
+	tomb    tomb.Tomb
 }
 
 // SetPath sets the path to the directory where the server files
@@ -37,19 +41,24 @@ func (s *DBServerHelper) start() {
 		panic("DBServerHelper.SetPath must be called before using the server")
 	}
 	mgo.SetStats(true)
-	host, port, err := net.SplitHostPort(dbServerAddr)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		panic(err)
+		panic("unable to listen on a local address: " + err.Error())
 	}
+	addr := l.Addr().(*net.TCPAddr)
+	l.Close()
+	s.host = addr.String()
+
 	args := []string{
 		"--dbpath", s.dbpath,
-		"--bind_ip", host,
-		"--port", port,
+		"--bind_ip", "127.0.0.1",
+		"--port", strconv.Itoa(addr.Port),
 		"--nssize", "1",
 		"--noprealloc",
 		"--smallfiles",
 		"--nojournal",
 	}
+	s.tomb = tomb.Tomb{}
 	s.server = exec.Command("mongod", args...)
 	s.server.Stdout = &s.output
 	s.server.Stderr = &s.output
@@ -57,6 +66,26 @@ func (s *DBServerHelper) start() {
 	if err != nil {
 		panic(err)
 	}
+	s.tomb.Go(s.monitor)
+	s.Reset()
+}
+
+func (s *DBServerHelper) monitor() error {
+	s.server.Process.Wait()
+	if s.tomb.Alive() {
+		// Present some debugging information.
+		fmt.Fprintf(os.Stderr, "---- mongod process died unexpectedly:\n")
+		fmt.Fprintf(os.Stderr, "%s", s.output.Bytes())
+		fmt.Fprintf(os.Stderr, "---- mongod processes running right now:\n")
+		cmd := exec.Command("/bin/sh", "-c", "ps auxw | grep mongod")
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		cmd.Run()
+		fmt.Fprintf(os.Stderr, "----------------------------------------\n")
+
+		panic("mongod process died unexpectedly")
+	}
+	return nil
 }
 
 // Stop stops the server process.
@@ -66,8 +95,13 @@ func (s *DBServerHelper) Stop() {
 		s.session = nil
 	}
 	if s.server != nil {
+		s.tomb.Kill(nil)
 		s.server.Process.Kill()
-		s.server.Process.Wait()
+		select {
+		case <-s.tomb.Dead():
+		case <-time.After(5 * time.Second):
+			panic("timeout waiting for mongod process to die")
+		}
 		s.server = nil
 	}
 }
@@ -83,7 +117,7 @@ func (s *DBServerHelper) Session() *mgo.Session {
 	if s.session == nil {
 		mgo.ResetStats()
 		var err error
-		s.session, err = mgo.Dial(dbServerAddr + "/mup")
+		s.session, err = mgo.Dial(s.host + "/test")
 		if err != nil {
 			panic(err)
 		}

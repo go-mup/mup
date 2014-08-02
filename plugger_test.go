@@ -35,10 +35,10 @@ func (s *PluggerSuite) SetUpTest(c *C) {
 }
 
 func (s *PluggerSuite) TearDownTest(c *C) {
-	s.dbserver.Reset()
-	s.dbserver.AssertClosed()
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
+	s.dbserver.Reset()
+	s.dbserver.AssertClosed()
 }
 
 func (s *PluggerSuite) plugger(db *mgo.Database, config, targets interface{}) *mup.Plugger {
@@ -84,7 +84,7 @@ func (s *PluggerSuite) TestUniqueCollection(c *C) {
 	master := s.dbserver.Session()
 	defer master.Close()
 
-	p := s.plugger(master.DB("mup"), nil, nil)
+	p := s.plugger(master.DB(""), nil, nil)
 
 	session, coll := p.UniqueCollection("mine")
 	defer session.Close()
@@ -103,7 +103,7 @@ func (s *PluggerSuite) TestSharedCollection(c *C) {
 	master := s.dbserver.Session()
 	defer master.Close()
 
-	p := s.plugger(master.DB("mup"), nil, nil)
+	p := s.plugger(master.DB(""), nil, nil)
 
 	session, coll := p.SharedCollection("ours")
 	defer session.Close()

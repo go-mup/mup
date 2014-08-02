@@ -46,10 +46,18 @@ func createCollections(db *mgo.Database) error {
 		Capped:   true,
 		MaxBytes: 4 * mb,
 	}
-	for _, c := range []string{"incoming", "outgoing"} {
-		err := db.C(c).Create(&capped)
-		if err != nil && err.Error() != "collection already exists" {
-			return err
+	for _, name := range []string{"incoming", "outgoing"} {
+		coll := db.C(name)
+		err := coll.Create(&capped)
+		if err != nil {
+			if err.Error() == "collection already exists" {
+				err = db.C("system.namespaces").Find(bson.M{"name": coll.FullName, "options.capped": true}).One(nil)
+				if err == mgo.ErrNotFound {
+					return fmt.Errorf("MongoDB collection %q already exists but is not capped", coll.FullName)
+				}
+			} else {
+				return err
+			}
 		}
 	}
 	return nil

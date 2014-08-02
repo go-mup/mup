@@ -127,10 +127,13 @@ var helpTests = []helpTest{{
 func (s *HelpSuite) TestHelp(c *C) {
 	session := s.dbserver.Session()
 	defer session.Close()
-	db := session.DB("mup")
+	db := session.DB("")
 	plugins := db.C("plugins")
 	known := db.C("plugins.known")
 	for _, test := range helpTests {
+		tester := mup.NewPluginTester("help")
+		tester.SetDatabase(db)
+
 		if test.known {
 			err := known.Insert(bson.M{"_id": "test", "commands": test.cmds})
 			c.Assert(err, IsNil)
@@ -145,8 +148,6 @@ func (s *HelpSuite) TestHelp(c *C) {
 		err := plugins.Insert(bson.M{"_id": "help", "commands": help.Plugin.Commands, "targets": []bson.M{{"account": "test"}}})
 		c.Assert(err, IsNil)
 
-		tester := mup.NewPluginTester("help")
-		tester.SetDatabase(db)
 		tester.SetConfig(test.config)
 		tester.Start()
 		if test.send != "" {

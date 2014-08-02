@@ -91,7 +91,7 @@ func (lsuite *LineServerSuite) NextLineServer() int {
 
 func (lsuite *LineServerSuite) LineServer(connIndex int) *LineServer {
 	var server *LineServer
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 50; i++ {
 		lsuite.m.Lock()
 		if len(lsuite.servers) > connIndex {
 			server = lsuite.servers[connIndex]
@@ -100,7 +100,7 @@ func (lsuite *LineServerSuite) LineServer(connIndex int) *LineServer {
 		if server != nil {
 			return server
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	panic(fmt.Sprintf("timeout waiting for connection %d to be established", connIndex))
 }

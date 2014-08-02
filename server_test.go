@@ -30,8 +30,8 @@ func (s *ServerSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServerSuite) TearDownSuite(c *C) {
-	s.LineServerSuite.TearDownSuite(c)
 	s.dbserver.Stop()
+	s.LineServerSuite.TearDownSuite(c)
 }
 
 func (s *ServerSuite) SetUpTest(c *C) {
@@ -42,7 +42,7 @@ func (s *ServerSuite) SetUpTest(c *C) {
 
 	s.session = s.dbserver.Session()
 
-	db := s.session.DB("mup")
+	db := s.session.DB("")
 	s.config = &mup.Config{
 		Database: db,
 		Refresh:  -1, // Manual refreshing for testing.
@@ -55,6 +55,9 @@ func (s *ServerSuite) SetUpTest(c *C) {
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
+	defer s.dbserver.Reset()
+	defer s.dbserver.AssertClosed()
+
 	s.session.Close()
 
 	mup.SetDebug(false)
@@ -62,8 +65,6 @@ func (s *ServerSuite) TearDownTest(c *C) {
 
 	s.StopServer(c)
 	s.LineServerSuite.TearDownTest(c)
-	s.dbserver.Reset()
-	s.dbserver.AssertClosed()
 }
 
 func (s *ServerSuite) StopServer(c *C) {
@@ -601,6 +602,7 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 	s.config.Plugins = []string{"help"}
 	s.RestartServer(c)
 	s.SendWelcome(c)
+	s.Roundtrip(c)
 
 	var ks []struct {
 		Name string "_id"
