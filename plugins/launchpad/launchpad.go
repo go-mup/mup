@@ -17,6 +17,7 @@ import (
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
 	"io/ioutil"
+	"math/rand"
 )
 
 var Plugins = []mup.PluginSpec{{
@@ -82,6 +83,8 @@ type lpPlugin struct {
 		OAuthAccessToken string
 		OAuthSecretToken string
 
+		BasicAuthToken   string
+
 		Endpoint  string
 		Project   string
 		Overhear  bool
@@ -97,6 +100,8 @@ type lpPlugin struct {
 
 	justShownList [30]justShownBug
 	justShownNext int
+
+	rand *rand.Rand
 }
 
 type justShownBug struct {
@@ -106,11 +111,11 @@ type justShownBug struct {
 }
 
 const (
-	defaultEndpoint          = "https://api.launchpad.net/1.0/"
-	defaultEndpointTrackBugs = "https://launchpad.net/"
-	defaultPollDelay         = 10 * time.Second
-	defaultJustShownTimeout  = 1 * time.Minute
-	defaultPrefix            = "Bug #%d changed"
+	defaultEndpoint         = "https://api.launchpad.net/1.0/"
+	defaultEndpointBugWatch = "https://launchpad.net/"
+	defaultPollDelay        = 10 * time.Second
+	defaultJustShownTimeout = 1 * time.Minute
+	defaultPrefix           = "Bug #%d changed"
 )
 
 func startBugData(plugger *mup.Plugger) mup.Stopper {
@@ -132,6 +137,7 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 		plugger:  plugger,
 		messages: make(chan *lpMessage, 10),
 		overhear: make(map[*mup.PluginTarget]bool),
+		rand:     rand.New(rand.NewSource(time.Now().Unix())),
 	}
 	plugger.Config(&p.config)
 	if p.config.PollDelay.Duration == 0 {
@@ -142,7 +148,7 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	}
 	if p.config.Endpoint == "" {
 		if mode == bugWatch {
-			p.config.Endpoint = defaultEndpointTrackBugs
+			p.config.Endpoint = defaultEndpointBugWatch
 		} else {
 			p.config.Endpoint = defaultEndpoint
 		}
@@ -340,6 +346,23 @@ func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
 	return buf.String()
 }
 
+func (p *lpPlugin) authHeader() string {
+	if p.mode == bugWatch && p.config.BasicAuthToken != "" {
+		return "Basic " + p.config.BasicAuthToken
+	}
+	nonce := p.rand.Int63()
+	timestamp := time.Now().Unix()
+	return fmt.Sprintf(``+
+		`OAuth realm="https://api.launchpad.net",`+
+		` oauth_consumer_key="mup",`+
+		` oauth_signature_method="PLAINTEXT",`+
+		` oauth_token=%q,`+
+		` oauth_signature=%q,`+
+		` oauth_nonce="%d",`+
+		` oauth_timestamp="%d"`,
+		p.config.OAuthAccessToken, "&"+p.config.OAuthSecretToken, nonce, timestamp)
+}
+
 func (p *lpPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = p.config.Endpoint + url
@@ -351,8 +374,15 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 			url += "?" + p.config.Options
 		}
 	}
-	resp, err := httpClient.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		p.plugger.Logf("Cannot perform Launchpad request: %v", err)
+		return fmt.Errorf("cannot perform Launchpad request: %v", err)
+	}
+	req.Header.Add("Authorization", p.authHeader())
+	resp, err := httpClient.Do(req)
 	if err == nil && resp.StatusCode != 200 {
+		// TODO Better message for 404.
 		resp.Body.Close()
 		err = fmt.Errorf("%s", resp.Status)
 	}

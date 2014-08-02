@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,8 @@ type lpTest struct {
 	targets  []bson.M
 	bugsText [][]int
 	bugsForm url.Values
-	fail     bool
+	status   int
+	headers  bson.M
 }
 
 var lpTests = []lpTest{
@@ -46,9 +48,9 @@ var lpTests = []lpTest{
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Bug #123: Title of 123 <tag1> <tag2> <Some Project:New> <Other:Confirmed for joe> <https://launchpad.net/bugs/123>"},
 	}, {
-		// With using the bug command report errors.
+		// The bug command report errors.
 		plugin: "lpbugdata",
-		fail:   true,
+		status: 500,
 		send:   []string{"bug #123"},
 		recv:   []string{"PRIVMSG nick :Oops: cannot perform Launchpad request: 500 Internal Server Error"},
 	}, {
@@ -81,7 +83,7 @@ var lpTests = []lpTest{
 		config:  bson.M{"overhear": true},
 		targets: []bson.M{{"account": ""}},
 		target:  "#chan",
-		fail:    true,
+		status:  500,
 		send:    []string{"foo bug #111"},
 		recv:    []string(nil),
 	}, {
@@ -142,6 +144,40 @@ var lpTests = []lpTest{
 			"NOTICE #chan :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
 			"NOTICE #chan :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
 		},
+	}, {
+		// OAuth authorization header.
+		plugin: "lpbugdata",
+		config: bson.M{
+			"oauthaccesstoken": "atok",
+			"oauthsecrettoken": "stok",
+		},
+		send: []string{"bug 111"},
+		recv: []string{"PRIVMSG nick :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		headers: bson.M{
+			"Authorization": `` +
+				`OAuth realm="https://api.launchpad.net",` +
+				` oauth_consumer_key="mup",` +
+				` oauth_signature_method="PLAINTEXT",` +
+				` oauth_token="atok",` +
+				` oauth_signature="&stok",` +
+				` oauth_nonce="NNNNN",` +
+				` oauth_timestamp="NNNNN"`,
+		},
+	}, {
+		// Basic authorization header.
+		plugin: "lpbugwatch",
+		config: bson.M{
+			"project":        "some-project",
+			"polldelay":      "50ms",
+			"prefixnew":      "Bug #%d is new",
+			"basicauthtoken": "btok",
+		},
+		targets: []bson.M{
+			{"account": "test", "channel": "#chan"},
+		},
+		bugsText: [][]int{{111}, {111, 222}},
+		recv:     []string{"NOTICE #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
+		headers:  bson.M{"Authorization": "Basic btok"},
 	},
 }
 
@@ -160,7 +196,7 @@ func (s *S) TestLaunchpad(c *C) {
 		c.Logf("Testing message #%d: %s", i, test.send)
 		server := lpServer{
 			bugsText: test.bugsText,
-			fail:     test.fail,
+			status:   test.status,
 		}
 		server.Start()
 		if test.config == nil {
@@ -182,6 +218,11 @@ func (s *S) TestLaunchpad(c *C) {
 		if test.bugsForm != nil {
 			c.Assert(server.bugsForm, DeepEquals, test.bugsForm)
 		}
+		for name, value := range test.headers {
+			header := server.header.Get(name)
+			header = regexp.MustCompile("[0-9]{5,}").ReplaceAllString(header, "NNNNN")
+			c.Assert(header, Equals, value)
+		}
 	}
 }
 
@@ -190,8 +231,8 @@ func (s *S) TestJustShown(c *C) {
 	server.Start()
 	tester := mup.NewPluginTester("lpbugdata")
 	tester.SetConfig(bson.M{
-		"endpoint": server.URL(),
-		"overhear": true,
+		"endpoint":         server.URL(),
+		"overhear":         true,
 		"justshowntimeout": "200ms",
 	})
 	tester.SetTargets([]bson.M{{"account": ""}})
@@ -223,7 +264,7 @@ func (s *S) TestJustShown(c *C) {
 type lpServer struct {
 	server *httptest.Server
 
-	fail bool
+	status int
 
 	bugForm url.Values
 
@@ -232,6 +273,8 @@ type lpServer struct {
 	bugsResp int
 
 	mergesResp int
+
+	header http.Header
 }
 
 func (s *lpServer) Start() {
@@ -247,8 +290,9 @@ func (s *lpServer) URL() string {
 }
 
 func (s *lpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if s.fail {
-		w.WriteHeader(500)
+	s.header = req.Header
+	if s.status != 0 {
+		w.WriteHeader(s.status)
 		return
 	}
 	req.ParseForm()
