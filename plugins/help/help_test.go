@@ -27,7 +27,7 @@ func (s *HelpSuite) TearDownSuite(c *C) {
 }
 
 func (s *HelpSuite) TearDownTest(c *C) {
-	s.dbserver.Reset()
+	s.dbserver.Wipe()
 }
 
 type helpTest struct {
@@ -125,46 +125,52 @@ var helpTests = []helpTest{{
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {
+	for _, test := range helpTests {
+		s.testHelp(c, &test)
+	}
+}
+
+func (s *HelpSuite) testHelp(c *C, test *helpTest) {
+	defer s.dbserver.Wipe()
+
 	session := s.dbserver.Session()
 	defer session.Close()
+
 	db := session.DB("")
 	plugins := db.C("plugins")
 	known := db.C("plugins.known")
-	for _, test := range helpTests {
-		tester := mup.NewPluginTester("help")
-		tester.SetDatabase(db)
 
-		if test.known {
-			err := known.Insert(bson.M{"_id": "test", "commands": test.cmds})
-			c.Assert(err, IsNil)
-		} else {
-			err := plugins.Insert(bson.M{"_id": "test", "commands": test.cmds, "targets": []bson.M{{"account": "test"}}})
-			c.Assert(err, IsNil)
-			if test.targets != nil {
-				err = plugins.UpdateId("test", bson.M{"$set": bson.M{"targets": test.targets}})
-				c.Assert(err, IsNil)
-			}
-		}
-		err := plugins.Insert(bson.M{"_id": "help", "commands": help.Plugin.Commands, "targets": []bson.M{{"account": "test"}}})
+	tester := mup.NewPluginTester("help")
+	tester.SetDatabase(db)
+
+	if test.known {
+		err := known.Insert(bson.M{"_id": "test", "commands": test.cmds})
 		c.Assert(err, IsNil)
+	} else {
+		err := plugins.Insert(bson.M{"_id": "test", "commands": test.cmds, "targets": []bson.M{{"account": "test"}}})
+		c.Assert(err, IsNil)
+		if test.targets != nil {
+			err = plugins.UpdateId("test", bson.M{"$set": bson.M{"targets": test.targets}})
+			c.Assert(err, IsNil)
+		}
+	}
+	err := plugins.Insert(bson.M{"_id": "help", "commands": help.Plugin.Commands, "targets": []bson.M{{"account": "test"}}})
+	c.Assert(err, IsNil)
 
-		tester.SetConfig(test.config)
-		tester.Start()
-		if test.send != "" {
-			tester.Sendf("", test.send)
-		}
-		if test.sendAll != nil {
-			tester.SendAll("", test.sendAll)
-		}
-		tester.Stop()
+	tester.SetConfig(test.config)
+	tester.Start()
+	if test.send != "" {
+		tester.Sendf("", test.send)
+	}
+	if test.sendAll != nil {
+		tester.SendAll("", test.sendAll)
+	}
+	tester.Stop()
 
-		if test.recv != "" {
-			c.Assert(tester.Recv(), Equals, test.recv)
-		}
-		if test.recvAll != nil {
-			c.Assert(tester.RecvAll(), DeepEquals, test.recvAll)
-		}
-
-		s.dbserver.Reset()
+	if test.recv != "" {
+		c.Assert(tester.Recv(), Equals, test.recv)
+	}
+	if test.recvAll != nil {
+		c.Assert(tester.RecvAll(), DeepEquals, test.recvAll)
 	}
 }

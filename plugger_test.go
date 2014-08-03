@@ -37,8 +37,7 @@ func (s *PluggerSuite) SetUpTest(c *C) {
 func (s *PluggerSuite) TearDownTest(c *C) {
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
-	s.dbserver.Reset()
-	s.dbserver.AssertClosed()
+	s.dbserver.Wipe()
 }
 
 func (s *PluggerSuite) plugger(db *mgo.Database, config, targets interface{}) *mup.Plugger {

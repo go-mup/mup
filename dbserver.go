@@ -29,15 +29,15 @@ type DBServerHelper struct {
 
 // SetPath sets the path to the directory where the server files
 // will be held if it is started.
-func (s *DBServerHelper) SetPath(dbpath string) {
-	s.dbpath = dbpath
+func (h *DBServerHelper) SetPath(dbpath string) {
+	h.dbpath = dbpath
 }
 
-func (s *DBServerHelper) start() {
-	if s.server != nil {
+func (h *DBServerHelper) start() {
+	if h.server != nil {
 		panic("DBServerHelper already started")
 	}
-	if s.dbpath == "" {
+	if h.dbpath == "" {
 		panic("DBServerHelper.SetPath must be called before using the server")
 	}
 	mgo.SetStats(true)
@@ -47,10 +47,10 @@ func (s *DBServerHelper) start() {
 	}
 	addr := l.Addr().(*net.TCPAddr)
 	l.Close()
-	s.host = addr.String()
+	h.host = addr.String()
 
 	args := []string{
-		"--dbpath", s.dbpath,
+		"--dbpath", h.dbpath,
 		"--bind_ip", "127.0.0.1",
 		"--port", strconv.Itoa(addr.Port),
 		"--nssize", "1",
@@ -58,24 +58,24 @@ func (s *DBServerHelper) start() {
 		"--smallfiles",
 		"--nojournal",
 	}
-	s.tomb = tomb.Tomb{}
-	s.server = exec.Command("mongod", args...)
-	s.server.Stdout = &s.output
-	s.server.Stderr = &s.output
-	err = s.server.Start()
+	h.tomb = tomb.Tomb{}
+	h.server = exec.Command("mongod", args...)
+	h.server.Stdout = &h.output
+	h.server.Stderr = &h.output
+	err = h.server.Start()
 	if err != nil {
 		panic(err)
 	}
-	s.tomb.Go(s.monitor)
-	s.Reset()
+	h.tomb.Go(h.monitor)
+	h.Wipe()
 }
 
-func (s *DBServerHelper) monitor() error {
-	s.server.Process.Wait()
-	if s.tomb.Alive() {
+func (h *DBServerHelper) monitor() error {
+	h.server.Process.Wait()
+	if h.tomb.Alive() {
 		// Present some debugging information.
 		fmt.Fprintf(os.Stderr, "---- mongod process died unexpectedly:\n")
-		fmt.Fprintf(os.Stderr, "%s", s.output.Bytes())
+		fmt.Fprintf(os.Stderr, "%s", h.output.Bytes())
 		fmt.Fprintf(os.Stderr, "---- mongod processes running right now:\n")
 		cmd := exec.Command("/bin/sh", "-c", "ps auxw | grep mongod")
 		cmd.Stdout = os.Stderr
@@ -89,20 +89,21 @@ func (s *DBServerHelper) monitor() error {
 }
 
 // Stop stops the server process.
-func (s *DBServerHelper) Stop() {
-	if s.session != nil {
-		s.session.Close()
-		s.session = nil
+func (h *DBServerHelper) Stop() {
+	if h.session != nil {
+		h.checkSessions()
+		h.session.Close()
+		h.session = nil
 	}
-	if s.server != nil {
-		s.tomb.Kill(nil)
-		s.server.Process.Kill()
+	if h.server != nil {
+		h.tomb.Kill(nil)
+		h.server.Process.Kill()
 		select {
-		case <-s.tomb.Dead():
+		case <-h.tomb.Dead():
 		case <-time.After(5 * time.Second):
 			panic("timeout waiting for mongod process to die")
 		}
-		s.server = nil
+		h.server = nil
 	}
 }
 
@@ -110,30 +111,30 @@ func (s *DBServerHelper) Stop() {
 // must be closed after the test is done with it.
 //
 // The first Session obtained from a DBServerHelper will start it.
-func (s *DBServerHelper) Session() *mgo.Session {
-	if s.server == nil {
-		s.start()
+func (h *DBServerHelper) Session() *mgo.Session {
+	if h.server == nil {
+		h.start()
 	}
-	if s.session == nil {
+	if h.session == nil {
 		mgo.ResetStats()
 		var err error
-		s.session, err = mgo.Dial(s.host + "/test")
+		h.session, err = mgo.Dial(h.host + "/test")
 		if err != nil {
 			panic(err)
 		}
 	}
-	return s.session.Copy()
+	return h.session.Copy()
 }
 
-// AssertClosed ensures all mgo sessions opened were properly closed.
-func (s *DBServerHelper) AssertClosed() {
-	if s.server == nil {
+// checkSessions ensures all mgo sessions opened were properly closed.
+// For slightly faster tests, it may be disabled setting the
+// environmnet variable CHECK_SESSIONS to 0.
+func (h *DBServerHelper) checkSessions() {
+	if check := os.Getenv("CHECK_SESSIONS"); check == "0" || h.server == nil || h.session == nil {
 		return
 	}
-	if s.session != nil {
-		s.session.Close()
-		s.session = nil
-	}
+	h.session.Close()
+	h.session = nil
 	for i := 0; i < 100; i++ {
 		stats := mgo.GetStats()
 		if stats.SocketsInUse == 0 && stats.SocketsAlive == 0 {
@@ -144,13 +145,19 @@ func (s *DBServerHelper) AssertClosed() {
 	panic("There are mgo sessions still alive.")
 }
 
-// Reset resets the server state, dropping any created databases.
-func (s *DBServerHelper) Reset() {
-	if s.server == nil {
+// Wipe drops all created databases.
+func (h *DBServerHelper) Wipe() {
+	if h.server == nil || h.session == nil {
 		return
 	}
-	session := s.Session()
+	h.checkSessions()
+	sessionUnset := h.session == nil
+	session := h.Session()
 	defer session.Close()
+	if sessionUnset {
+		h.session.Close()
+		h.session = nil
+	}
 	names, err := session.DatabaseNames()
 	if err != nil {
 		panic(err)

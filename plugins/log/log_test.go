@@ -27,7 +27,7 @@ func (s *HelpSuite) TearDownSuite(c *C) {
 }
 
 func (s *HelpSuite) TearDownTest(c *C) {
-	s.dbserver.Reset()
+	s.dbserver.Wipe()
 }
 
 type logTest struct {

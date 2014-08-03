@@ -55,8 +55,7 @@ func (s *ServerSuite) SetUpTest(c *C) {
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
-	defer s.dbserver.Reset()
-	defer s.dbserver.AssertClosed()
+	defer s.dbserver.Wipe()
 
 	s.session.Close()
 
