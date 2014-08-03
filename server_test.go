@@ -110,7 +110,7 @@ func (s *ServerSuite) ReadLine(c *C, line string) {
 	c.Assert(s.lserver.ReadLine(), Equals, line)
 
 	// Confirm read message.
-	if strings.HasPrefix(line, "PRIVMSG ") {
+	if strings.HasPrefix(line, "PRIVMSG ") || strings.HasPrefix(line, "NOTICE ") {
 		ping := s.lserver.ReadLine()
 		c.Assert(ping, Matches, "PING :sent:.*")
 		s.lserver.SendLine("PONG " + ping[5:])
@@ -178,7 +178,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 
 	// Confirm it joined both channels.
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c1")  // Some servers do this and
-	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN :#c2") // some servers do that.
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN :#C2") // some servers do that.
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c3")
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c4")
 	s.Roundtrip(c)
@@ -197,7 +197,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 
 	// Confirm departures only, to test they're properly handled.
 	s.SendLine(c, ":mup!~mup@10.0.0.1 PART #c3")  // Again, some servers do this and
-	s.SendLine(c, ":mup!~mup@10.0.0.1 PART :#c4") // some servers do that.
+	s.SendLine(c, ":mup!~mup@10.0.0.1 PART :#C4") // some servers do that.
 	s.Roundtrip(c)
 
 	// Do it twice to ensure there are no further lines to read.
@@ -263,11 +263,11 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	c.Assert(err, IsNil)
 
 	outgoing := s.session.DB("").C("outgoing")
-	err = outgoing.Insert(&mup.Message{
-		Account: "one",
-		Nick:    "someone",
-		Text:    "Hello there!",
-	})
+	err = outgoing.Insert(
+		&mup.Message{Account: "one", Nick: "someone", Text: "Implicit PRIVMSG."},
+		&mup.Message{Account: "one", Nick: "someone", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
+		&mup.Message{Account: "one", Nick: "someone", Text: "Explicit NOTICE.", Command: "NOTICE"},
+	)
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
@@ -276,8 +276,10 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	// The initial JOINs are sent before any messages.
 	s.ReadLine(c, "JOIN #test")
 
-	// Then the message and the PING asking for confirmation, handled by ReadLine.
-	s.ReadLine(c, "PRIVMSG someone :Hello there!")
+	// Then the messages and their PINGs asking for confirmation, handled by ReadLine.
+	s.ReadLine(c, "PRIVMSG someone :Implicit PRIVMSG.")
+	s.ReadLine(c, "PRIVMSG someone :Explicit PRIVMSG.")
+	s.ReadLine(c, "NOTICE someone :Explicit NOTICE.")
 
 	// This must be ignored. Different account.
 	err = outgoing.Insert(&mup.Message{

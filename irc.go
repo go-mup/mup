@@ -339,10 +339,10 @@ func (c *ircClient) forward() error {
 
 func changedChannel(msg *Message) string {
 	if len(msg.Params) > 0 {
-		return msg.Params[0]
+		return strings.ToLower(msg.Params[0])
 	}
 	if len(msg.Text) > 0 {
-		return msg.Text
+		return strings.ToLower(msg.Text)
 	}
 	return ""
 }
@@ -502,7 +502,7 @@ loop:
 			if msg.Command != cmdPong {
 				logf("[%s] Sending: %s", w.account, line)
 			}
-			if (msg.Command == cmdPrivMsg || msg.Command == "") && msg.Id != "" {
+			if (msg.Command == cmdPrivMsg || msg.Command == cmdNotice || msg.Command == "") && msg.Id != "" {
 				send = []string{line, "\r\nPING :sent:", msg.Id.Hex(), "\r\n"}
 				lastPing = time.Now()
 			} else {
