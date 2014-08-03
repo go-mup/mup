@@ -159,7 +159,7 @@ func (p *alphaPlugin) ldapLocation(cmd *mup.Command) string {
 	// Search for the nick in use, and take city, state, and country.
 	search := &ldap.Search{
 		Filter: fmt.Sprintf("(mozillaNickname=%s)", ldap.EscapeFilter(cmd.Nick)),
-		Attrs:  []string{"l", "st", "c"},
+		Attrs:  []string{"c", "l", "st"},
 	}
 	loc := ""
 	results, err := conn.Search(search)
@@ -173,13 +173,12 @@ func (p *alphaPlugin) ldapLocation(cmd *mup.Command) string {
 		p.plugger.Logf("Cannot find requested IRC nick in LDAP server: %q", cmd.Nick)
 	} else {
 		r := results[0]
-		var strs []string
 		for _, name := range search.Attrs {
 			if s := r.Value(name); s != "" {
-				strs = append(strs, s)
+				loc = s
+				break
 			}
 		}
-		loc = strings.Join(strs, ", ")
 	}
 
 	// Rotate the cache generations if the current one is at the limit.
@@ -190,7 +189,7 @@ func (p *alphaPlugin) ldapLocation(cmd *mup.Command) string {
 
 	// Cache successful positive and negative lookups.
 	p.newLoc[cmd.Nick] = locEntry{loc, now}
-	p.plugger.Debugf("Added location for %q to the cache: %q", cmd.Nick, entry.loc)
+	p.plugger.Debugf("Added location for %q to the cache: %q", cmd.Nick, loc)
 	return loc
 }
 

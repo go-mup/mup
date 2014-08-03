@@ -210,8 +210,34 @@ var inferTests = []inferTest{{
 		"ldap": "test",
 	},
 	form: url.Values{
-		"location":      {"City, State, Country"},
+		"location":      {"Country"},
 		"input":         {"query two"},
+		"format":        {"plaintext"},
+	},
+}, {
+	sendAll: []string{"infer query one"},
+	recvAll: []string{"PRIVMSG nick :the result."},
+	result:  "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
+	ldap:    ldapConnFor("nick", "st", "State", "l", "City"),
+	config: bson.M{
+		"ldap": "test",
+	},
+	form: url.Values{
+		"location":      {"City"},
+		"input":         {"query one"},
+		"format":        {"plaintext"},
+	},
+}, {
+	sendAll: []string{"infer query one"},
+	recvAll: []string{"PRIVMSG nick :the result."},
+	result:  "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
+	ldap:    ldapConnFor("nick", "st", "State"),
+	config: bson.M{
+		"ldap": "test",
+	},
+	form: url.Values{
+		"location":      {"State"},
+		"input":         {"query one"},
 		"format":        {"plaintext"},
 	},
 }, {
