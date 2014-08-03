@@ -235,14 +235,15 @@ func (am *accountManager) tail(client *ircClient) error {
 		lastId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 	}
 
-	for am.tomb.Alive() {
+	for am.tomb.Alive() && client.Alive() {
+
 		// Prepare a new tailing iterator.
 		session.Refresh()
 		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"account", client.Account}})
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
 		// Loop while iterator remains valid.
-		for {
+		for am.tomb.Alive() && client.Alive() && iter.Err() == nil {
 			var msg *Message
 			for iter.Next(&msg) {
 				debugf("[%s] Tail iterator got outgoing message: %s", msg.Account, msg.String())
@@ -255,23 +256,22 @@ func (am *accountManager) tail(client *ircClient) error {
 					return nil
 				}
 			}
-			if iter.Err() == nil && iter.Timeout() && am.tomb.Alive() {
-				// Iterator has timed out, but is still good for a retry.
-				continue
+			if !iter.Timeout() {
+				break
 			}
-			break
 		}
 
-		// Iterator is not valid anymore.
 		err := iter.Close()
-		if !am.tomb.Alive() {
-			break
-		}
-		if err != nil {
+		if err != nil && am.tomb.Alive() {
 			logf("Error iterating over outgoing collection: %v", err)
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-am.tomb.Dying():
+			return nil
+		case <-client.Dying:
+			return nil
+		}
 	}
-
 	return nil
 }

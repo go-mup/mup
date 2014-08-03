@@ -79,12 +79,16 @@ func startIrcClient(info *accountInfo, incoming chan *Message) *ircClient {
 	}
 	c.LastId = c.info.LastId
 	c.Dying = c.tomb.Dying()
-	c.tomb.Go(c.loop)
+	c.tomb.Go(c.run)
 	return c
 }
 
 func (c *ircClient) Err() error {
 	return c.tomb.Err()
+}
+
+func (c *ircClient) Alive() bool {
+	return c.tomb.Alive()
 }
 
 func (c *ircClient) Stop() error {
@@ -124,7 +128,7 @@ func (c *ircClient) UpdateInfo(info *accountInfo) {
 	}
 }
 
-func (c *ircClient) loop() error {
+func (c *ircClient) run() error {
 	defer c.die()
 
 	err := c.connect()
@@ -180,7 +184,8 @@ func (c *ircClient) die() {
 		}
 	}
 
-	logf("[%s] Client loop terminated (%v)", c.Account, c.tomb.Err())
+	c.tomb.Kill(nil)
+	logf("[%s] Client terminated (%v)", c.Account, c.tomb.Err())
 }
 
 func (c *ircClient) connect() (err error) {

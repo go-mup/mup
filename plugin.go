@@ -550,7 +550,7 @@ NextTail:
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
 		// Loop while iterator remains valid.
-		for {
+		for m.tomb.Alive() && iter.Err() == nil {
 			var msg *Message
 			for iter.Next(&msg) {
 				debugf("[%s] Tail iterator got incoming message: %s", msg.Account, msg.String())
@@ -572,22 +572,20 @@ NextTail:
 					return nil
 				}
 			}
-			if iter.Err() == nil && iter.Timeout() && m.tomb.Alive() {
-				// Iterator has timed out, but is still good for a retry.
-				continue
+			if !iter.Timeout() {
+				break
 			}
-			break
 		}
 
-		// Iterator is not valid anymore.
 		err := iter.Close()
-		if !m.tomb.Alive() {
-			break
-		}
-		if err != nil {
+		if err != nil && m.tomb.Alive() {
 			logf("Error iterating over incoming collection: %v", err)
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-m.tomb.Dying():
+			return nil
+		}
 	}
 	return nil
 }
