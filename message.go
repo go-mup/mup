@@ -245,20 +245,24 @@ func parse(account, asnick, bang, line string) *Message {
 
 		if asnick != "" && m.Command == cmdPrivMsg {
 			// BotText
-			text := m.Text
+			t1 := m.Text
+			t2 := m.Text
+			if len(t1) > 0 && t1[0] == '@' {
+				t1 = t1[1:]
+			}
 			nl := len(m.AsNick)
-			if nl > 0 && len(m.Text) > nl+1 && (m.Text[nl] == ':' || m.Text[nl] == ',') && m.Text[:nl] == m.AsNick {
-				m.BotText = strings.TrimSpace(m.Text[nl+1:])
-				text = m.BotText
+			if nl > 0 && len(t1) > nl+1 && (t1[nl] == ':' || t1[nl] == ',' || len(t1) != len(m.Text)) && t1[:nl] == m.AsNick {
+				m.BotText = strings.TrimSpace(t1[nl+1:])
+				t2 = m.BotText
 			} else if m.Channel == "" {
 				m.BotText = strings.TrimSpace(m.Text)
-				text = m.BotText
+				t2 = m.BotText
 			}
 
 			// Bang
 			bl := len(m.Bang)
-			if bl > 0 && len(text) >= bl && text[:bl] == m.Bang && (len(text) == bl || unicode.IsLetter(rune(text[bl]))) {
-				m.BotText = text[bl:]
+			if bl > 0 && len(t2) >= bl && t2[:bl] == m.Bang && (len(t2) == bl || unicode.IsLetter(rune(t2[bl]))) {
+				m.BotText = t2[bl:]
 			}
 		}
 	} else {

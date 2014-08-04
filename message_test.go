@@ -192,6 +192,37 @@ var parseIncomingTests = []parseTest{
 		},
 	},
 
+	// @ prefix also qualifies message as personal.
+	{
+		"PRIVMSG #chan :@mup Hello there",
+		mup.Message{
+			Command: "PRIVMSG",
+			Channel: "#chan",
+			Text:    "@mup Hello there",
+			BotText: "Hello there",
+			AsNick:  "mup",
+		},
+	}, {
+		"PRIVMSG #chan :@mup: Hello there",
+		mup.Message{
+			Command: "PRIVMSG",
+			Channel: "#chan",
+			Text:    "@mup: Hello there",
+			BotText: "Hello there",
+			AsNick:  "mup",
+		},
+	}, {
+		"PRIVMSG #chan :@mup: !Hello there",
+		mup.Message{
+			Command: "PRIVMSG",
+			Channel: "#chan",
+			Text:    "@mup: !Hello there",
+			BotText: "Hello there",
+			AsNick:  "mup",
+			Bang:    "!",
+		},
+	},
+
 	// Don't take notices personally.
 	{
 		"NOTICE mup :Hello there",
