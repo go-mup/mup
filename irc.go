@@ -365,17 +365,24 @@ func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
 		if channel == "" {
 			break
 		}
-		if msg.Command == cmdJoin {
-			c.activeChannels = append(c.activeChannels, channel)
-			logf("[%s] Joined channel %q.", c.Account, channel)
-		} else {
-			for i, ichannel := range c.activeChannels {
-				if ichannel == channel {
-					copy(c.activeChannels[i:], c.activeChannels[i+1:])
-					c.activeChannels = c.activeChannels[:len(c.activeChannels)-1]
-				}
+		pos := -1
+		for i, ichannel := range c.activeChannels {
+			if ichannel == channel {
+				pos = i
+				break
 			}
-			logf("[%s] Left channel %q.", c.Account, channel)
+		}
+		if msg.Command == cmdJoin {
+			if pos == -1 {
+				c.activeChannels = append(c.activeChannels, channel)
+				logf("[%s] Joined channel %q.", c.Account, channel)
+			}
+		} else {
+			if pos != -1 {
+				copy(c.activeChannels[pos:], c.activeChannels[pos+1:])
+				c.activeChannels = c.activeChannels[:len(c.activeChannels)-1]
+				logf("[%s] Left channel %q.", c.Account, channel)
+			}
 		}
 	}
 	return false, nil

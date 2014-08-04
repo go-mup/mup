@@ -180,6 +180,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c1")  // Some servers do this and
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN :#C2") // some servers do that.
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c3")
+	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c3")  // Ignore doubles.
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c4")
 	s.Roundtrip(c)
 
@@ -198,6 +199,7 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	// Confirm departures only, to test they're properly handled.
 	s.SendLine(c, ":mup!~mup@10.0.0.1 PART #c3")  // Again, some servers do this and
 	s.SendLine(c, ":mup!~mup@10.0.0.1 PART :#C4") // some servers do that.
+	s.SendLine(c, ":mup!~mup@10.0.0.1 PART #c3")  // Ignore doubles.
 	s.Roundtrip(c)
 
 	// Do it twice to ensure there are no further lines to read.
