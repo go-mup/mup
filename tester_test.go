@@ -39,6 +39,11 @@ func (s *TesterSuite) TestSendfRecv(c *C) {
 	tester.Stop()
 	c.Check(tester.Recv(), Equals, "PRIVMSG nick :[cmd] three")
 	c.Check(tester.Recv(), Equals, "")
+
+	// Ensure the outgoing handler is being properly called.
+	log := c.GetTestLog()
+	c.Assert(log, Matches, `(?s).*\[echoA\] \[out\] \[cmd\] <repeat>.*`)
+	c.Assert(log, Matches, `(?s).*\[echoA\] \[out\] \[cmd\] <repeat again>.*`)
 }
 
 func (s *TesterSuite) TestUnknownPlugin(c *C) {

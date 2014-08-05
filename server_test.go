@@ -357,6 +357,11 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.ReadLine(c, "PRIVMSG nick :[msg] A.A3")
 	s.ReadLine(c, "PRIVMSG nick :[cmd] B.B3")
 	s.ReadLine(c, "PRIVMSG nick :[msg] B.B3")
+
+	// Ensure the outgoing handler is being properly called.
+	log := c.GetTestLog()
+	c.Assert(log, Matches, `(?s).*\[echoA\] \[out\] \[cmd\] A\.A2\n.*`)
+	c.Assert(log, Matches, `(?s).*\[echoB\] \[out\] \[cmd\] A\.A2\n.*`)
 }
 
 func (s *ServerSuite) TestPluginTarget(c *C) {

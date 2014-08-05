@@ -49,6 +49,7 @@ func (t *PluginTester) appendMessage(msg *Message) error {
 	}
 	t.replies = append(t.replies, msgstr)
 	t.cond.Signal()
+	t.state.handle(msg, "")
 	return nil
 }
 

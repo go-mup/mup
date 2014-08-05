@@ -13,75 +13,77 @@ var _ = Suite(&PluginSuite{})
 
 type PluginSuite struct{}
 
+func (s *PluginSuite) SetUpTest(c *C) {
+	mup.SetLogger(c)
+	mup.SetDebug(true)
+}
+
+func (s *PluginSuite) TearDownTest(c *C) {
+	mup.SetLogger(nil)
+	mup.SetDebug(false)
+}
+
 type pluginTest struct {
 	target string
 	send   string
 	recv   string
+	log    string
 	config interface{}
 }
 
 var pluginTests = []pluginTest{
 	{
-		"mup",
-		"unknown repeat",
-		"",
-		nil,
+		send: "unknown repeat",
+		recv: "",
 	},
 
 	// Command.
 	{
-		"mup",
-		"echoAcmd repeat",
-		"PRIVMSG nick :[cmd] repeat",
-		nil,
+		send: "echoAcmd repeat",
+		recv: "PRIVMSG nick :[cmd] repeat",
 	}, {
-		"mup",
-		"echoAnospace",
-		"",
-		nil,
+		send: "echoAnospace",
+		recv: "",
 	}, {
-		"mup",
-		"echoAcmd",
-		"PRIVMSG nick :Oops: missing input for argument: text",
-		nil,
+		send: "echoAcmd",
+		recv: "PRIVMSG nick :Oops: missing input for argument: text",
 	}, {
-		"mup",
-		"echoAcmd repeat",
-		"PRIVMSG nick :[cmd] [prefix] repeat",
-		bson.M{"prefix": "[prefix] "},
+		send: "echoAcmd repeat",
+		recv: "PRIVMSG nick :[cmd] [prefix] repeat",
+		config: bson.M{"prefix": "[prefix] "},
 	}, {
-		"#channel",
-		"mup: echoAcmd repeat",
-		"PRIVMSG #channel :nick: [cmd] repeat",
-		nil,
+		target: "#channel",
+		send: "mup: echoAcmd repeat",
+		recv: "PRIVMSG #channel :nick: [cmd] repeat",
 	}, {
-		"#channel",
-		"echoAcmd repeat",
-		"",
-		nil,
+		target: "#channel",
+		send: "echoAcmd repeat",
+		recv: "",
 	},
 
 	// Message.
 	{
-		"mup",
-		"echoAmsg repeat",
-		"PRIVMSG nick :[msg] repeat",
-		nil,
+		send: "echoAmsg repeat",
+		recv: "PRIVMSG nick :[msg] repeat",
 	}, {
-		"mup",
-		"echoAmsg repeat",
-		"PRIVMSG nick :[msg] [prefix] repeat",
-		bson.M{"prefix": "[prefix] "},
+		send: "echoAmsg repeat",
+		recv: "PRIVMSG nick :[msg] [prefix] repeat",
+		config: bson.M{"prefix": "[prefix] "},
 	}, {
-		"#channel",
-		"mup: echoAmsg repeat",
-		"PRIVMSG #channel :nick: [msg] repeat",
-		nil,
+		target: "#channel",
+		send: "mup: echoAmsg repeat",
+		recv: "PRIVMSG #channel :nick: [msg] repeat",
 	}, {
-		"#channel",
-		"echoAmsg repeat",
-		"",
-		nil,
+		target: "#channel",
+		send: "echoAmsg repeat",
+		recv: "",
+	},
+
+	// Outgoing.
+	{
+		send: "echoAmsg repeat",
+		recv: "PRIVMSG nick :[msg] repeat",
+		log:  "[out] [msg] repeat\n",
 	},
 }
 
@@ -95,6 +97,9 @@ func (s *PluginSuite) TestPlugin(c *C) {
 		tester.Stop()
 		c.Assert(tester.Recv(), Equals, test.recv)
 		c.Assert(tester.Recv(), Equals, "")
+		if log := c.GetTestLog(); test.log != "" && !strings.Contains(log, test.log) {
+			c.Fatalf("Test log should contain %q, but consists of:\n%s", test.log, c.GetTestLog())
+		}
 	}
 }
 
@@ -152,6 +157,10 @@ func (p *testPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Text string }
 	cmd.Args(&args)
 	p.echo(cmd, "[cmd] ", args.Text)
+}
+
+func (p *testPlugin) HandleOutgoing(msg *mup.Message) {
+	p.plugger.Logf("[out] %s", msg.Text)
 }
 
 func (p *testPlugin) echo(to mup.Addressable, prefix, text string) {

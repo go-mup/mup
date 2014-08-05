@@ -218,6 +218,7 @@ func (am *accountManager) tail(client *ircClient) error {
 	defer session.Close()
 	database := am.database.With(session)
 	outgoing := database.C("outgoing")
+	incoming := database.C("incoming")
 
 	// Tailing is more involved than it ought to be. The complexity comes
 	// from the fact that there are three ways to look for a new message,
@@ -249,6 +250,12 @@ func (am *accountManager) tail(client *ircClient) error {
 				debugf("[%s] Tail iterator got outgoing message: %s", msg.Account, msg.String())
 				select {
 				case client.Outgoing <- msg:
+					// Send back to plugins for outgoing message handling.
+					msg.Time = time.Now()
+					err := incoming.Insert(msg)
+					if err != nil && !mgo.IsDup(err) {
+						logf("[%s] Cannot insert outgoing message for plugin handling: %v", msg.Account, err)
+					}
 					lastId = msg.Id
 					msg = nil
 				case <-client.Dying:

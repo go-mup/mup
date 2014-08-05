@@ -29,8 +29,16 @@ type Stopper interface {
 }
 
 // MessageHandler is implemented by plugins that can handle raw messages.
+//
+// See CommandHandler.
 type MessageHandler interface {
 	HandleMessage(msg *Message)
+}
+
+// OutgoingHandler is implemented by plugins that want to observe
+// outgoing messages being sent out by the bot.
+type OutgoingHandler interface {
+	HandleOutgoing(msg *Message)
 }
 
 // CommandHandler is implemented by plugins that can handle commands.
@@ -591,8 +599,24 @@ NextTail:
 }
 
 func (state *pluginState) handle(msg *Message, cmdName string) {
-	state.handleCommand(msg, cmdName)
-	state.handleMessage(msg)
+	if msg.AsNick == "" {
+		state.handleOutgoing(msg)
+	} else {
+		state.handleCommand(msg, cmdName)
+		state.handleMessage(msg)
+	}
+}
+
+func (state *pluginState) handleMessage(msg *Message) {
+	if handler, ok := state.plugin.(MessageHandler); ok {
+		handler.HandleMessage(msg)
+	}
+}
+
+func (state *pluginState) handleOutgoing(msg *Message) {
+	if handler, ok := state.plugin.(OutgoingHandler); ok {
+		handler.HandleOutgoing(msg)
+	}
 }
 
 func (state *pluginState) handleCommand(msg *Message, cmdName string) {
@@ -618,10 +642,4 @@ func (state *pluginState) handleCommand(msg *Message, cmdName string) {
 		args:    marshalRaw(args),
 	}
 	handler.HandleCommand(cmd)
-}
-
-func (state *pluginState) handleMessage(msg *Message) {
-	if handler, ok := state.plugin.(MessageHandler); ok {
-		handler.HandleMessage(msg)
-	}
 }
