@@ -39,3 +39,7 @@ func (p *logPlugin) HandleMessage(msg *mup.Message) {
 		p.plugger.Logf("Error writing to log collection: %v", err)
 	}
 }
+
+func (p *logPlugin) HandleOutgoing(msg *mup.Message) {
+	p.HandleMessage(msg)
+}

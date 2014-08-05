@@ -5,7 +5,6 @@ import (
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	_ "gopkg.in/mup.v0/plugins/log"
 )
@@ -31,31 +30,34 @@ func (s *HelpSuite) TearDownTest(c *C) {
 }
 
 type logTest struct {
-	send       string
-	config     bson.M
-	stored     string
+	send     string
+	outgoing string
+	stored   string
 }
 
 var logTests = []logTest{{
-	send:       "Text.",
-	stored:     ":nick!~user@host PRIVMSG mup :Text.",
+	send:   "Text.",
+	stored: ":nick!~user@host PRIVMSG mup :Text.",
 }, {
-	send:       "Text.",
-	stored:     ":nick!~user@host PRIVMSG mup :Text.",
+	outgoing: "Text.",
+	stored:   "PRIVMSG nick :Text.",
 }}
 
 func (s *HelpSuite) TestLog(c *C) {
-	session := s.dbserver.Session()
-	defer session.Close()
-
-	db := session.DB("")
-
 	for _, test := range logTests {
+		session := s.dbserver.Session()
+		defer session.Close()
+		db := session.DB("")
+
 		tester := mup.NewPluginTester("log")
-		tester.SetConfig(test.config)
 		tester.SetDatabase(db)
 		tester.Start()
-		tester.Sendf("", test.send)
+		if test.send != "" {
+			tester.Sendf("", test.send)
+		}
+		if test.outgoing != "" {
+			tester.Plugger().Send(&mup.Message{Account: "test", Nick: "nick", Text: test.outgoing})
+		}
 		tester.Stop()
 
 		var msg mup.Message
@@ -67,5 +69,8 @@ func (s *HelpSuite) TestLog(c *C) {
 		}
 		c.Assert(err, IsNil)
 		c.Assert(msg.String(), Equals, test.stored)
+
+		session.Close()
+		s.dbserver.Wipe()
 	}
 }
