@@ -79,36 +79,56 @@ func (s *PluggerSuite) TestDebugf(c *C) {
 	c.Assert(c.GetTestLog(), Not(Matches), `(?m).*\[theplugin/label\] <one>.*`)
 }
 
-func (s *PluggerSuite) TestUniqueCollection(c *C) {
+var collTests = []struct {
+	suffix string
+	kind   mup.CollKind
+	name   string
+	db     string
+}{{
+	suffix: "",
+	name:   "unique.theplugin_label",
+	db:     "test",
+}, {
+	suffix: "mine",
+	name:   "unique.theplugin_label.mine",
+	db:     "test",
+}, {
+	suffix: "mine",
+	kind:   mup.Bulk,
+	name:   "unique.theplugin_label.mine",
+	db:     "test_bulk",
+}, {
+	suffix: "",
+	kind:   mup.Shared,
+	name:   "shared.theplugin",
+	db:     "test",
+}, {
+	suffix: "ours",
+	kind:   mup.Shared,
+	name:   "shared.ours",
+	db:     "test",
+}, {
+	suffix: "ours",
+	kind:   mup.Shared | mup.Bulk,
+	name:   "shared.ours",
+	db:     "test_bulk",
+}}
+
+func (s *PluggerSuite) TestCollection(c *C) {
 	master := s.dbserver.Session()
 	defer master.Close()
 
 	p := s.plugger(master.DB(""), nil, nil)
 
-	session, coll := p.UniqueCollection("mine")
-	defer session.Close()
-	c.Assert(coll.Name, Equals, "plugin.theplugin_label.mine")
-	c.Assert(coll.Database.Session, Equals, session)
-	c.Assert(master, Not(Equals), session)
+	for _, test := range collTests {
+		session, coll := p.Collection(test.suffix, test.kind)
+		defer session.Close()
 
-	session, coll = p.UniqueCollection("")
-	defer session.Close()
-	c.Assert(coll.Name, Equals, "plugin.theplugin_label")
-	c.Assert(coll.Database.Session, Equals, session)
-	c.Assert(master, Not(Equals), session)
-}
-
-func (s *PluggerSuite) TestSharedCollection(c *C) {
-	master := s.dbserver.Session()
-	defer master.Close()
-
-	p := s.plugger(master.DB(""), nil, nil)
-
-	session, coll := p.SharedCollection("ours")
-	defer session.Close()
-	c.Assert(coll.Name, Equals, "shared.ours")
-	c.Assert(coll.Database.Session, Equals, session)
-	c.Assert(master, Not(Equals), session)
+		c.Assert(coll.Name, Equals, test.name)
+		c.Assert(coll.Database.Name, Equals, test.db)
+		c.Assert(coll.Database.Session, Equals, session)
+		c.Assert(coll.Database.Session, Not(Equals), master)
+	}
 }
 
 func (s *PluggerSuite) TestSendfPrivate(c *C) {

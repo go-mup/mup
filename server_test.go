@@ -547,7 +547,7 @@ func (p *testDBPlugin) Stop() error {
 }
 
 func (p *testDBPlugin) HandleCommand(cmd *mup.Command) {
-	session, c := p.plugger.UniqueCollection("mine")
+	session, c := p.plugger.Collection("mine", 0)
 	defer session.Close()
 	n, err := c.Database.C("accounts").Count()
 	p.plugger.Sendf(cmd, "Number of accounts found: %d (err=%v)", n, err)

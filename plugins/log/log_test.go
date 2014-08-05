@@ -34,7 +34,6 @@ type logTest struct {
 	send       string
 	config     bson.M
 	stored     string
-	database   string
 }
 
 var logTests = []logTest{{
@@ -42,9 +41,7 @@ var logTests = []logTest{{
 	stored:     ":nick!~user@host PRIVMSG mup :Text.",
 }, {
 	send:       "Text.",
-	config:     bson.M{"database": "test2"},
 	stored:     ":nick!~user@host PRIVMSG mup :Text.",
-	database:   "test2",
 }}
 
 func (s *HelpSuite) TestLog(c *C) {
@@ -62,10 +59,11 @@ func (s *HelpSuite) TestLog(c *C) {
 		tester.Stop()
 
 		var msg mup.Message
-		coll := session.DB(test.database).C("shared.log")
+		var dbname = db.Name + "_bulk"
+		coll := session.DB(dbname).C("shared.log")
 		err := coll.Find(nil).One(&msg)
 		if err == mgo.ErrNotFound {
-			c.Fatalf(`Collection "shared.log" in database %q is empty.`, test.database)
+			c.Fatalf(`Collection "shared.log" in database %q is empty.`, dbname)
 		}
 		c.Assert(err, IsNil)
 		c.Assert(msg.String(), Equals, test.stored)

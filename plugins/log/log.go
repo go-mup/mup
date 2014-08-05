@@ -2,7 +2,6 @@ package log
 
 import (
 	"gopkg.in/mup.v0"
-	"gopkg.in/mgo.v2"
 )
 
 var Plugin = mup.PluginSpec{
@@ -22,15 +21,10 @@ func init() {
 
 type logPlugin struct {
 	plugger *mup.Plugger
-	config  struct {
-		Database string
-	}
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
-	p := &logPlugin{plugger: plugger}
-	plugger.Config(&p.config)
-	return p
+	return &logPlugin{plugger: plugger}
 }
 
 func (p *logPlugin) Stop() error {
@@ -38,14 +32,10 @@ func (p *logPlugin) Stop() error {
 }
 
 func (p *logPlugin) HandleMessage(msg *mup.Message) {
-	var c *mgo.Collection
-	var session *mgo.Session
-	session, c = p.plugger.SharedCollection("log")
+	session, c := p.plugger.Collection("", mup.Shared|mup.Bulk)
 	defer session.Close()
-	if p.config.Database != "" {
-		c = session.DB(p.config.Database).C(c.Name)
-	}
-	if err := c.Insert(msg); err != nil {
+	err := c.Insert(msg)
+	if err != nil {
 		p.plugger.Logf("Error writing to log collection: %v", err)
 	}
 }

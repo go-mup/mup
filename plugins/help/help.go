@@ -184,7 +184,7 @@ type pluginInfo struct {
 }
 
 func (p *helpPlugin) pluginsWith(cmdname string, known bool) ([]pluginInfo, error) {
-	session, c := p.plugger.SharedCollection("dummy")
+	session, c := p.plugger.Collection("", 0)
 	defer session.Close()
 
 	var pipeline = []bson.M{
@@ -209,7 +209,7 @@ func (p *helpPlugin) pluginsWith(cmdname string, known bool) ([]pluginInfo, erro
 }
 
 func (p *helpPlugin) cmdList() ([]string, error) {
-	session, c := p.plugger.SharedCollection("dummy")
+	session, c := p.plugger.Collection("", 0)
 	defer session.Close()
 	plugins := c.Database.C("plugins.known")
 	var known []struct {
