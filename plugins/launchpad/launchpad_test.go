@@ -81,7 +81,7 @@ var lpTests = []lpTest{
 		targets: []bson.M{{"account": ""}},
 		target:  "#chan",
 		send:    []string{"foo bug #111"},
-		recv:    []string{"NOTICE #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		// When overhearing, do not report errors.
 		plugin:  "lpbugdata",
@@ -99,7 +99,7 @@ var lpTests = []lpTest{
 		},
 		target: "#chan",
 		send:   []string{"foo bug #111"},
-		recv:   []string{"NOTICE #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		recv:   []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		// First matching target wins.
 		plugin: "lpbugdata",
@@ -128,10 +128,10 @@ var lpTests = []lpTest{
 			"foo": {"bar"},
 		},
 		recv: []string{
-			"NOTICE #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
-			"NOTICE #chan :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
-			"NOTICE #chan :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
-			"NOTICE #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
+			"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
+			"PRIVMSG #chan :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
+			"PRIVMSG #chan :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
+			"PRIVMSG #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
 		},
 	}, {
 		// Polling of merge changes.
@@ -144,10 +144,10 @@ var lpTests = []lpTest{
 			{"account": "test", "channel": "#chan"},
 		},
 		recv: []string{
-			"NOTICE #chan :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
-			"NOTICE #chan :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
-			"NOTICE #chan :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
-			"NOTICE #chan :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
+			"PRIVMSG #chan :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"PRIVMSG #chan :Merge proposal changed [merged]: Branch description. <https://launchpad.net/~user/+merge/333>",
+			"PRIVMSG #chan :Merge proposal changed [approved]: Branch description. <https://launchpad.net/~user/+merge/111>",
+			"PRIVMSG #chan :Merge proposal changed [rejected]: Branch description with a very long first line that never ends and continues (...) <https://launchpad.net/~user/+merge/444>",
 		},
 	}, {
 		// OAuth authorization header.
@@ -181,7 +181,7 @@ var lpTests = []lpTest{
 			{"account": "test", "channel": "#chan"},
 		},
 		bugsText: [][]int{{111}, {111, 222}},
-		recv:     []string{"NOTICE #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
+		recv:     []string{"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
 		headers:  bson.M{"Authorization": "Basic btok"},
 	},
 }
@@ -256,13 +256,13 @@ func (s *S) TestJustShown(c *C) {
 	server.Stop()
 
 	c.Assert(tester.RecvAll(), DeepEquals, []string{
-		"NOTICE #chan1 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
-		"NOTICE #chan2 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
-		"NOTICE #chan1 :Bug #222: Title of 222 <https://launchpad.net/bugs/222>",
-		"NOTICE #chan1 :Bug #333: Title of 333 <https://launchpad.net/bugs/333>",
-		"NOTICE #chan1 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
-		"NOTICE #chan2 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
-		"NOTICE #chan1 :Bug #444: Title of 444 <https://launchpad.net/bugs/444>",
+		"PRIVMSG #chan1 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"PRIVMSG #chan2 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"PRIVMSG #chan1 :Bug #222: Title of 222 <https://launchpad.net/bugs/222>",
+		"PRIVMSG #chan1 :Bug #333: Title of 333 <https://launchpad.net/bugs/333>",
+		"PRIVMSG #chan1 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"PRIVMSG #chan2 :Bug #111: Title of 111 <https://launchpad.net/bugs/111>",
+		"PRIVMSG #chan1 :Bug #444: Title of 444 <https://launchpad.net/bugs/444>",
 	})
 }
 

@@ -310,9 +310,9 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 	args := []interface{}{bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId}
 	switch {
 	case msg == nil:
-		p.plugger.BroadcastNoticef(format, args...)
+		p.plugger.Broadcastf(format, args...)
 	case msg.BotText == "":
-		p.plugger.SendChannelNoticef(msg, format, args...)
+		p.plugger.SendChannelf(msg, format, args...)
 		addr := msg.Address()
 		if addr.Channel != "" {
 			addr.Nick = ""
@@ -583,7 +583,7 @@ func (p *lpPlugin) pollMerges() error {
 			if !ok || first {
 				continue
 			}
-			p.plugger.BroadcastNoticef("Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
+			p.plugger.Broadcastf("Merge proposal changed [%s]: %s <%s>", strings.ToLower(merge.Status), firstSentence(merge.Description), url)
 		}
 		first = false
 	}

@@ -50,5 +50,5 @@ func (s *PBotSuite) TestPublishBot(c *C) {
 
 	tester.Stop()
 
-	c.Assert(tester.RecvAll(), DeepEquals, []string{"[one] NOTICE #one :A", "[two] NOTICE #two :A", "[two] NOTICE #two :D"})
+	c.Assert(tester.RecvAll(), DeepEquals, []string{"[one] PRIVMSG #one :A", "[two] PRIVMSG #two :A", "[two] PRIVMSG #two :D"})
 }
