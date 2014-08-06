@@ -16,7 +16,9 @@ import (
 
 var db = flag.String("db", "localhost/mup", "MongoDB database URL including database name to use.")
 var accounts = flag.String("accounts", "*", "Configured account names to connect to, comma-separated. Defaults to all.")
+var noaccounts = flag.Bool("no-accounts", false, "Do not connect to accounts in this instance.")
 var plugins = flag.String("plugins", "*", "Configured plugin names to run, comma-separated. Defaults to all.")
+var noplugins = flag.Bool("no-plugins", false, "Do not run plugins in this instance.")
 var debug = flag.Bool("debug", false, "Print debugging messages as well.")
 
 var help = `Usage: mup [options]
@@ -49,17 +51,20 @@ func run() error {
 	mup.SetLogger(logger)
 	mup.SetDebug(*debug)
 
-	logger.Printf("Connecting to MongoDB: %s", *db)
+	var config mup.Config
 
-	session, err := mgo.Dial(*db)
-	if err != nil {
-		return fmt.Errorf("cannot connect to database %s: %v", *db, err)
+	if *noaccounts {
+		if *accounts != "*" {
+			return fmt.Errorf("cannot use -accounts and -no-accounts together")
+		}
+		*accounts = ""
 	}
-
-	config := &mup.Config{
-		Database: session.DB(""),
+	if *noplugins {
+		if *plugins != "*" {
+			return fmt.Errorf("cannot use -plugins and -no-plugins together")
+		}
+		*plugins = ""
 	}
-
 	if *accounts != "*" {
 		config.Accounts = strings.Split(*accounts, ",")
 	}
@@ -67,7 +72,16 @@ func run() error {
 		config.Plugins = strings.Split(*plugins, ",")
 	}
 
-	server, err := mup.Start(config)
+
+	logger.Printf("Connecting to MongoDB: %s", *db)
+	session, err := mgo.Dial(*db)
+	if err != nil {
+		return fmt.Errorf("cannot connect to database %s: %v", *db, err)
+	}
+
+	config.Database = session.DB("")
+
+	server, err := mup.Start(&config)
 	if err != nil {
 		return err
 	}
