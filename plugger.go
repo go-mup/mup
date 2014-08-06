@@ -221,20 +221,6 @@ func (p *Plugger) Sendf(to Addressable, format string, args ...interface{}) erro
 	return p.Send(msg)
 }
 
-// SendNoticef sends a notice to the address obtained from the provided addressable.
-// The message text is formed by providing format and args to fmt.Sprintf, and by
-// prefixing the result with "nick: " if the message is addressed to a nick in
-// a channel.
-func (p *Plugger) SendNoticef(to Addressable, format string, args ...interface{}) error {
-	text := fmt.Sprintf(format, args...)
-	a := to.Address()
-	if a.Channel != "" && a.Nick != "" {
-		text = a.Nick + ": " + text
-	}
-	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: text, Command: "NOTICE"}
-	return p.Send(msg)
-}
-
 // SendDirectf sends a direct message to the address obtained from the provided addressable.
 // The message is sent privately if the address has a Nick, or to its Channel otherwise.
 // The message text is formed by providing format and args to fmt.Sprintf.
@@ -244,18 +230,6 @@ func (p *Plugger) SendDirectf(to Addressable, format string, args ...interface{}
 		a.Channel = ""
 	}
 	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: fmt.Sprintf(format, args...)}
-	return p.Send(msg)
-}
-
-// SendDirectNoticef sends a direct notice to the address obtained from the provided addressable.
-// The message is sent privately if the address has a Nick, or to its Channel otherwise.
-// The message text is formed by providing format and args to fmt.Sprintf.
-func (p *Plugger) SendDirectNoticef(to Addressable, format string, args ...interface{}) error {
-	a := to.Address()
-	if a.Nick != "" {
-		a.Channel = ""
-	}
-	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: fmt.Sprintf(format, args...), Command: "NOTICE"}
 	return p.Send(msg)
 }
 
@@ -271,33 +245,12 @@ func (p *Plugger) SendChannelf(to Addressable, format string, args ...interface{
 	return p.Send(msg)
 }
 
-// SendChannelNoticef sends a channel notice to the address obtained from the provided addressable,
-// or privately to the Nick if the address Channel is unset.
-// The message text is formed by providing format and args to fmt.Sprintf.
-func (p *Plugger) SendChannelNoticef(to Addressable, format string, args ...interface{}) error {
-	a := to.Address()
-	if a.Channel != "" {
-		a.Nick = ""
-	}
-	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: fmt.Sprintf(format, args...), Command: "NOTICE"}
-	return p.Send(msg)
-}
-
 // Broadcastf sends a message to all configured plugin targets.
 // The message text is formed by providing format and args to fmt.Sprintf, and by
 // prefixing the result with "nick: " if the message is addressed to a nick in
 // a channel.
 func (p *Plugger) Broadcastf(format string, args ...interface{}) error {
 	msg := &Message{Text: fmt.Sprintf(format, args...)}
-	return p.Broadcast(msg)
-}
-
-// BroadcastNoticef sends a notice to all configured plugin targets.
-// The message text is formed by providing format and args to fmt.Sprintf, and by
-// prefixing the result with "nick: " if the message is addressed to a nick in
-// a channel.
-func (p *Plugger) BroadcastNoticef(format string, args ...interface{}) error {
-	msg := &Message{Command: "NOTICE", Text: fmt.Sprintf(format, args...)}
 	return p.Broadcast(msg)
 }
 
