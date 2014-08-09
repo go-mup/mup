@@ -2,6 +2,7 @@
 package plugins
 
 import (
+	_ "gopkg.in/mup.v0/plugins/admin"
 	_ "gopkg.in/mup.v0/plugins/aql"
 	_ "gopkg.in/mup.v0/plugins/echo"
 	_ "gopkg.in/mup.v0/plugins/help"
@@ -10,6 +11,5 @@ import (
 	_ "gopkg.in/mup.v0/plugins/log"
 	_ "gopkg.in/mup.v0/plugins/playground"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
-	_ "gopkg.in/mup.v0/plugins/sendraw"
 	_ "gopkg.in/mup.v0/plugins/wolframalpha"
 )

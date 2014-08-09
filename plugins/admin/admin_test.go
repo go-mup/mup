@@ -1,11 +1,11 @@
-package sendraw_test
+package admin_test
 
 import (
 	"testing"
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mup.v0"
-	_ "gopkg.in/mup.v0/plugins/sendraw"
+	_ "gopkg.in/mup.v0/plugins/admin"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -14,30 +14,30 @@ var _ = Suite(&SendRawSuite{})
 
 type SendRawSuite struct{}
 
-type sendrawTest struct {
-	send   string
-	recv   []string
+type adminTest struct {
+	send []string
+	recv []string
 }
 
-var sendrawTests = []sendrawTest{
+var adminTests = []adminTest{
 	{
-		"sendraw",
+		[]string{"sendraw"},
 		[]string{"PRIVMSG nick :Oops: missing input for argument: text"},
 	}, {
-		"sendraw NOTICE foo :text",
+		[]string{"sendraw NOTICE foo :text"},
 		[]string{"NOTICE foo :text", "PRIVMSG nick :Done."},
 	}, {
-		"sendraw -account=other PRIVMSG bar :text",
+		[]string{"sendraw -account=other PRIVMSG bar :text"},
 		[]string{"[other] PRIVMSG bar :text", "PRIVMSG nick :Done."},
 	},
 }
 
 func (s *SendRawSuite) TestSendRaw(c *C) {
-	for i, test := range sendrawTests {
+	for i, test := range adminTests {
 		c.Logf("Testing message #%d: %s", i, test.send)
-		tester := mup.NewPluginTester("sendraw")
+		tester := mup.NewPluginTester("admin")
 		tester.Start()
-		tester.Sendf("mup", test.send)
+		tester.SendAll("", test.send)
 		tester.Stop()
 		c.Assert(tester.RecvAll(), DeepEquals, test.recv)
 	}

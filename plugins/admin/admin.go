@@ -1,4 +1,4 @@
-package sendraw
+package admin
 
 import (
 	"gopkg.in/mup.v0"
@@ -6,12 +6,8 @@ import (
 )
 
 var Plugin = mup.PluginSpec{
-	Name: "sendraw",
-	Help: `Exposes the sendraw command for raw IRC message sending.
-
-	This is an administration tool, and must be enabled with great care. People
-	with access can have the bot communicating arbitrarily with the server.
-	`,
+	Name:     "admin",
+	Help:     "Exposes the bot administration commands.",
 	Start:    start,
 	Commands: Commands,
 }
@@ -36,19 +32,19 @@ func init() {
 	mup.RegisterPlugin(&Plugin)
 }
 
-type sendrawPlugin struct {
+type adminPlugin struct {
 	plugger *mup.Plugger
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
-	return &sendrawPlugin{plugger: plugger}
+	return &adminPlugin{plugger: plugger}
 }
 
-func (p *sendrawPlugin) Stop() error {
+func (p *adminPlugin) Stop() error {
 	return nil
 }
 
-func (p *sendrawPlugin) HandleCommand(cmd *mup.Command) {
+func (p *adminPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Account, Text string }
 	cmd.Args(&args)
 	if args.Account == "" {
