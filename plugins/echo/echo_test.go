@@ -22,13 +22,28 @@ type echoTest struct {
 	config interface{}
 }
 
-var echoTests = []echoTest{
-	{"mup", "echo repeat", "PRIVMSG nick :repeat", nil},
-	{"mup", "echo", "PRIVMSG nick :Oops: missing input for argument: text", nil},
-	{"mup", "echo repeat", "PRIVMSG nick :[prefix]repeat", bson.M{"prefix": "[prefix]"}},
-	{"#channel", "mup: echo repeat", "PRIVMSG #channel :nick: repeat", nil},
-	{"#channel", "echo repeat", "", nil},
-}
+var echoTests = []echoTest{{
+	send: "ping",
+	recv: "PRIVMSG nick :pong",
+}, {
+	send: "echo repeat",
+	recv: "PRIVMSG nick :repeat",
+}, {
+	send: "echo",
+	recv: "PRIVMSG nick :Oops: missing input for argument: text",
+}, {
+	send:   "echo repeat",
+	recv:   "PRIVMSG nick :[prefix]repeat",
+	config: bson.M{"prefix": "[prefix]"},
+}, {
+	target: "#channel",
+	send:   "mup: echo repeat",
+	recv:   "PRIVMSG #channel :nick: repeat",
+}, {
+	target: "#channel",
+	send:   "echo repeat",
+	recv:   "",
+}}
 
 func (s *EchoSuite) TestEcho(c *C) {
 	for i, test := range echoTests {
