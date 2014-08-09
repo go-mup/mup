@@ -7,15 +7,12 @@ import (
 
 var Plugin = mup.PluginSpec{
 	Name:     "echo",
-	Help:     "Exposes trivial echo and ping commands.",
+	Help:     "Exposes a trivial echo command.",
 	Start:    start,
 	Commands: Commands,
 }
 
 var Commands = schema.Commands{{
-	Name: "ping",
-	Help: "Sends back a pong.",
-}, {
 	Name: "echo",
 	Help: "Repeats the provided text back at you.",
 	Args: schema.Args{{
@@ -46,11 +43,6 @@ func (p *echoPlugin) Stop() error {
 }
 
 func (p *echoPlugin) HandleCommand(cmd *mup.Command) {
-	if cmd.Name() == "ping" {
-		p.plugger.Sendf(cmd, "pong")
-		return
-	}
-
 	var args struct{ Text string }
 	cmd.Args(&args)
 	if p.config.Prefix != "" {

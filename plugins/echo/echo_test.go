@@ -23,9 +23,6 @@ type echoTest struct {
 }
 
 var echoTests = []echoTest{{
-	send: "ping",
-	recv: "PRIVMSG nick :pong",
-}, {
 	send: "echo repeat",
 	recv: "PRIVMSG nick :repeat",
 }, {
