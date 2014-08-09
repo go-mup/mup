@@ -1,12 +1,13 @@
 package mup_test
 
 import (
+	"fmt"
+	"strings"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
-	"gopkg.in/mgo.v2/bson"
-	"strings"
 )
 
 var _ = Suite(&PluginSuite{})
@@ -48,17 +49,17 @@ var pluginTests = []pluginTest{
 		send: "echoAcmd",
 		recv: "PRIVMSG nick :Oops: missing input for argument: text",
 	}, {
-		send: "echoAcmd repeat",
-		recv: "PRIVMSG nick :[cmd] [prefix] repeat",
+		send:   "echoAcmd repeat",
+		recv:   "PRIVMSG nick :[cmd] [prefix] repeat",
 		config: bson.M{"prefix": "[prefix] "},
 	}, {
 		target: "#channel",
-		send: "mup: echoAcmd repeat",
-		recv: "PRIVMSG #channel :nick: [cmd] repeat",
+		send:   "mup: echoAcmd repeat",
+		recv:   "PRIVMSG #channel :nick: [cmd] repeat",
 	}, {
 		target: "#channel",
-		send: "echoAcmd repeat",
-		recv: "",
+		send:   "echoAcmd repeat",
+		recv:   "",
 	},
 
 	// Message.
@@ -66,17 +67,17 @@ var pluginTests = []pluginTest{
 		send: "echoAmsg repeat",
 		recv: "PRIVMSG nick :[msg] repeat",
 	}, {
-		send: "echoAmsg repeat",
-		recv: "PRIVMSG nick :[msg] [prefix] repeat",
+		send:   "echoAmsg repeat",
+		recv:   "PRIVMSG nick :[msg] [prefix] repeat",
 		config: bson.M{"prefix": "[prefix] "},
 	}, {
 		target: "#channel",
-		send: "mup: echoAmsg repeat",
-		recv: "PRIVMSG #channel :nick: [msg] repeat",
+		send:   "mup: echoAmsg repeat",
+		recv:   "PRIVMSG #channel :nick: [msg] repeat",
 	}, {
 		target: "#channel",
-		send: "echoAmsg repeat",
-		recv: "",
+		send:   "echoAmsg repeat",
+		recv:   "",
 	},
 
 	// Outgoing.
@@ -84,6 +85,13 @@ var pluginTests = []pluginTest{
 		send: "echoAmsg repeat",
 		recv: "PRIVMSG nick :[msg] repeat",
 		log:  "[out] [msg] repeat\n",
+	},
+
+	// Test Command.Name.
+	{
+		send:   "echoAcmd repeat",
+		recv:   "PRIVMSG nick :[cmd:echoAcmd] repeat",
+		config: bson.M{"showcmdname": true},
 	},
 }
 
@@ -131,7 +139,8 @@ func init() {
 type testPlugin struct {
 	plugger *mup.Plugger
 	config  struct {
-		Prefix  string
+		Prefix      string
+		ShowCmdName bool
 	}
 }
 
@@ -156,7 +165,11 @@ func (p *testPlugin) HandleMessage(msg *mup.Message) {
 func (p *testPlugin) HandleCommand(cmd *mup.Command) {
 	var args struct{ Text string }
 	cmd.Args(&args)
-	p.echo(cmd, "[cmd] ", args.Text)
+	if p.config.ShowCmdName {
+		p.echo(cmd, fmt.Sprintf("[cmd:%s] ", cmd.Name()), args.Text)
+	} else {
+		p.echo(cmd, "[cmd] ", args.Text)
+	}
 }
 
 func (p *testPlugin) HandleOutgoing(msg *mup.Message) {

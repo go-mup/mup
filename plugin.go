@@ -50,8 +50,14 @@ type CommandHandler interface {
 type Command struct {
 	*Message
 
+	name   string
 	schema *schema.Command
 	args   bson.Raw
+}
+
+// Name returns the command name.
+func (c *Command) Name() string {
+	return c.name
 }
 
 // Schema returns the command schema.
@@ -415,7 +421,7 @@ func (m *pluginManager) refreshPlugins() {
 
 		err = plugins.UpdateId(info.Name, bson.D{{"$set", bson.D{{"commands", state.spec.Commands}}}})
 		if err != nil {
-			logf("Cannot update commands schema for plugin %q: %v", info.Name, err) 
+			logf("Cannot update commands schema for plugin %q: %v", info.Name, err)
 		}
 
 		m.plugins[info.Name] = state
@@ -638,6 +644,7 @@ func (state *pluginState) handleCommand(msg *Message, cmdName string) {
 	}
 	cmd := &Command{
 		Message: msg,
+		name:    cmdName,
 		schema:  cmdSchema,
 		args:    marshalRaw(args),
 	}
