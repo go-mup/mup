@@ -9,6 +9,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
+	"strings"
 )
 
 // NewPluginTester interacts with an internally managed instance of a
@@ -200,19 +201,24 @@ func (t *PluginTester) RecvAll() []string {
 // being tested for handling as a message, as a command, or both, depending on the
 // plugin specification and implementation.
 //
-// The message is setup to come from account "test", and the target parameter
-// defines the channel or bot nick the message was addressed to. If empty, target
-// defaults to "mup", which means the message is received by the plugin as if it
-// had been privately delivered to the bot under that nick.
+// The target parameter defines the channel or bot nick the message was addressed to,
+// and may also define the account which received the message by using an account name
+// and a space as a prefix. If empty, the message is processed as if it had been sent
+// privately to "mup" in account "test".
 //
 // Sendf always delivers the message to the plugin, irrespective of which targets
 // are currently setup, as it doesn't make sense to test the plugin with a message
 // that it cannot observe.
 func (t *PluginTester) Sendf(target, format string, args ...interface{}) {
-	if target == "" {
+	account := "test"
+	if strings.Contains(target, " ") {
+		fields := strings.Fields(target)
+		account = fields[0]
+		target = fields[1]
+	} else if target == "" {
 		target = "mup"
 	}
-	msg := ParseIncoming("test", "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
+	msg := ParseIncoming(account, "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
 	t.state.handle(msg, schema.CommandName(msg.BotText))
 }
 

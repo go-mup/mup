@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mup.v0"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mup.v0"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -44,6 +44,22 @@ func (s *TesterSuite) TestSendfRecv(c *C) {
 	log := c.GetTestLog()
 	c.Assert(log, Matches, `(?s).*\[echoA\] \[out\] \[cmd\] <repeat>.*`)
 	c.Assert(log, Matches, `(?s).*\[echoA\] \[out\] \[cmd\] <repeat again>.*`)
+}
+
+func (s *TesterSuite) TestSendfTarget(c *C) {
+	tester := mup.NewPluginTester("echoA")
+	tester.Start()
+
+	tester.Sendf("mup", "echoAcmd private")
+	c.Check(tester.Recv(), Equals, "PRIVMSG nick :[cmd] private")
+
+	tester.Sendf("#chan", "mup: echoAcmd channel")
+	c.Check(tester.Recv(), Equals, "PRIVMSG #chan :nick: [cmd] channel")
+
+	tester.Sendf("acct #chan", "mup: echoAcmd account")
+	c.Check(tester.Recv(), Equals, "[acct] PRIVMSG #chan :nick: [cmd] account")
+
+	tester.Stop()
 }
 
 func (s *TesterSuite) TestUnknownPlugin(c *C) {
