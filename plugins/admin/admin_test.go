@@ -62,11 +62,15 @@ var adminTests = []adminTest{
 		send:    []string{"login badsecret"},
 		recv:    []string{"PRIVMSG nick :Nope."},
 	}, {
+		summary: "Attempt login with bad account",
+		users:   []userInfo{{Account: "other", Nick: "nick"}},
+		send:    []string{"login thesecret"},
+		recv:    []string{"PRIVMSG nick :Nope."},
+	}, {
 		summary: "Burst control: quota limit",
 		users: []userInfo{{
 			Account:           "test",
 			Nick:              "nick",
-			Password:          "thesecret",
 			AttemptStartDelta: -admin.BurstWindow + 2*time.Second,
 			AttemptCount:      admin.BurstQuota - 1,
 		}},
@@ -77,7 +81,6 @@ var adminTests = []adminTest{
 		users: []userInfo{{
 			Account:      "test",
 			Nick:         "nick",
-			Password:     "thesecret",
 			AttemptCount: admin.BurstQuota - 1,
 		}},
 		send: []string{"login thesecret", "login thesecret"},
@@ -87,7 +90,6 @@ var adminTests = []adminTest{
 		users: []userInfo{{
 			Account:           "test",
 			Nick:              "nick",
-			Password:          "thesecret",
 			AttemptStartDelta: -admin.BurstWindow - 1*time.Second,
 			AttemptCount:      admin.BurstQuota - 1,
 		}},
@@ -98,7 +100,6 @@ var adminTests = []adminTest{
 		users: []userInfo{{
 			Account:           "test",
 			Nick:              "nick",
-			Password:          "thesecret",
 			AttemptStartDelta: -admin.BurstPenalty - 1*time.Second,
 			AttemptCount:      admin.BurstQuota,
 		}},
@@ -109,7 +110,6 @@ var adminTests = []adminTest{
 		users: []userInfo{{
 			Account:           "test",
 			Nick:              "nick",
-			Password:          "thesecret",
 			AttemptStartDelta: -admin.BurstPenalty + 2*time.Second,
 			AttemptCount:      admin.BurstQuota,
 		}},
@@ -132,6 +132,47 @@ var adminTests = []adminTest{
 			"PRIVMSG nick :Slow down.",
 			"PRIVMSG nick :Slow down.",
 		},
+	}, {
+		summary: "Register first user as an admin",
+		send: []string{
+			"register mysecret",
+			"login mysecret",
+			"sendraw PRIVMSG nick :Echo.",
+		},
+		recv: []string{
+			"PRIVMSG nick :Registered as an admin (first user).",
+			"PRIVMSG nick :Okay.",
+			"PRIVMSG nick :Echo.",
+			"PRIVMSG nick :Done.",
+		},
+	}, {
+		summary: "Cannot register twice",
+		send: []string{
+			"register mysecret1",
+			"register mysecret2",
+			"login mysecret2",
+			"login mysecret1",
+		},
+		recv: []string{
+			"PRIVMSG nick :Registered as an admin (first user).",
+			"PRIVMSG nick :Nick previously registered.",
+			"PRIVMSG nick :Nope.",
+			"PRIVMSG nick :Okay.",
+		},
+	}, {
+		summary: "Register other users as normal users",
+		users:   []userInfo{{Account: "other", Nick: "other"}},
+		send: []string{
+			"register mysecret",
+			"login mysecret",
+			"sendraw PRIVMSG nick :Echo.",
+			"PRIVMSG nick :Must be an admin for that.",
+		},
+		recv: []string{
+			"PRIVMSG nick :Registered.",
+			"PRIVMSG nick :Okay.",
+			"PRIVMSG nick :Must be an admin for that.",
+		},
 	},
 
 	{
@@ -151,22 +192,28 @@ var adminTests = []adminTest{
 	},
 }
 
+// Data for "thesecret"
+var testSalt = "salt"
+var testHash = "04e36fcd7a7b2677f41005670058a56fcb751a05fea3a531c68f83c5f9c3ac80"
+var testUser = userInfo{Id: "test nick", Account: "test", Nick: "nick", Admin: true, PasswordHash: testHash, PasswordSalt: testSalt}
+
 type userInfo struct {
+	Id                string `bson:"_id"`
 	Account           string
 	Nick              string
-	Password          string
+	Admin             bool
+	PasswordHash      string
+	PasswordSalt      string
 	AttemptStartDelta time.Duration
 	AttemptStart      time.Time
 	AttemptCount      int
 }
 
-var testUser = userInfo{Account: "test", Nick: "nick", Password: "thesecret"}
-
 func (s *AdminSuite) TestAdmin(c *C) {
 	for i, test := range adminTests {
 		summary := test.summary
 		if summary == "" {
-			summary = fmt.Sprint("%q", test.send)
+			summary = fmt.Sprintf("%v", test.send)
 		}
 		c.Logf("Test #%d: %s", i, summary)
 		s.testAdmin(c, &test)
@@ -188,6 +235,13 @@ func (s *AdminSuite) testAdmin(c *C, test *adminTest) {
 	now := time.Now()
 	for _, user := range test.users {
 		user.AttemptStart = now.Add(user.AttemptStartDelta)
+		if user.Id == "" {
+			user.Id = user.Account + " " + user.Nick
+		}
+		if user.PasswordHash == "" {
+			user.PasswordHash = testHash
+			user.PasswordSalt = testSalt
+		}
 		err := users.Insert(user)
 		c.Assert(err, IsNil)
 	}
