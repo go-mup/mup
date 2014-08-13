@@ -57,10 +57,10 @@ func (s *TesterSuite) TestSendfTarget(c *C) {
 	c.Check(tester.Recv(), Equals, "PRIVMSG #chan :nick: [cmd] channel")
 
 	tester.Sendf("[@acct] echoAcmd account")
-	c.Check(tester.Recv(), Equals, "[acct] PRIVMSG nick :[cmd] account")
+	c.Check(tester.Recv(), Equals, "[@acct] PRIVMSG nick :[cmd] account")
 
 	tester.Sendf("[#chan@acct] mup: echoAcmd account")
-	c.Check(tester.Recv(), Equals, "[acct] PRIVMSG #chan :nick: [cmd] account")
+	c.Check(tester.Recv(), Equals, "[@acct] PRIVMSG #chan :nick: [cmd] account")
 
 	tester.Stop()
 }
@@ -73,7 +73,7 @@ func (s *TesterSuite) TestSendfRaw(c *C) {
 	tester.Sendf("[,raw] :other!~other@host PRIVMSG mup :echoAcmd <%s>", "repeat")
 	c.Check(tester.Recv(), Equals, "PRIVMSG other :[cmd] <repeat>")
 	tester.Sendf("[@acct,raw] :other!~other@host PRIVMSG #chan :mup: echoAcmd <%s>", "repeat")
-	c.Check(tester.Recv(), Equals, "[acct] PRIVMSG #chan :other: [cmd] <repeat>")
+	c.Check(tester.Recv(), Equals, "[@acct] PRIVMSG #chan :other: [cmd] <repeat>")
 	tester.Stop()
 }
 
@@ -130,7 +130,7 @@ func (s *TesterSuite) TestRecvOtherAccount(c *C) {
 	tester.Start()
 	tester.Plugger().Send(&mup.Message{Account: "other", Channel: "#chan", Text: "text"})
 	tester.Stop()
-	c.Assert(tester.Recv(), Equals, "[other] PRIVMSG #chan :text")
+	c.Assert(tester.Recv(), Equals, "[@other] PRIVMSG #chan :text")
 }
 
 func (s *TesterSuite) TestStop(c *C) {

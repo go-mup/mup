@@ -283,6 +283,9 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.ReadLine(c, "PRIVMSG someone :Explicit PRIVMSG.")
 	s.ReadLine(c, "NOTICE someone :Explicit NOTICE.")
 
+	// Ensure the confirmations are received before restarting.
+	s.Roundtrip(c)
+
 	// This must be ignored. Different account.
 	err = outgoing.Insert(&mup.Message{
 		Account: "two",

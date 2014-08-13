@@ -46,7 +46,7 @@ func (t *PluginTester) appendMessage(msg *Message) error {
 	}
 	msgstr := msg.String()
 	if msg.Account != "test" {
-		msgstr = "[" + msg.Account + "] " + msgstr
+		msgstr = "[@" + msg.Account + "] " + msgstr
 	}
 	t.replies = append(t.replies, msgstr)
 	t.cond.Signal()
@@ -162,7 +162,7 @@ func (t *PluginTester) Stop() error {
 // to arrive. If no messages arrive even then, an empty string is returned.
 //
 // The message is formatted as a raw IRC protocol message, and optionally prefixed
-// by the account name under brackets ("[account] ") if the message is delivered
+// by the account name under brackets ("[@<account>] ") if the message is delivered
 // to any other account besides the default "test" one.
 //
 // Recv may be used after the tester is stopped.
@@ -185,7 +185,7 @@ func (t *PluginTester) Recv() string {
 // RecvAll receives all currently pending messages dispatched by the plugin being tested.
 //
 // All messages are formatted as raw IRC protocol messages, and optionally prefixed
-// by the account name under brackets ("[account] ") if the message is delivered
+// by the account name under brackets ("[@<account>] ") if the message is delivered
 // to any other account besides the default "test" one.
 //
 // RecvAll may be used after the tester is stopped.

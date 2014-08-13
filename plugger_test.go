@@ -45,7 +45,7 @@ func (s *PluggerSuite) plugger(db *mgo.Database, config, targets interface{}) *m
 	s.msgs = nil
 	s.ldap = make(map[string]ldap.Conn)
 	send := func(msg *mup.Message) error {
-		s.sent = append(s.sent, "["+msg.Account+"] "+msg.String())
+		s.sent = append(s.sent, "[@"+msg.Account+"] "+msg.String())
 		s.msgs = append(s.msgs, msg)
 		return nil
 	}
@@ -135,21 +135,21 @@ func (s *PluggerSuite) TestSendfPrivate(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG mup :query")
 	p.Sendf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG nick :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG nick :<reply>"})
 }
 
 func (s *PluggerSuite) TestSendfChannel(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG #channel :mup: query")
 	p.Sendf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG #channel :nick: <reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :nick: <reply>"})
 }
 
 func (s *PluggerSuite) TestSendfNoNick(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", "PRIVMSG #channel :mup: query")
 	p.Sendf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG #channel :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :<reply>"})
 }
 
 func (s *PluggerSuite) TestSend(c *C) {
@@ -171,28 +171,28 @@ func (s *PluggerSuite) TestDirectfPrivate(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG mup :query")
 	p.SendDirectf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG nick :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG nick :<reply>"})
 }
 
 func (s *PluggerSuite) TestDirectfChannel(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG #channel :mup: query")
 	p.SendDirectf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG nick :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG nick :<reply>"})
 }
 
 func (s *PluggerSuite) TestChannelfPrivate(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG mup :query")
 	p.SendChannelf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG nick :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG nick :<reply>"})
 }
 
 func (s *PluggerSuite) TestChannelfChannel(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG #channel :mup: query")
 	p.SendChannelf(msg, "<%s>", "reply")
-	c.Assert(s.sent, DeepEquals, []string{"[origin] PRIVMSG #channel :<reply>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :<reply>"})
 }
 
 func (s *PluggerSuite) TestConfig(c *C) {
@@ -241,16 +241,16 @@ func (s *PluggerSuite) TestTargets(c *C) {
 func (s *PluggerSuite) TestBroadcastf(c *C) {
 	p := s.plugger(nil, nil, []bson.M{{"account": "one", "channel": "#chan"}, {"account": "two", "nick": "nick"}})
 	p.Broadcastf("<%s>", "text")
-	c.Assert(s.sent, DeepEquals, []string{"[one] PRIVMSG #chan :<text>", "[two] PRIVMSG nick :<text>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@one] PRIVMSG #chan :<text>", "[@two] PRIVMSG nick :<text>"})
 }
 
 func (s *PluggerSuite) TestBroadcast(c *C) {
 	p := s.plugger(nil, nil, []bson.M{{"account": "one", "channel": "#chan"}, {"account": "two", "nick": "nick"}})
 	p.Broadcast(&mup.Message{Command: "PRIVMSG", Text: "<text>"})
-	c.Assert(s.sent, DeepEquals, []string{"[one] PRIVMSG #chan :<text>", "[two] PRIVMSG nick :<text>"})
+	c.Assert(s.sent, DeepEquals, []string{"[@one] PRIVMSG #chan :<text>", "[@two] PRIVMSG nick :<text>"})
 	s.sent = nil
 	p.Broadcast(&mup.Message{Command: "TEST", Params: []string{"some", "params"}})
-	c.Assert(s.sent, DeepEquals, []string{"[one] TEST some params", "[two] TEST some params"})
+	c.Assert(s.sent, DeepEquals, []string{"[@one] TEST some params", "[@two] TEST some params"})
 }
 
 func (s *PluggerSuite) TestLDAP(c *C) {
@@ -278,25 +278,25 @@ var lineBreakTests = []struct {
 }{{
 	text: strings.Repeat("123456789 ", 60),
 	sent: []string{
-		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
-		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
+		"[@one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
+		"[@one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
 	},
 }, {
 	text: strings.Repeat("123456789 ", 30) + "A",
 	sent: []string{
-		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 16)[:159],
-		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 14) + "A",
+		"[@one] PRIVMSG nick :" + strings.Repeat("123456789 ", 16)[:159],
+		"[@one] PRIVMSG nick :" + strings.Repeat("123456789 ", 14) + "A",
 	},
 }, {
 	text: "A" + strings.Repeat("1234567890", 30),
 	sent: []string{
-		"[one] PRIVMSG nick :A" + strings.Repeat("1234567890", 15),
-		"[one] PRIVMSG nick :" + strings.Repeat("1234567890", 15),
+		"[@one] PRIVMSG nick :A" + strings.Repeat("1234567890", 15),
+		"[@one] PRIVMSG nick :" + strings.Repeat("1234567890", 15),
 	},
 }, {
 	text: strings.Repeat("123456789 ", 30) + "          ",
 	sent: []string{
-		"[one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
+		"[@one] PRIVMSG nick :" + strings.Repeat("123456789 ", 30)[:299],
 	},
 }}
 

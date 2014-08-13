@@ -181,7 +181,7 @@ var adminTests = []adminTest{
 		},
 		recv: []string{
 			"PRIVMSG nick :Okay.",
-			"[other] PRIVMSG nick :Must login for that.",
+			"[@other] PRIVMSG nick :Must login for that.",
 		},
 	}, {
 		summary: "QUIT logs the user out",
@@ -222,7 +222,7 @@ var adminTests = []adminTest{
 	}, {
 		login: true,
 		send:  []string{"sendraw -account=other PRIVMSG bar :text"},
-		recv:  []string{"[other] PRIVMSG bar :text", "PRIVMSG nick :Done."},
+		recv:  []string{"[@other] PRIVMSG bar :text", "PRIVMSG nick :Done."},
 	},
 }
 

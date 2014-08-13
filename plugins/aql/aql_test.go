@@ -80,12 +80,12 @@ var smsTests = []smsTest{{
 	},
 }, {
 	recv: []string{
-		"[one] PRIVMSG nick :[SMS] <++99> A",
-		"[three] PRIVMSG nick :[SMS] <++99> A",
-		"[two] PRIVMSG #chan :[SMS] <tesla> B",
-		"[two] PRIVMSG #chan :Answer with: !sms tesla <your message>",
-		"[three] PRIVMSG #chan :[SMS] <tesla> B",
-		"[three] PRIVMSG #chan :Answer with: !sms tesla <your message>",
+		"[@one] PRIVMSG nick :[SMS] <++99> A",
+		"[@three] PRIVMSG nick :[SMS] <++99> A",
+		"[@two] PRIVMSG #chan :[SMS] <tesla> B",
+		"[@two] PRIVMSG #chan :Answer with: !sms tesla <your message>",
+		"[@three] PRIVMSG #chan :[SMS] <tesla> B",
+		"[@three] PRIVMSG #chan :Answer with: !sms tesla <your message>",
 	},
 	config: bson.M{
 		"aqlkeyword": "yo",
