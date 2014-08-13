@@ -65,13 +65,15 @@ func (s *TesterSuite) TestSendfTarget(c *C) {
 	tester.Stop()
 }
 
-func (s *TesterSuite) TestSendRawf(c *C) {
+func (s *TesterSuite) TestSendfRaw(c *C) {
 	tester := mup.NewPluginTester("echoA")
 	tester.Start()
-	tester.SendRawf(":other!~other@host PRIVMSG mup :echoAcmd <%s>", "repeat")
+	tester.Sendf("[@,] echoAcmd <%s>", "repeat")
+	c.Check(tester.Recv(), Equals, "PRIVMSG nick :[cmd] <repeat>")
+	tester.Sendf("[,raw] :other!~other@host PRIVMSG mup :echoAcmd <%s>", "repeat")
 	c.Check(tester.Recv(), Equals, "PRIVMSG other :[cmd] <repeat>")
-	tester.SendRawf(":other!~other@host PRIVMSG #chan :mup: echoAcmd <%s>", "repeat again")
-	c.Check(tester.Recv(), Equals, "PRIVMSG #chan :other: [cmd] <repeat again>")
+	tester.Sendf("[@acct,raw] :other!~other@host PRIVMSG #chan :mup: echoAcmd <%s>", "repeat")
+	c.Check(tester.Recv(), Equals, "[acct] PRIVMSG #chan :other: [cmd] <repeat>")
 	tester.Stop()
 }
 

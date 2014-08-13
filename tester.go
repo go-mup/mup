@@ -201,37 +201,67 @@ func (t *PluginTester) RecvAll() []string {
 // being tested for handling as a message, as a command, or both, depending on the
 // plugin specification and implementation.
 //
-// The formatted message may be prefixed by "[<target>@<account>] " to define the
-// channel or bot nick the message was addressed to, and/or the account name it was
-// observed on. Both target and account are optional and default to "[mup@test] ".
-// When providing a target without an account the "@" may be omitted.
+// The formatted message may be prefixed by "[<target>@<account>,<option>] " to define
+// the channel or bot nick the message was addressed to, the account name it was
+// observed on, and a list of comma-separated options. All fields are optional, and
+// default to "[mup@test] ". The only supported option at the moment is "raw", which
+// causes the message text to be taken as a raw IRC protocol message. When providing
+// a target without an account the "@" may be omitted, and the comma may be omitted
+// if there are no options.
 //
 // Sendf always delivers the message to the plugin, irrespective of which targets
 // are currently setup, as it doesn't make sense to test the plugin with a message
 // that it cannot observe.
 func (t *PluginTester) Sendf(format string, args ...interface{}) {
-	account, target, text := parseTestTarget(fmt.Sprintf(format, args...))
-	msg := ParseIncoming(account, "mup", "!", ":nick!~user@host PRIVMSG "+target+" :"+text)
+	account, message := parseSendfText(fmt.Sprintf(format, args...))
+	msg := ParseIncoming(account, "mup", "!", message)
 	t.state.handle(msg, schema.CommandName(msg.BotText))
 }
 
-func parseTestTarget(text string) (account, target, newtext string) {
+func parseSendfText(text string) (account, message string) {
 	account = "test"
-	target = "mup"
+
 	close := strings.Index(text, "] ")
 	if !strings.HasPrefix(text, "[") || close < 0 {
-		return account, target, text
+		return account, ":nick!~user@host PRIVMSG mup :" + text
 	}
-	at := strings.Index(text[:close], "@")
-	if at > 0 && at < close-1 {
-		account = text[at+1 : close]
+
+	prefix := text[1:close]
+	text = text[close+2:]
+
+	raw := false
+	comma := strings.Index(prefix, ",")
+	if comma >= 0 {
+		for _, option := range strings.Split(prefix[comma+1:], ",") {
+			if option == "raw" {
+				raw = true
+			} else if option != "" {
+				panic("unknown option for Tester.Sendf: " + option)
+			}
+		}
+		prefix = prefix[:comma]
 	}
-	if at > 1 {
-		target = text[1:at]
-	} else if close > 1 {
-		target = text[1:close]
+
+	at := strings.Index(prefix, "@")
+	if at >= 0 {
+		if at < len(prefix)-1 {
+			account = prefix[at+1:]
+		}
+		prefix = prefix[:at]
 	}
-	return account, target, text[close+2:]
+
+	if raw {
+		if prefix != "" {
+			panic("Sendf prefix cannot contain both a target and the raw option")
+		}
+		return account, text
+	}
+
+	target := "mup"
+	if prefix != "" {
+		target = prefix
+	}
+	return account, ":nick!~user@host PRIVMSG " + target + " :" + text
 }
 
 // SendAll sends each entry in text as an individual message to the bot.
@@ -241,20 +271,4 @@ func (t *PluginTester) SendAll(text []string) {
 	for _, texti := range text {
 		t.Sendf("%s", texti)
 	}
-}
-
-// SendRawf formats a raw IRC message with an arbitrary command and delivers to the plugin
-// being tested for handling as a message, as a command, or both, depending on the plugin
-// specification and implementation.
-//
-// The formatted message may be prefixed by "[@<account>] " to define the account
-// name it was observed on. It defaults to "test" if that's omitted.
-//
-// SendRawf always delivers the message to the plugin, irrespective of which targets
-// are currently setup, as it doesn't make sense to test the plugin with a message
-// that it cannot observe.
-func (t *PluginTester) SendRawf(format string, args ...interface{}) {
-	account, _, text := parseTestTarget(fmt.Sprintf(format, args...))
-	msg := ParseIncoming(account, "mup", "!", text)
-	t.state.handle(msg, schema.CommandName(msg.BotText))
 }
