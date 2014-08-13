@@ -173,6 +173,17 @@ var adminTests = []adminTest{
 			"PRIVMSG nick :Must be an admin for that.",
 		},
 	}, {
+		summary: "Different accounts have independent users",
+		login:   true,
+		send: []string{
+			"login thesecret",
+			"[@other] sendraw PRIVMSG nick :Echo.",
+		},
+		recv: []string{
+			"PRIVMSG nick :Okay.",
+			"[other] PRIVMSG nick :Must login for that.",
+		},
+	}, {
 		summary: "QUIT logs the user out",
 		login:   true,
 		send: []string{

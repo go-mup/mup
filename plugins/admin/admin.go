@@ -81,8 +81,8 @@ func (p *adminPlugin) Stop() error {
 
 func (p *adminPlugin) HandleMessage(msg *mup.Message) {
 	if msg.Command == "QUIT" || msg.Command == "NICK" {
-		// TODO FIXME Must be the userId, including the account!
-		delete(p.logins, msg.Nick)
+		userId := msg.Account + " " + msg.Nick
+		delete(p.logins, userId)
 	}
 }
 
@@ -223,10 +223,9 @@ func (p *adminPlugin) login(cmd *mup.Command) {
 	}
 	p.plugger.Sendf(cmd, "Okay.")
 	if user.Admin {
-		// TODO FIXME Must be the userId, including the account!
-		p.logins[cmd.Nick] = adminUser
+		p.logins[userId] = adminUser
 	} else {
-		p.logins[cmd.Nick] = normalUser
+		p.logins[userId] = normalUser
 	}
 }
 
@@ -258,7 +257,8 @@ func (p *adminPlugin) scryptHashCompare(cmd *mup.Command, password, salt string,
 }
 
 func (p *adminPlugin) checkLogin(cmd *mup.Command, want userKind) bool {
-	kind := p.logins[cmd.Nick]
+	userId := cmd.Account + " " + cmd.Nick
+	kind := p.logins[userId]
 	if kind == unknownUser {
 		p.plugger.Sendf(cmd, "Must login for that.")
 		return false
