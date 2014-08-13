@@ -25,7 +25,6 @@ func (s *PluginSuite) TearDownTest(c *C) {
 }
 
 type pluginTest struct {
-	target string
 	send   string
 	recv   string
 	log    string
@@ -53,13 +52,11 @@ var pluginTests = []pluginTest{
 		recv:   "PRIVMSG nick :[cmd] [prefix] repeat",
 		config: bson.M{"prefix": "[prefix] "},
 	}, {
-		target: "#channel",
-		send:   "mup: echoAcmd repeat",
-		recv:   "PRIVMSG #channel :nick: [cmd] repeat",
+		send: "[#chan] mup: echoAcmd repeat",
+		recv: "PRIVMSG #chan :nick: [cmd] repeat",
 	}, {
-		target: "#channel",
-		send:   "echoAcmd repeat",
-		recv:   "",
+		send: "[#chan] echoAcmd repeat",
+		recv: "",
 	},
 
 	// Message.
@@ -71,13 +68,11 @@ var pluginTests = []pluginTest{
 		recv:   "PRIVMSG nick :[msg] [prefix] repeat",
 		config: bson.M{"prefix": "[prefix] "},
 	}, {
-		target: "#channel",
-		send:   "mup: echoAmsg repeat",
-		recv:   "PRIVMSG #channel :nick: [msg] repeat",
+		send: "[#chan] mup: echoAmsg repeat",
+		recv: "PRIVMSG #chan :nick: [msg] repeat",
 	}, {
-		target: "#channel",
-		send:   "echoAmsg repeat",
-		recv:   "",
+		send: "[#chan] echoAmsg repeat",
+		recv: "",
 	},
 
 	// Outgoing.
@@ -101,7 +96,7 @@ func (s *PluginSuite) TestPlugin(c *C) {
 		tester := mup.NewPluginTester("echoA")
 		tester.SetConfig(test.config)
 		tester.Start()
-		tester.Sendf(test.target, test.send)
+		tester.Sendf(test.send)
 		tester.Stop()
 		c.Assert(tester.Recv(), Equals, test.recv)
 		c.Assert(tester.Recv(), Equals, "")

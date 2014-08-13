@@ -26,7 +26,6 @@ var _ = Suite(&S{})
 type S struct{}
 
 type smsTest struct {
-	target       string
 	send         []string
 	recv         []string
 	fail         bool
@@ -50,12 +49,10 @@ var smsTests = []smsTest{{
 	recv: []string{"PRIVMSG nick :SMS delivery failed: Error message from endpoint."},
 	fail: true,
 }, {
-	target: "#chan",
-	send:   []string{"sms tesla Ignore me."},
+	send: []string{"[#chan] sms tesla Ignore me."},
 }, {
-	target: "#chan",
-	send:   []string{"mup: sms tesla Hey there"},
-	recv:   []string{"PRIVMSG #chan :nick: SMS is on the way!"},
+	send: []string{"[#chan] mup: sms tesla Hey there"},
+	recv: []string{"PRIVMSG #chan :nick: SMS is on the way!"},
 	config: bson.M{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
@@ -143,7 +140,7 @@ func (s *S) TestSMS(c *C) {
 		tester.SetTargets(test.targets)
 		tester.SetLDAP("test", ldapConn{})
 		tester.Start()
-		tester.SendAll(test.target, test.send)
+		tester.SendAll(test.send)
 
 		if test.messages != nil {
 			time.Sleep(200 * time.Millisecond)

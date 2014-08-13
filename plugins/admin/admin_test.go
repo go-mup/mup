@@ -39,7 +39,6 @@ func (s *AdminSuite) TearDownTest(c *C) {
 
 type adminTest struct {
 	summary string
-	target  string
 	send    []string
 	recv    []string
 	users   []userInfo
@@ -253,11 +252,11 @@ func (s *AdminSuite) testAdmin(c *C, test *adminTest) {
 	tester.Start()
 
 	if test.login {
-		tester.Sendf(test.target, "login thesecret")
+		tester.Sendf("login thesecret")
 		c.Assert(tester.Recv(), Equals, "PRIVMSG nick :Okay.")
 	}
 
-	tester.SendAll("", test.send)
+	tester.SendAll(test.send)
 	tester.Stop()
 	c.Assert(tester.RecvAll(), DeepEquals, test.recv)
 }

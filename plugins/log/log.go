@@ -5,8 +5,8 @@ import (
 )
 
 var Plugin = mup.PluginSpec{
-	Name:  "log",
-	Help:  `Stores observed messages persistently.
+	Name: "log",
+	Help: `Stores observed messages persistently.
 	
 	Messages are stored in the collection "shared.log", either in
 	the main bot database, or in the database name defined via the

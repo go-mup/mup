@@ -20,7 +20,6 @@ var _ = Suite(&LDAPSuite{})
 type LDAPSuite struct{}
 
 var ldapTests = []struct {
-	target string
 	send   []string
 	recv   []string
 	config bson.M
@@ -29,8 +28,8 @@ var ldapTests = []struct {
 		send: []string{"poke notfound"},
 		recv: []string{"PRIVMSG nick :Cannot find anyone matching this. :-("},
 	}, {
-		send: []string{"poke noldap"},
-		recv: []string{`PRIVMSG nick :Plugin configuration error: LDAP connection "unknown" not found.`},
+		send:   []string{"poke noldap"},
+		recv:   []string{`PRIVMSG nick :Plugin configuration error: LDAP connection "unknown" not found.`},
 		config: bson.M{"ldap": "unknown"},
 	}, {
 		send: []string{"poke tesla"},
@@ -138,7 +137,7 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 		tester.SetConfig(test.config)
 		tester.SetLDAP("test", ldapConn{})
 		tester.Start()
-		tester.SendAll(test.target, test.send)
+		tester.SendAll(test.send)
 		c.Assert(tester.Stop(), IsNil)
 		c.Assert(tester.RecvAll(), DeepEquals, test.recv)
 	}
@@ -149,7 +148,7 @@ func (s *LDAPSuite) TestTimeFormat(c *C) {
 	tester.SetConfig(bson.M{"ldap": "test"})
 	tester.SetLDAP("test", ldapConn{})
 	tester.Start()
-	tester.Sendf("", "poke jnash")
+	tester.Sendf("poke jnash")
 	c.Assert(tester.Stop(), IsNil)
 	line := tester.Recv()
 

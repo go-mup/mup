@@ -86,7 +86,7 @@ type aqlPlugin struct {
 		AQLKeyword  string
 		AQLEndpoint string
 
-		PollDelay     bson.DurationString
+		PollDelay bson.DurationString
 	}
 }
 

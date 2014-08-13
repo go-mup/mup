@@ -25,7 +25,6 @@ type S struct{}
 
 type lpTest struct {
 	plugin   string
-	target   string
 	send     []string
 	recv     []string
 	config   bson.M
@@ -71,25 +70,22 @@ var lpTests = []lpTest{
 		// Overhearing is disabled by default.
 		plugin:  "lpbugdata",
 		targets: []bson.M{{"account": ""}},
-		target:  "#chan",
-		send:    []string{"foo bug #111"},
+		send:    []string{"[#chan] foo bug #111"},
 		recv:    []string(nil),
 	}, {
 		// With overhearing enabled third-party messages are observed.
 		plugin:  "lpbugdata",
 		config:  bson.M{"overhear": true},
 		targets: []bson.M{{"account": ""}},
-		target:  "#chan",
-		send:    []string{"foo bug #111"},
+		send:    []string{"[#chan] foo bug #111"},
 		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		// When overhearing, do not report errors.
 		plugin:  "lpbugdata",
 		config:  bson.M{"overhear": true},
 		targets: []bson.M{{"account": ""}},
-		target:  "#chan",
 		status:  500,
-		send:    []string{"foo bug #111"},
+		send:    []string{"[#chan] foo bug #111"},
 		recv:    []string(nil),
 	}, {
 		// Overhearing may be enabled on the target configuration.
@@ -97,9 +93,8 @@ var lpTests = []lpTest{
 		targets: []bson.M{
 			{"account": "", "config": bson.M{"overhear": true}},
 		},
-		target: "#chan",
-		send:   []string{"foo bug #111"},
-		recv:   []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
+		send: []string{"[#chan] foo bug #111"},
+		recv: []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		// First matching target wins.
 		plugin: "lpbugdata",
@@ -107,9 +102,8 @@ var lpTests = []lpTest{
 			{"channel": "#chan", "config": bson.M{"overhear": false}},
 			{"account": "", "config": bson.M{"overhear": true}},
 		},
-		target: "#chan",
-		send:   []string{"foo bug #111"},
-		recv:   []string(nil),
+		send: []string{"[#chan] foo bug #111"},
+		recv: []string(nil),
 	}, {
 		// Polling of bug changes.
 		plugin: "lpbugwatch",
@@ -212,7 +206,7 @@ func (s *S) TestLaunchpad(c *C) {
 		tester.SetConfig(test.config)
 		tester.SetTargets(test.targets)
 		tester.Start()
-		tester.SendAll(test.target, test.send)
+		tester.SendAll(test.send)
 		if test.config["polldelay"] != "" {
 			time.Sleep(250 * time.Millisecond)
 		}
@@ -242,16 +236,16 @@ func (s *S) TestJustShown(c *C) {
 	})
 	tester.SetTargets([]bson.M{{"account": ""}})
 	tester.Start()
-	tester.Sendf("#chan1", "foo bug 111")
-	tester.Sendf("#chan2", "foo bug 111")
-	tester.Sendf("#chan1", "foo bug 222")
-	tester.Sendf("#chan1", "foo bug 111")
-	tester.Sendf("#chan2", "foo bug 111")
-	tester.Sendf("#chan1", "foo bug 333")
+	tester.Sendf("[#chan1] foo bug 111")
+	tester.Sendf("[#chan2] foo bug 111")
+	tester.Sendf("[#chan1] foo bug 222")
+	tester.Sendf("[#chan1] foo bug 111")
+	tester.Sendf("[#chan2] foo bug 111")
+	tester.Sendf("[#chan1] foo bug 333")
 	time.Sleep(250 * time.Millisecond)
-	tester.Sendf("#chan1", "foo bug 111")
-	tester.Sendf("#chan2", "foo bug 111")
-	tester.Sendf("#chan1", "foo bug 444")
+	tester.Sendf("[#chan1] foo bug 111")
+	tester.Sendf("[#chan2] foo bug 111")
+	tester.Sendf("[#chan1] foo bug 444")
 	tester.Stop()
 	server.Stop()
 

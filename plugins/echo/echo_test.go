@@ -16,7 +16,6 @@ var _ = Suite(&EchoSuite{})
 type EchoSuite struct{}
 
 type echoTest struct {
-	target string
 	send   string
 	recv   string
 	config interface{}
@@ -33,13 +32,11 @@ var echoTests = []echoTest{{
 	recv:   "PRIVMSG nick :[prefix]repeat",
 	config: bson.M{"prefix": "[prefix]"},
 }, {
-	target: "#channel",
-	send:   "mup: echo repeat",
-	recv:   "PRIVMSG #channel :nick: repeat",
+	send: "[#chan] mup: echo repeat",
+	recv: "PRIVMSG #chan :nick: repeat",
 }, {
-	target: "#channel",
-	send:   "echo repeat",
-	recv:   "",
+	send: "[#chan] echo repeat",
+	recv: "",
 }}
 
 func (s *EchoSuite) TestEcho(c *C) {
@@ -48,7 +45,7 @@ func (s *EchoSuite) TestEcho(c *C) {
 		tester := mup.NewPluginTester("echo")
 		tester.SetConfig(test.config)
 		tester.Start()
-		tester.Sendf(test.target, test.send)
+		tester.Sendf(test.send)
 		tester.Stop()
 		c.Assert(tester.Recv(), Equals, test.recv)
 	}

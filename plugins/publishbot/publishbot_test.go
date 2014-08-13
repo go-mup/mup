@@ -6,9 +6,9 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
-	"gopkg.in/mgo.v2/bson"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -38,7 +38,7 @@ func (s *PBotSuite) TestPublishBot(c *C) {
 	time.Sleep(500 * time.Millisecond)
 	defer tester.Stop()
 
-	conn, err := net.DialTimeout("tcp", "localhost:10423", 1 * time.Second)
+	conn, err := net.DialTimeout("tcp", "localhost:10423", 1*time.Second)
 	c.Assert(err, IsNil)
 	_, err = conn.Write([]byte("pass:#one:A\n"))
 	_, err = conn.Write([]byte("nono:#one:B\n"))

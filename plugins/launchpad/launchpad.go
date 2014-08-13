@@ -83,7 +83,7 @@ type lpPlugin struct {
 		OAuthAccessToken string
 		OAuthSecretToken string
 
-		BasicAuthToken   string
+		BasicAuthToken string
 
 		Endpoint  string
 		Project   string

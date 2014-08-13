@@ -23,7 +23,6 @@ var _ = Suite(&S{})
 type S struct{}
 
 type inferTest struct {
-	target  string
 	send    string
 	recv    string
 	sendAll []string
@@ -210,9 +209,9 @@ var inferTests = []inferTest{{
 		"ldap": "test",
 	},
 	form: url.Values{
-		"location":      {"Country"},
-		"input":         {"query two"},
-		"format":        {"plaintext"},
+		"location": {"Country"},
+		"input":    {"query two"},
+		"format":   {"plaintext"},
 	},
 }, {
 	sendAll: []string{"infer query one"},
@@ -223,9 +222,9 @@ var inferTests = []inferTest{{
 		"ldap": "test",
 	},
 	form: url.Values{
-		"location":      {"City"},
-		"input":         {"query one"},
-		"format":        {"plaintext"},
+		"location": {"City"},
+		"input":    {"query one"},
+		"format":   {"plaintext"},
 	},
 }, {
 	sendAll: []string{"infer query one"},
@@ -236,9 +235,9 @@ var inferTests = []inferTest{{
 		"ldap": "test",
 	},
 	form: url.Values{
-		"location":      {"State"},
-		"input":         {"query one"},
-		"format":        {"plaintext"},
+		"location": {"State"},
+		"input":    {"query one"},
+		"format":   {"plaintext"},
 	},
 }, {
 	// LDAP location querying without proper attributes.
@@ -250,9 +249,9 @@ var inferTests = []inferTest{{
 		"ldap": "test",
 	},
 	form: url.Values{
-		"ip":            {"host"},
-		"input":         {"the query"},
-		"format":        {"plaintext"},
+		"ip":     {"host"},
+		"input":  {"the query"},
+		"format": {"plaintext"},
 	},
 }, {
 	// Bad LDAP connection name
@@ -295,10 +294,10 @@ func (s *S) TestInfer(c *C) {
 		}
 		tester.Start()
 		if test.send != "" {
-			tester.Sendf(test.target, "%s", test.send)
+			tester.Sendf("%s", test.send)
 		}
 		if test.sendAll != nil {
-			tester.SendAll(test.target, test.sendAll)
+			tester.SendAll(test.sendAll)
 		}
 
 		c.Check(tester.Stop(), IsNil)

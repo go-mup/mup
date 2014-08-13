@@ -201,32 +201,44 @@ func (t *PluginTester) RecvAll() []string {
 // being tested for handling as a message, as a command, or both, depending on the
 // plugin specification and implementation.
 //
-// The target parameter defines the channel or bot nick the message was addressed to,
-// and may also define the account which received the message by using an account name
-// and a space as a prefix. If empty, the message is processed as if it had been sent
-// privately to "mup" in account "test".
+// The formatted message may be prefixed by "[<target>@<account>] " to define the
+// channel or bot nick the message was addressed to, and/or the account name it was
+// observed on. Both target and account are optional and default to "[mup@test] ".
+// When providing a target without an account the "@" may be omitted.
 //
 // Sendf always delivers the message to the plugin, irrespective of which targets
 // are currently setup, as it doesn't make sense to test the plugin with a message
 // that it cannot observe.
-func (t *PluginTester) Sendf(target, format string, args ...interface{}) {
-	account := "test"
-	if strings.Contains(target, " ") {
-		fields := strings.Fields(target)
-		account = fields[0]
-		target = fields[1]
-	} else if target == "" {
-		target = "mup"
-	}
-	msg := ParseIncoming(account, "mup", "!", fmt.Sprintf(":nick!~user@host PRIVMSG "+target+" :"+format, args...))
+func (t *PluginTester) Sendf(format string, args ...interface{}) {
+	account, target, text := parseTestTarget(fmt.Sprintf(format, args...))
+	msg := ParseIncoming(account, "mup", "!", ":nick!~user@host PRIVMSG "+target+" :"+text)
 	t.state.handle(msg, schema.CommandName(msg.BotText))
+}
+
+func parseTestTarget(text string) (account, target, newtext string) {
+	account = "test"
+	target = "mup"
+	close := strings.Index(text, "] ")
+	if !strings.HasPrefix(text, "[") || close < 0 {
+		return account, target, text
+	}
+	at := strings.Index(text[:close], "@")
+	if at > 0 && at < close-1 {
+		account = text[at+1 : close]
+	}
+	if at > 1 {
+		target = text[1:at]
+	} else if close > 1 {
+		target = text[1:close]
+	}
+	return account, target, text[close+2:]
 }
 
 // SendAll sends each entry in text as an individual message to the bot.
 //
 // See Sendf for more details.
-func (t *PluginTester) SendAll(target string, text []string) {
+func (t *PluginTester) SendAll(text []string) {
 	for _, texti := range text {
-		t.Sendf(target, "%s", texti)
+		t.Sendf("%s", texti)
 	}
 }

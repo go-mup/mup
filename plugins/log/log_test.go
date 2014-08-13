@@ -53,7 +53,7 @@ func (s *HelpSuite) TestLog(c *C) {
 		tester.SetDatabase(db)
 		tester.Start()
 		if test.send != "" {
-			tester.Sendf("", test.send)
+			tester.Sendf(test.send)
 		}
 		if test.outgoing != "" {
 			tester.Plugger().Send(&mup.Message{Account: "test", Nick: "nick", Text: test.outgoing})

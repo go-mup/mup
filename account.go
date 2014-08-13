@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"gopkg.in/tomb.v2"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/tomb.v2"
 	"strings"
 	"sync"
 )

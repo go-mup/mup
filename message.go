@@ -177,7 +177,7 @@ func parse(account, asnick, bang, line string) *Message {
 			}
 		}
 		if asnick != "" {
-			m.Nick = line[mark+1:i]
+			m.Nick = line[mark+1 : i]
 		}
 		if i < l && line[i] == '!' {
 			mark := i
@@ -188,7 +188,7 @@ func parse(account, asnick, bang, line string) *Message {
 				}
 			}
 			if asnick != "" {
-				m.User = line[mark+1:i]
+				m.User = line[mark+1 : i]
 			}
 		}
 		if i < l && line[i] == '@' {
@@ -200,7 +200,7 @@ func parse(account, asnick, bang, line string) *Message {
 				}
 			}
 			if asnick != "" {
-				m.Host = line[mark+1:i]
+				m.Host = line[mark+1 : i]
 			}
 		}
 		if m.User == "" && m.Host == "" && strings.Contains(m.Nick, ".") {

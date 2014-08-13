@@ -72,7 +72,6 @@ func run() error {
 		config.Plugins = strings.Split(*plugins, ",")
 	}
 
-
 	logger.Printf("Connecting to MongoDB: %s", *db)
 	session, err := mgo.Dial(*db)
 	if err != nil {

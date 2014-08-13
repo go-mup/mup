@@ -45,8 +45,8 @@ var helpTests = []helpTest{{
 	send: "help",
 	recv: "PRIVMSG nick :No known commands available. Go load some plugins.",
 }, {
-	send: "help",
-	recv: `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
+	send:  "help",
+	recv:  `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
 	known: true,
 	cmds:  schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}},
 }, {
@@ -160,10 +160,10 @@ func (s *HelpSuite) testHelp(c *C, test *helpTest) {
 	tester.SetConfig(test.config)
 	tester.Start()
 	if test.send != "" {
-		tester.Sendf("", test.send)
+		tester.Sendf(test.send)
 	}
 	if test.sendAll != nil {
-		tester.SendAll("", test.sendAll)
+		tester.SendAll(test.sendAll)
 	}
 	tester.Stop()
 

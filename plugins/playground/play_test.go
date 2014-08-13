@@ -49,8 +49,8 @@ var runTests = []runTest{{
 	},
 }, {
 	// Print option handling.
-	send:    "run -p expr",
-	recv:    "PRIVMSG nick :result",
+	send: "run -p expr",
+	recv: "PRIVMSG nick :result",
 	formatForm: url.Values{
 		"imports": {"1"},
 		"body":    {"package main\nfunc main() { fmt.Print(expr) }"},
@@ -75,14 +75,14 @@ var runTests = []runTest{{
 	compile: `{"Events": [{"Message": "[no output]\n"}]}`,
 }, {
 	// Multi-line displaying and space trimming.
-	send:    "run code",
-	recv:    "PRIVMSG nick :a — b — c",
-	output:  "  a  \nb\n\nc\n ",
+	send:   "run code",
+	recv:   "PRIVMSG nick :a — b — c",
+	output: "  a  \nb\n\nc\n ",
 }, {
 	// Quoting.
-	send:    "run -q code",
-	recv:    `PRIVMSG nick :"  a  \nb\n\nc\n "`,
-	output:  "  a  \nb\n\nc\n ",
+	send:   "run -q code",
+	recv:   `PRIVMSG nick :"  a  \nb\n\nc\n "`,
+	output: "  a  \nb\n\nc\n ",
 }, {
 	// Exit message status handling
 	send:   "run code",
@@ -163,7 +163,7 @@ func (s *S) TestRun(c *C) {
 		tester := mup.NewPluginTester("playground")
 		tester.SetConfig(test.config)
 		tester.Start()
-		tester.Sendf("", "%s", test.send)
+		tester.Sendf("%s", test.send)
 		c.Check(tester.Stop(), IsNil)
 		c.Check(tester.Recv(), Equals, test.recv)
 		c.Check(tester.Recv(), Equals, "")
@@ -247,7 +247,6 @@ func (s *playServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Write([]byte(result))
 }
-
 
 var lorem = strings.Replace(`
 Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do
