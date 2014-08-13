@@ -242,3 +242,19 @@ func (t *PluginTester) SendAll(text []string) {
 		t.Sendf("%s", texti)
 	}
 }
+
+// SendRawf formats a raw IRC message with an arbitrary command and delivers to the plugin
+// being tested for handling as a message, as a command, or both, depending on the plugin
+// specification and implementation.
+//
+// The formatted message may be prefixed by "[@<account>] " to define the account
+// name it was observed on. It defaults to "test" if that's omitted.
+//
+// SendRawf always delivers the message to the plugin, irrespective of which targets
+// are currently setup, as it doesn't make sense to test the plugin with a message
+// that it cannot observe.
+func (t *PluginTester) SendRawf(format string, args ...interface{}) {
+	account, _, text := parseTestTarget(fmt.Sprintf(format, args...))
+	msg := ParseIncoming(account, "mup", "!", text)
+	t.state.handle(msg, schema.CommandName(msg.BotText))
+}

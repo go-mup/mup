@@ -65,6 +65,16 @@ func (s *TesterSuite) TestSendfTarget(c *C) {
 	tester.Stop()
 }
 
+func (s *TesterSuite) TestSendRawf(c *C) {
+	tester := mup.NewPluginTester("echoA")
+	tester.Start()
+	tester.SendRawf(":other!~other@host PRIVMSG mup :echoAcmd <%s>", "repeat")
+	c.Check(tester.Recv(), Equals, "PRIVMSG other :[cmd] <repeat>")
+	tester.SendRawf(":other!~other@host PRIVMSG #chan :mup: echoAcmd <%s>", "repeat again")
+	c.Check(tester.Recv(), Equals, "PRIVMSG #chan :other: [cmd] <repeat again>")
+	tester.Stop()
+}
+
 func (s *TesterSuite) TestUnknownPlugin(c *C) {
 	c.Assert(func() { mup.NewPluginTester("unknown").Start() }, PanicMatches, `plugin not registered: "unknown"`)
 }
