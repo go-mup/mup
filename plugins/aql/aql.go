@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
@@ -86,7 +85,7 @@ type aqlPlugin struct {
 		AQLKeyword  string
 		AQLEndpoint string
 
-		PollDelay bson.DurationString
+		PollDelay mup.DurationString
 	}
 }
 

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
@@ -92,8 +91,8 @@ type lpPlugin struct {
 		PrefixNew string
 		PrefixOld string
 
-		JustShownTimeout bson.DurationString
-		PollDelay        bson.DurationString
+		JustShownTimeout mup.DurationString
+		PollDelay        mup.DurationString
 	}
 
 	overhear map[*mup.PluginTarget]bool

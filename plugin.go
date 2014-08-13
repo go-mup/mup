@@ -650,3 +650,24 @@ func (state *pluginState) handleCommand(msg *Message, cmdName string) {
 	}
 	handler.HandleCommand(cmd)
 }
+
+// DurationString represents a time.Duration that marshals and unmarshals
+// using the standard string representation for that type.
+type DurationString struct {
+	time.Duration
+}
+
+func (d DurationString) GetBSON() (interface{}, error) {
+	return d.String(), nil
+}
+
+func (d *DurationString) SetBSON(raw bson.Raw) error {
+	var s string
+	err := raw.Unmarshal(&s)
+	if err != nil || s == "" {
+		d.Duration = 0
+		return err
+	}
+	d.Duration, err = time.ParseDuration(s)
+	return err
+}
