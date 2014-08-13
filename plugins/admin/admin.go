@@ -79,6 +79,13 @@ func (p *adminPlugin) Stop() error {
 	return nil
 }
 
+func (p *adminPlugin) HandleMessage(msg *mup.Message) {
+	if msg.Command == "QUIT" || msg.Command == "NICK" {
+		// TODO FIXME Must be the userId, including the account!
+		delete(p.logins, msg.Nick)
+	}
+}
+
 func (p *adminPlugin) HandleCommand(cmd *mup.Command) {
 	switch cmd.Name() {
 	case "register":
@@ -216,6 +223,7 @@ func (p *adminPlugin) login(cmd *mup.Command) {
 	}
 	p.plugger.Sendf(cmd, "Okay.")
 	if user.Admin {
+		// TODO FIXME Must be the userId, including the account!
 		p.logins[cmd.Nick] = adminUser
 	} else {
 		p.logins[cmd.Nick] = normalUser

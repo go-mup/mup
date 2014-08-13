@@ -172,6 +172,30 @@ var adminTests = []adminTest{
 			"PRIVMSG nick :Okay.",
 			"PRIVMSG nick :Must be an admin for that.",
 		},
+	}, {
+		summary: "QUIT logs the user out",
+		login:   true,
+		send: []string{
+			"login thesecret",
+			"[,raw] :nick!user@host QUIT",
+			"sendraw PRIVMSG nick :Echo.",
+		},
+		recv: []string{
+			"PRIVMSG nick :Okay.",
+			"PRIVMSG nick :Must login for that.",
+		},
+	}, {
+		summary: "Changing the nick also logs the user out",
+		login:   true,
+		send: []string{
+			"login thesecret",
+			"[,raw] :nick!user@host NICK :other",
+			"sendraw PRIVMSG nick :Echo.",
+		},
+		recv: []string{
+			"PRIVMSG nick :Okay.",
+			"PRIVMSG nick :Must login for that.",
+		},
 	},
 
 	{
