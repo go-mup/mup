@@ -87,6 +87,7 @@ func run() error {
 
 	ch := make(chan os.Signal)
 	signal.Notify(ch, os.Interrupt)
+	signal.Notify(ch, 15) // SIGTERM
 	<-ch
 	return server.Stop()
 }
