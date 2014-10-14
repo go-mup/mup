@@ -117,7 +117,7 @@ var lpTests = []lpTest{
 		targets: []bson.M{
 			{"account": "test", "channel": "#chan"},
 		},
-		bugsText: [][]int{{111, 333, 444, 555}, {111, 222, 444, 666}},
+		bugsText: [][]int{{111, 333, 404, 444, 555}, {111, 222, 444, 666}},
 		bugsForm: url.Values{
 			"foo": {"bar"},
 		},
@@ -318,6 +318,10 @@ func (s *lpServer) serveBug(w http.ResponseWriter, req *http.Request) {
 	id, err := strconv.Atoi(path)
 	if err != nil {
 		panic("invalid bug URL: " + req.URL.Path)
+	}
+	if id == 404 {
+		w.WriteHeader(404)
+		return
 	}
 	var res string
 	if tasks {

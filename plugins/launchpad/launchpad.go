@@ -284,7 +284,7 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 	var tasks lpBugTasks
 	err := p.request("/bugs/"+strconv.Itoa(bugId), &bug)
 	if err != nil {
-		if msg.BotText != "" {
+		if msg != nil && msg.BotText != "" {
 			if err == errNotFound {
 				p.plugger.Sendf(msg, "Bug not found.")
 			} else {
@@ -296,7 +296,7 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 	if bug.TasksLink != "" {
 		err = p.request(bug.TasksLink, &tasks)
 		if err != nil {
-			if msg.BotText != "" {
+			if msg != nil && msg.BotText != "" {
 				p.plugger.Sendf(msg, "Oops: %v", err)
 			}
 			return
