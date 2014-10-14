@@ -240,20 +240,7 @@ func (p *adminPlugin) scryptHash(cmd *mup.Command, password, salt string) (hash 
 
 func (p *adminPlugin) scryptHashCompare(cmd *mup.Command, password, salt string, candidateHash string) (equal, ok bool) {
 	hash, ok := p.scryptHash(cmd, password, salt)
-	if !ok {
-		return false, false
-	}
-	if len(hash) != len(candidateHash) {
-		return false, true
-	}
-	// Constant time, for paranoia.
-	equal = true
-	for i := 0; i < len(hash); i++ {
-		if hash[i] != candidateHash[i] {
-			equal = false
-		}
-	}
-	return equal, true
+	return hash == candidateHash, ok
 }
 
 func (p *adminPlugin) checkLogin(cmd *mup.Command, want userKind) bool {
