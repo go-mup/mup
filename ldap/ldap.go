@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/johnweldon/ldap"
+	"gopkg.in/ldap.v0"
 )
 
 type Config struct {
