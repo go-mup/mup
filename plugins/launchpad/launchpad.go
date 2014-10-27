@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -39,6 +40,11 @@ var Plugins = []mup.PluginSpec{{
 	Name:  "lpmergewatch",
 	Help:  "Shows status changes on merges for a selected Launchpad project.",
 	Start: startMergeWatch,
+}, {
+	Name:     "lpcontrib",
+	Help:     "Offers a command for listing people that signed the contributor agreement.",
+	Start:    startContribInfo,
+	Commands: ContribCommands,
 }}
 
 var BugDataCommands = schema.Commands{{
@@ -51,6 +57,15 @@ var BugDataCommands = schema.Commands{{
 	`,
 	Args: schema.Args{{
 		Name: "bugs",
+		Flag: schema.Trailing,
+	}},
+}}
+
+var ContribCommands = schema.Commands{{
+	Name: "contrib",
+	Help: `Searches for contributors that have signed the contributor agreement. `,
+	Args: schema.Args{{
+		Name: "text",
 		Flag: schema.Trailing,
 	}},
 }}
@@ -69,6 +84,7 @@ const (
 	bugData pluginMode = iota + 1
 	bugWatch
 	mergeWatch
+	contribInfo
 )
 
 type lpPlugin struct {
@@ -126,6 +142,9 @@ func startBugWatch(plugger *mup.Plugger) mup.Stopper {
 func startMergeWatch(plugger *mup.Plugger) mup.Stopper {
 	return startPlugin(mergeWatch, plugger)
 }
+func startContribInfo(plugger *mup.Plugger) mup.Stopper {
+	return startPlugin(contribInfo, plugger)
+}
 
 func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	if mode == 0 {
@@ -172,7 +191,7 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	}
 
 	switch p.mode {
-	case bugData:
+	case bugData, contribInfo:
 		p.tomb.Go(p.loop)
 	case bugWatch:
 		p.tomb.Go(p.pollBugs)
@@ -192,6 +211,7 @@ func (p *lpPlugin) Stop() error {
 
 type lpMessage struct {
 	msg  *mup.Message
+	cmd  *mup.Command
 	bugs []int
 }
 
@@ -203,23 +223,25 @@ func (p *lpPlugin) HandleMessage(msg *mup.Message) {
 	if len(bugs) == 0 {
 		return
 	}
-	p.handleMessage(&lpMessage{msg, bugs}, false)
+	p.handleMessage(&lpMessage{msg, nil, bugs}, false)
 }
 
 func (p *lpPlugin) HandleCommand(cmd *mup.Command) {
-	var args struct{ Bugs string }
-	cmd.Args(&args)
-	bugs, err := parseBugArgs(args.Bugs)
-	if err != nil {
-		p.plugger.Sendf(cmd, "Oops: %v", err)
+	var bugs []int
+	if p.mode == bugData {
+		var args struct{ Bugs string }
+		var err error
+		cmd.Args(&args)
+		bugs, err = parseBugArgs(args.Bugs)
+		if err != nil {
+			p.plugger.Sendf(cmd, "Oops: %v", err)
+			return
+		}
 	}
-	p.handleMessage(&lpMessage{cmd.Message, bugs}, true)
+	p.handleMessage(&lpMessage{cmd.Message, cmd, bugs}, true)
 }
 
 func (p *lpPlugin) handleMessage(lpmsg *lpMessage, reportError bool) {
-	if len(lpmsg.bugs) == 0 {
-		return
-	}
 	select {
 	case p.messages <- lpmsg:
 	default:
@@ -242,14 +264,19 @@ func (p *lpPlugin) loop() error {
 }
 
 func (p *lpPlugin) handle(lpmsg *lpMessage) {
-	msg := lpmsg.msg
-	overheard := msg.BotText == ""
-	addr := msg.Address()
-	for _, id := range lpmsg.bugs {
-		if overheard && p.justShown(addr, id) {
-			continue
+	if p.mode == bugData {
+		overheard := lpmsg.msg.BotText == ""
+		addr := lpmsg.msg.Address()
+		for _, id := range lpmsg.bugs {
+			if overheard && p.justShown(addr, id) {
+				continue
+			}
+			p.showBug(lpmsg.msg, id, "")
 		}
-		p.showBug(msg, id, "")
+	} else {
+		var args struct{ Text string }
+		lpmsg.cmd.Args(&args)
+		p.showContrib(lpmsg.msg, args.Text)
 	}
 }
 
@@ -603,4 +630,128 @@ func firstSentence(s string) string {
 		return s[:80] + "(...)"
 	}
 	return s
+}
+
+type lpPersonList struct {
+	TotalSize int        `json:"total_size"`
+	Start     int        `json:"start"`
+	Entries   []lpPerson `json:"entries"`
+}
+
+type lpPerson struct {
+	Username       string `json:"name"`
+	Name           string `json:"display_name"`
+	MembershipLink string `json:"memberships_details_collection_link"`
+	EmailLink      string `json:"confirmed_email_addresses_collection_link"`
+
+	Emails []string
+}
+
+type lpMembershipList struct {
+	TotalSize int            `json:"total_size"`
+	Start     int            `json:"start"`
+	Entries   []lpMembership `json:"entries"`
+}
+
+type lpMembership struct {
+	Status   string `json:"status"`
+	TeamLink string `json:"team_link"`
+}
+
+type lpEmailList struct {
+	Entries []lpEmail `json:"entries"`
+}
+
+type lpEmail struct {
+	Addr string `json:"email"`
+}
+
+type lpPersonSlice []lpPerson
+
+func (s lpPersonSlice) Len() int           { return len(s) }
+func (s lpPersonSlice) Less(i, j int) bool { return s[i].Name < s[j].Name }
+func (s lpPersonSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+func (p *lpPlugin) showContrib(to mup.Addressable, text string) {
+	var people lpPersonList
+	err := p.request("/people?ws.op=findPerson&text="+url.QueryEscape(text), &people)
+	if err != nil {
+		p.plugger.Sendf(to, "Oops: %v", err)
+		return
+	}
+	if people.TotalSize == 0 {
+		p.plugger.Sendf(to, "Cannot find anyone matching the search terms.")
+		return
+	}
+	if people.TotalSize > len(people.Entries) || people.TotalSize > 10 {
+		p.plugger.Sendf(to, "%d people match the search terms. Please be more specific.", people.TotalSize)
+		return
+	}
+	ch := make(chan *lpPerson)
+	for _, person := range people.Entries {
+		person := person
+		go func() {
+			var mships lpMembershipList
+			err = p.request(person.MembershipLink, &mships)
+			if err != nil {
+				p.plugger.Sendf(to, "Cannot retrieve membership information of ~%s from Launchpad: %v", person.Username, err)
+				ch <- nil
+				return
+			}
+			for _, mship := range mships.Entries {
+				if mship.TeamLink == "https://api.launchpad.net/1.0/~contributor-agreement-canonical" && mship.Status == "Approved" {
+					var emails lpEmailList
+					err = p.request(person.EmailLink, &emails)
+					if err != nil {
+						p.plugger.Sendf(to, "Cannot retrieve email information of ~%s from Launchpad: %v", person.Username, err)
+					} else {
+						for _, email := range emails.Entries {
+							person.Emails = append(person.Emails, email.Addr)
+						}
+					}
+					ch <- &person
+					return
+				}
+			}
+			ch <- nil
+		}()
+	}
+
+	contribs := make(lpPersonSlice, 0, len(people.Entries))
+	for range people.Entries {
+		if contrib := <-ch; contrib != nil {
+			contribs = append(contribs, *contrib)
+		}
+	}
+	sort.Sort(contribs)
+
+	if len(contribs) == 0 {
+		if people.TotalSize == 1 {
+			p.plugger.Sendf(to, "One person matches the search terms, but the agreement was not signed.")
+		} else {
+			p.plugger.Sendf(to, "%d people match the search terms, but none of them have signed the agreement.", people.TotalSize)
+		}
+		return
+	}
+	if len(contribs) == 1 {
+		p.plugger.Sendf(to, "One matching contributor signed the agreement:")
+	} else {
+		p.plugger.Sendf(to, "%d matching contributors signed the agreement:", len(contribs))
+	}
+	var buf bytes.Buffer
+	buf.Grow(128)
+	for _, contrib := range contribs {
+		p.plugger.Sendf(to, p.formatContrib(&buf, contrib))
+	}
+}
+
+func (p *lpPlugin) formatContrib(buf *bytes.Buffer, contrib lpPerson) string {
+	buf.Truncate(0)
+	fmt.Fprintf(buf, " — %s <https://launchpad.net/~%s>", contrib.Name, contrib.Username)
+	for _, email := range contrib.Emails {
+		buf.WriteString(" <")
+		buf.WriteString(email)
+		buf.WriteString(">")
+	}
+	return buf.String()
 }

@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/mgo.v2"
 	"strings"
+	"syscall"
 )
 
 var db = flag.String("db", "localhost/mup", "MongoDB database URL including database name to use.")
@@ -87,7 +88,7 @@ func run() error {
 
 	ch := make(chan os.Signal)
 	signal.Notify(ch, os.Interrupt)
-	signal.Notify(ch, 15) // SIGTERM
+	signal.Notify(ch, syscall.Signal(15)) // SIGTERM
 	<-ch
 	return server.Stop()
 }

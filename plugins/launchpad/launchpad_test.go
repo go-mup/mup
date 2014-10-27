@@ -177,6 +177,15 @@ var lpTests = []lpTest{
 		bugsText: [][]int{{111}, {111, 222}},
 		recv:     []string{"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
 		headers:  bson.M{"Authorization": "Basic btok"},
+	}, {
+		// Basic contributor agreement query.
+		plugin: "lpcontrib",
+		send:   []string{"contrib some user"},
+		recv: []string{
+			"PRIVMSG nick :2 matching contributors signed the agreement:",
+			"PRIVMSG nick : — Amuser Jeff <https://launchpad.net/~muser> <muser@email.com> <muser@example.com>",
+			"PRIVMSG nick : — Awesome Joe <https://launchpad.net/~wsome>",
+		},
 	},
 }
 
@@ -302,6 +311,8 @@ func (s *lpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		s.serveBugsText(w, req)
 	case strings.HasPrefix(req.URL.Path, "/some-project") && req.FormValue("ws.op") == "getMergeProposals":
 		s.serveMerges(w, req)
+	case strings.HasPrefix(req.URL.Path, "/people"):
+		s.servePeople(w, req)
 	default:
 		panic("got unexpected request for " + req.URL.Path + " in test lpServer")
 	}
@@ -378,4 +389,45 @@ func (s *lpServer) serveMerges(w http.ResponseWriter, req *http.Request) {
 		entries = []string{e[2], e[3], e[4]}
 	}
 	w.Write([]byte(`{"entries": [` + strings.Join(entries, ",") + `]}`))
+}
+
+func (s *lpServer) servePeople(w http.ResponseWriter, req *http.Request) {
+	path := strings.TrimPrefix(req.URL.Path, "/people/")
+	if user := strings.TrimSuffix(path, "/membership"); user != path {
+		team := "contributor-agreement-canonical"
+		status := "Approved"
+		if user == "~other" {
+			team = "other-team"
+		}
+		if user == "~another" {
+			status = "Nope"
+		}
+		fmt.Fprintf(w, `{"entries": [{"team_link": "https://api.launchpad.net/1.0/~%s", "status": "%s"}]}`, team, status)
+		return
+	}
+
+	if user := strings.TrimSuffix(path, "/emails"); user != path {
+		if user == "~wsome" {
+			w.Write([]byte("{}"))
+			return
+		}
+		fmt.Fprintf(w, `{"entries": [{"email": "%s@email.com"}, {"email": "%s@example.com"}]}`, user[1:], user[1:])
+		return
+	}
+
+	entries := []string{
+		`{"name": "wsome", "display_name": "Awesome Joe", "memberships_details_collection_link": "%s/people/~wsome/membership",
+			"confirmed_email_addresses_collection_link": "%s/people/~wsome/emails"}`,
+		`{"name": "other", "display_name": "Some Other", "memberships_details_collection_link": "%s/people/~other/membership",
+			"confirmed_email_addresses_collection_link": "%s/people/~other/emails"}`,
+		`{"name": "another", "display_name": "Some Another", "memberships_details_collection_link": "%s/people/~another/membership",
+			"confirmed_email_addresses_collection_link": "%s/people/~another/emails"}`,
+		`{"name": "muser", "display_name": "Amuser Jeff", "memberships_details_collection_link": "%s/people/~muser/membership",
+			"confirmed_email_addresses_collection_link": "%s/people/~muser/emails"}`,
+	}
+	for i := range entries {
+		url := s.URL()
+		entries[i] = fmt.Sprintf(entries[i], url, url)
+	}
+	fmt.Fprintf(w, `{"entries": [%s], "total_size": %d, "start": 0}`, strings.Join(entries, ","), len(entries))
 }
