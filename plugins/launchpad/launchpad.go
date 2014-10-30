@@ -642,7 +642,8 @@ type lpPerson struct {
 	Username       string `json:"name"`
 	Name           string `json:"display_name"`
 	MembershipLink string `json:"memberships_details_collection_link"`
-	EmailLink      string `json:"confirmed_email_addresses_collection_link"`
+	EmailsLink     string `json:"confirmed_email_addresses_collection_link"`
+	EmailLink      string `json:"preferred_email_address_link"`
 
 	Emails []string
 }
@@ -672,6 +673,15 @@ func (s lpPersonSlice) Len() int           { return len(s) }
 func (s lpPersonSlice) Less(i, j int) bool { return s[i].Name < s[j].Name }
 func (s lpPersonSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
+func firstErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (p *lpPlugin) showContrib(to mup.Addressable, text string) {
 	var people lpPersonList
 	err := p.request("/people?ws.op=findPerson&text="+url.QueryEscape(text), &people)
@@ -700,14 +710,19 @@ func (p *lpPlugin) showContrib(to mup.Addressable, text string) {
 			}
 			for _, mship := range mships.Entries {
 				if mship.TeamLink == "https://api.launchpad.net/1.0/~contributor-agreement-canonical" && mship.Status == "Approved" {
+					var email lpEmail
 					var emails lpEmailList
-					err = p.request(person.EmailLink, &emails)
-					if err != nil {
+					var errs = make(chan error)
+					go func() { errs <- p.request(person.EmailLink, &email) }()
+					go func() { errs <- p.request(person.EmailsLink, &emails) }()
+					if err := firstErr(<-errs, <-errs); err != nil {
 						p.plugger.Sendf(to, "Cannot retrieve email information of ~%s from Launchpad: %v", person.Username, err)
-					} else {
-						for _, email := range emails.Entries {
-							person.Emails = append(person.Emails, email.Addr)
-						}
+					}
+					if email.Addr != "" {
+						person.Emails = append(person.Emails, email.Addr)
+					}
+					for _, email := range emails.Entries {
+						person.Emails = append(person.Emails, email.Addr)
 					}
 					ch <- &person
 					return

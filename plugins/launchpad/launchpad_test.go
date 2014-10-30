@@ -183,7 +183,7 @@ var lpTests = []lpTest{
 		send:   []string{"contrib some user"},
 		recv: []string{
 			"PRIVMSG nick :2 matching contributors signed the agreement:",
-			"PRIVMSG nick : — Amuser Jeff <https://launchpad.net/~muser> <muser@email.com> <muser@example.com>",
+			"PRIVMSG nick : — Amuser Jeff <https://launchpad.net/~muser> <muser@prefemail.com> <muser@email.com> <muser@example.com>",
 			"PRIVMSG nick : — Awesome Joe <https://launchpad.net/~wsome>",
 		},
 	},
@@ -415,19 +415,32 @@ func (s *lpServer) servePeople(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if user := strings.TrimSuffix(path, "/email"); user != path {
+		if user != "~muser" {
+			w.Write([]byte("{}"))
+			return
+		}
+		fmt.Fprintf(w, `{"email": "%s@prefemail.com"}`, user[1:])
+		return
+	}
+
 	entries := []string{
 		`{"name": "wsome", "display_name": "Awesome Joe", "memberships_details_collection_link": "%s/people/~wsome/membership",
-			"confirmed_email_addresses_collection_link": "%s/people/~wsome/emails"}`,
+			"confirmed_email_addresses_collection_link": "%s/people/~wsome/emails",
+			"preferred_email_address_link": "%s/people/~wsome/email"}`,
 		`{"name": "other", "display_name": "Some Other", "memberships_details_collection_link": "%s/people/~other/membership",
-			"confirmed_email_addresses_collection_link": "%s/people/~other/emails"}`,
+			"confirmed_email_addresses_collection_link": "%s/people/~other/emails",
+			"preferred_email_address_link": "%s/people/~other/email"}`,
 		`{"name": "another", "display_name": "Some Another", "memberships_details_collection_link": "%s/people/~another/membership",
-			"confirmed_email_addresses_collection_link": "%s/people/~another/emails"}`,
+			"confirmed_email_addresses_collection_link": "%s/people/~another/emails",
+			"preferred_email_address_link": "%s/people/~another/email"}`,
 		`{"name": "muser", "display_name": "Amuser Jeff", "memberships_details_collection_link": "%s/people/~muser/membership",
-			"confirmed_email_addresses_collection_link": "%s/people/~muser/emails"}`,
+			"confirmed_email_addresses_collection_link": "%s/people/~muser/emails",
+			"preferred_email_address_link": "%s/people/~muser/email"}`,
 	}
 	for i := range entries {
 		url := s.URL()
-		entries[i] = fmt.Sprintf(entries[i], url, url)
+		entries[i] = fmt.Sprintf(entries[i], url, url, url)
 	}
 	fmt.Fprintf(w, `{"entries": [%s], "total_size": %d, "start": 0}`, strings.Join(entries, ","), len(entries))
 }
