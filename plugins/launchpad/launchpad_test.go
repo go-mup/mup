@@ -211,6 +211,7 @@ func (s *S) TestLaunchpad(c *C) {
 			test.config = bson.M{}
 		}
 		test.config["endpoint"] = server.URL()
+		test.config["buglistendpoint"] = server.URL()
 		tester := mup.NewPluginTester(test.plugin)
 		tester.SetConfig(test.config)
 		tester.SetTargets(test.targets)

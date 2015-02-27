@@ -100,12 +100,13 @@ type lpPlugin struct {
 
 		BasicAuthToken string
 
-		Endpoint  string
-		Project   string
-		Overhear  bool
-		Options   string
-		PrefixNew string
-		PrefixOld string
+		Endpoint        string
+		BugListEndpoint string
+		Project         string
+		Overhear        bool
+		Options         string
+		PrefixNew       string
+		PrefixOld       string
 
 		JustShownTimeout mup.DurationString
 		PollDelay        mup.DurationString
@@ -127,7 +128,7 @@ type justShownBug struct {
 
 const (
 	defaultEndpoint         = "https://api.launchpad.net/1.0/"
-	defaultEndpointBugWatch = "https://launchpad.net/"
+	defaultBugListEndpoint  = "https://launchpad.net/"
 	defaultPollDelay        = 10 * time.Second
 	defaultJustShownTimeout = 1 * time.Minute
 	defaultPrefix           = "Bug #%d changed"
@@ -165,11 +166,10 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 		p.config.JustShownTimeout.Duration = defaultJustShownTimeout
 	}
 	if p.config.Endpoint == "" {
-		if mode == bugWatch {
-			p.config.Endpoint = defaultEndpointBugWatch
-		} else {
-			p.config.Endpoint = defaultEndpoint
-		}
+		p.config.Endpoint = defaultEndpoint
+	}
+	if p.config.BugListEndpoint == "" {
+		p.config.BugListEndpoint = defaultBugListEndpoint
 	}
 	if p.config.PrefixNew == "" {
 		p.config.PrefixNew = defaultPrefix
@@ -397,7 +397,11 @@ var errNotFound = fmt.Errorf("resource not found")
 
 func (p *lpPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = p.config.Endpoint + url
+		endpoint := p.config.Endpoint
+		if strings.Contains(url, "/+bugs-text") {
+			endpoint = p.config.BugListEndpoint
+		}
+		url = strings.TrimRight(endpoint, "/") + "/" + strings.TrimLeft(url, "/")
 	}
 	if p.config.Options != "" {
 		if strings.Contains(url, "?") {
@@ -432,7 +436,8 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 			p.plugger.Logf("Cannot read Launchpad response: %v", err)
 			return fmt.Errorf("cannot read Launchpad response: %v", err)
 		}
-		*(result.(*[]int)) = parseBugList(string(data))
+		list := parseBugList(string(data))
+		*(result.(*[]int)) = list
 		return nil
 	}
 	err = json.NewDecoder(resp.Body).Decode(result)
