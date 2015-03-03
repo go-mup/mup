@@ -163,20 +163,20 @@ var lpTests = []lpTest{
 				` oauth_timestamp="NNNNN"`,
 		},
 	}, {
-		// Basic authorization header.
+		// Auth cookie header.
 		plugin: "lpbugwatch",
 		config: bson.M{
-			"project":        "some-project",
-			"polldelay":      "50ms",
-			"prefixnew":      "Bug #%d is new",
-			"basicauthtoken": "btok",
+			"project":    "some-project",
+			"polldelay":  "50ms",
+			"prefixnew":  "Bug #%d is new",
+			"authcookie": "lpcookie",
 		},
 		targets: []bson.M{
 			{"account": "test", "channel": "#chan"},
 		},
 		bugsText: [][]int{{111}, {111, 222}},
 		recv:     []string{"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
-		headers:  bson.M{"Authorization": "Basic btok"},
+		headers:  bson.M{"Cookie": "lp=lpcookie"},
 	}, {
 		// Basic contributor agreement query.
 		plugin: "lpcontrib",

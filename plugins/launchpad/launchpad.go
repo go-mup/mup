@@ -98,7 +98,7 @@ type lpPlugin struct {
 		OAuthAccessToken string
 		OAuthSecretToken string
 
-		BasicAuthToken string
+		AuthCookie string
 
 		Endpoint        string
 		BugListEndpoint string
@@ -377,9 +377,6 @@ func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
 }
 
 func (p *lpPlugin) authHeader() string {
-	if p.mode == bugWatch && p.config.BasicAuthToken != "" {
-		return "Basic " + p.config.BasicAuthToken
-	}
 	nonce := p.rand.Int63()
 	timestamp := time.Now().Unix()
 	return fmt.Sprintf(``+
@@ -415,7 +412,12 @@ func (p *lpPlugin) request(url string, result interface{}) error {
 		p.plugger.Logf("Cannot perform Launchpad request: %v", err)
 		return fmt.Errorf("cannot perform Launchpad request: %v", err)
 	}
-	req.Header.Add("Authorization", p.authHeader())
+	if p.config.OAuthAccessToken != "" {
+		req.Header.Add("Authorization", p.authHeader())
+	}
+	if p.config.AuthCookie != "" {
+		req.Header.Add("Cookie", "lp="+p.config.AuthCookie)
+	}
 	resp, err := httpClient.Do(req)
 	if err == nil && resp.StatusCode == 404 {
 		resp.Body.Close()
