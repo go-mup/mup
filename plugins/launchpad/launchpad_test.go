@@ -32,7 +32,7 @@ type lpTest struct {
 	bugsText [][]int
 	bugsForm url.Values
 	status   int
-	headers  bson.M
+	headers  map[string]bson.M
 }
 
 var lpTests = []lpTest{
@@ -152,31 +152,59 @@ var lpTests = []lpTest{
 		},
 		send: []string{"bug 111"},
 		recv: []string{"PRIVMSG nick :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
-		headers: bson.M{
-			"Authorization": `` +
-				`OAuth realm="https://api.launchpad.net",` +
-				` oauth_consumer_key="mup",` +
-				` oauth_signature_method="PLAINTEXT",` +
-				` oauth_token="atok",` +
-				` oauth_signature="&stok",` +
-				` oauth_nonce="NNNNN",` +
-				` oauth_timestamp="NNNNN"`,
+		headers: map[string]bson.M{
+			"/bugs/111": {
+				"Authorization": `` +
+					`OAuth realm="https://api.launchpad.net",` +
+					` oauth_consumer_key="mup",` +
+					` oauth_signature_method="PLAINTEXT",` +
+					` oauth_token="atok",` +
+					` oauth_signature="&stok",` +
+					` oauth_nonce="NNNNN",` +
+					` oauth_timestamp="NNNNN"`,
+			},
 		},
 	}, {
 		// Auth cookie header.
 		plugin: "lpbugwatch",
 		config: bson.M{
-			"project":    "some-project",
-			"polldelay":  "50ms",
-			"prefixnew":  "Bug #%d is new",
-			"authcookie": "lpcookie",
+			"project":   "some-project",
+			"polldelay": "50ms",
+			"prefixnew": "Bug #%d is new",
+
+			"authcookie":       "lpcookie",
+			"oauthaccesstoken": "atok",
+			"oauthsecrettoken": "stok",
 		},
 		targets: []bson.M{
 			{"account": "test", "channel": "#chan"},
 		},
 		bugsText: [][]int{{111}, {111, 222}},
 		recv:     []string{"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
-		headers:  bson.M{"Cookie": "lp=lpcookie"},
+		headers: map[string]bson.M{
+			"/bugs/222": {
+				"Cookie": "lp=lpcookie",
+				"Authorization": `` +
+					`OAuth realm="https://api.launchpad.net",` +
+					` oauth_consumer_key="mup",` +
+					` oauth_signature_method="PLAINTEXT",` +
+					` oauth_token="atok",` +
+					` oauth_signature="&stok",` +
+					` oauth_nonce="NNNNN",` +
+					` oauth_timestamp="NNNNN"`,
+			},
+			"/some-project/+bugs-text": {
+				"Cookie": "lp=lpcookie",
+				"Authorization": `` +
+					`OAuth realm="https://api.launchpad.net",` +
+					` oauth_consumer_key="mup",` +
+					` oauth_signature_method="PLAINTEXT",` +
+					` oauth_token="atok",` +
+					` oauth_signature="&stok",` +
+					` oauth_nonce="NNNNN",` +
+					` oauth_timestamp="NNNNN"`,
+			},
+		},
 	}, {
 		// Basic contributor agreement query.
 		plugin: "lpcontrib",
@@ -227,10 +255,14 @@ func (s *S) TestLaunchpad(c *C) {
 		if test.bugsForm != nil {
 			c.Assert(server.bugsForm, DeepEquals, test.bugsForm)
 		}
-		for name, value := range test.headers {
-			header := server.header.Get(name)
-			header = regexp.MustCompile("[0-9]{5,}").ReplaceAllString(header, "NNNNN")
-			c.Assert(header, Equals, value)
+		if len(test.headers) > 0 {
+			for url, headers := range test.headers {
+				for name, value := range headers {
+					header := server.headers[url].Get(name)
+					header = regexp.MustCompile("[0-9]{5,}").ReplaceAllString(header, "NNNNN")
+					c.Assert(header, Equals, value)
+				}
+			}
 		}
 	}
 }
@@ -283,11 +315,12 @@ type lpServer struct {
 
 	mergesResp int
 
-	header http.Header
+	headers map[string]http.Header
 }
 
 func (s *lpServer) Start() {
 	s.server = httptest.NewServer(s)
+	s.headers = make(map[string]http.Header)
 }
 
 func (s *lpServer) Stop() {
@@ -299,7 +332,7 @@ func (s *lpServer) URL() string {
 }
 
 func (s *lpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	s.header = req.Header
+	s.headers[req.URL.Path] = req.Header
 	if s.status != 0 {
 		w.WriteHeader(s.status)
 		return
