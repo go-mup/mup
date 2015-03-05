@@ -129,9 +129,10 @@ type justShownBug struct {
 const (
 	defaultEndpoint         = "https://api.launchpad.net/1.0/"
 	defaultBugListEndpoint  = "https://launchpad.net/"
-	defaultPollDelay        = 10 * time.Second
+	defaultPollDelay        = 3 * time.Minute
 	defaultJustShownTimeout = 1 * time.Minute
-	defaultPrefix           = "Bug #%d changed"
+	defaultPrefixNew        = "Bug #%d was opened"
+	defaultPrefixOld        = "Bug #%d changed"
 )
 
 func startBugData(plugger *mup.Plugger) mup.Stopper {
@@ -172,10 +173,10 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 		p.config.BugListEndpoint = defaultBugListEndpoint
 	}
 	if p.config.PrefixNew == "" {
-		p.config.PrefixNew = defaultPrefix
+		p.config.PrefixNew = defaultPrefixNew
 	}
 	if p.config.PrefixOld == "" {
-		p.config.PrefixOld = defaultPrefix
+		p.config.PrefixOld = defaultPrefixOld
 	}
 
 	if p.mode == bugData {
