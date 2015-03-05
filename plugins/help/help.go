@@ -52,7 +52,7 @@ func (p *helpPlugin) Stop() error {
 }
 
 func (p *helpPlugin) HandleMessage(msg *mup.Message) {
-	if msg.BotText == "" {
+	if msg.BotText == "" || msg.Bang != "" && strings.HasPrefix(msg.Text, msg.Bang) {
 		return
 	}
 	cmdname := schema.CommandName(msg.BotText)

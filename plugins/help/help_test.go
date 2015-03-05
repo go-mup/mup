@@ -122,6 +122,14 @@ var helpTests = []helpTest{{
 	recv:  `PRIVMSG nick :Plugin "test" is not running.`,
 	cmds:  schema.Commands{{Name: "cmdname"}},
 	known: true,
+}, {
+	send:   "[#chan] mup: foo",
+	recv:   `PRIVMSG #chan :nick: Command "foo" not found.`,
+	config: bson.M{"boring": true},
+}, {
+	send:    "[#chan] !foo",
+	recvAll: []string{},
+	config:  bson.M{"boring": true},
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {
@@ -171,6 +179,10 @@ func (s *HelpSuite) testHelp(c *C, test *helpTest) {
 		c.Assert(tester.Recv(), Equals, test.recv)
 	}
 	if test.recvAll != nil {
-		c.Assert(tester.RecvAll(), DeepEquals, test.recvAll)
+		if len(test.recvAll) == 0 {
+			c.Assert(tester.RecvAll(), IsNil)
+		} else {
+			c.Assert(tester.RecvAll(), DeepEquals, test.recvAll)
+		}
 	}
 }
