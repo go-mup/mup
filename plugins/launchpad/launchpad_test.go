@@ -110,8 +110,8 @@ var lpTests = []lpTest{
 		config: bson.M{
 			"project":   "some-project",
 			"polldelay": "50ms",
-			"prefixnew": "Bug #%d is new",
-			"prefixold": "Bug #%d is old",
+			"prefixnew": "Bug #%v is new",
+			"prefixold": "Bug #%v is old",
 			"options":   "foo=bar",
 		},
 		targets: []bson.M{
@@ -122,10 +122,31 @@ var lpTests = []lpTest{
 			"foo": {"bar"},
 		},
 		recv: []string{
-			"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
 			"PRIVMSG #chan :Bug #333 is old: Title of 333 <https://launchpad.net/bugs/333>",
 			"PRIVMSG #chan :Bug #555 is old: Title of 555 <https://launchpad.net/bugs/555>",
+			"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>",
 			"PRIVMSG #chan :Bug #666 is new: Title of 666 <https://launchpad.net/bugs/666>",
+		},
+	}, {
+		// Polling of bug changes with too many bugs to show at once.
+		plugin: "lpbugwatch",
+		config: bson.M{
+			"project":   "some-project",
+			"polldelay": "50ms",
+			"prefixnew": "Bug #%v is new",
+			"prefixold": "Bug #%v is old",
+			"options":   "foo=bar",
+		},
+		targets: []bson.M{
+			{"account": "test", "channel": "#chan"},
+		},
+		bugsText: [][]int{{111, 222, 333, 444, 555}, {333, 666, 777, 888, 999}},
+		bugsForm: url.Values{
+			"foo": {"bar"},
+		},
+		recv: []string{
+			"PRIVMSG #chan :Bug # is old: 111, 222, 444, 555",
+			"PRIVMSG #chan :Bug # is new: 666, 777, 888, 999",
 		},
 	}, {
 		// Polling of merge changes.
@@ -170,7 +191,7 @@ var lpTests = []lpTest{
 		config: bson.M{
 			"project":   "some-project",
 			"polldelay": "50ms",
-			"prefixnew": "Bug #%d is new",
+			"prefixnew": "Bug #%v is new",
 
 			"authcookie":       "lpcookie",
 			"oauthaccesstoken": "atok",

@@ -131,8 +131,8 @@ const (
 	defaultBugListEndpoint  = "https://launchpad.net/"
 	defaultPollDelay        = 3 * time.Minute
 	defaultJustShownTimeout = 1 * time.Minute
-	defaultPrefixNew        = "Bug #%d was opened"
-	defaultPrefixOld        = "Bug #%d changed"
+	defaultPrefixNew        = "Bug #%v opened"
+	defaultPrefixOld        = "Bug #%v changed"
 )
 
 func startBugData(plugger *mup.Plugger) mup.Stopper {
@@ -330,8 +330,8 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 			return
 		}
 	}
-	if !strings.Contains(prefix, "%d") || strings.Count(prefix, "%") > 1 {
-		prefix = "Bug #%d"
+	if !strings.Contains(prefix, "%v") || strings.Count(prefix, "%") > 1 {
+		prefix = "Bug #%v"
 	}
 	format := prefix + ": %s%s <https://launchpad.net/bugs/%d>"
 	args := []interface{}{bugId, bug.Title, p.formatNotes(&bug, &tasks), bugId}
@@ -349,6 +349,19 @@ func (p *lpPlugin) showBug(msg *mup.Message, bugId int, prefix string) {
 	default:
 		p.plugger.Sendf(msg, format, args...)
 	}
+}
+
+func (p *lpPlugin) showManyBugs(bugIds []int, prefix string) {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, prefix, "")
+	buf.WriteString(": ")
+	for i, bugId := range bugIds {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(strconv.Itoa(bugId))
+	}
+	p.plugger.Broadcast(&mup.Message{Text: buf.String()})
 }
 
 func (p *lpPlugin) formatNotes(bug *lpBug, tasks *lpBugTasks) string {
@@ -535,27 +548,36 @@ func (p *lpPlugin) pollBugs() error {
 			continue
 		}
 
+		var showNewBugs, showOldBugs []int
 		var o, n int
 		for o < len(oldBugs) || n < len(newBugs) {
-			var prefix string
-			var bugId int
 			switch {
 			case o == len(oldBugs) || n < len(newBugs) && newBugs[n] < oldBugs[o]:
-				prefix = p.config.PrefixNew
-				bugId = newBugs[n]
+				showNewBugs = append(showNewBugs, newBugs[n])
 				n++
 			case n == len(newBugs) || o < len(oldBugs) && oldBugs[o] < newBugs[n]:
-				prefix = p.config.PrefixOld
-				bugId = oldBugs[o]
+				showOldBugs = append(showOldBugs, oldBugs[o])
 				o++
 			default:
 				o++
 				n++
 				continue
 			}
-			p.showBug(nil, bugId, prefix)
 		}
-
+		if len(showOldBugs) > 3 {
+			p.showManyBugs(showOldBugs, p.config.PrefixOld)
+		} else {
+			for _, bugId := range showOldBugs {
+				p.showBug(nil, bugId, p.config.PrefixOld)
+			}
+		}
+		if len(showNewBugs) > 3 {
+			p.showManyBugs(showNewBugs, p.config.PrefixNew)
+		} else {
+			for _, bugId := range showNewBugs {
+				p.showBug(nil, bugId, p.config.PrefixNew)
+			}
+		}
 		oldBugs = newBugs
 	}
 	return nil
