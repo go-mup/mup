@@ -5,6 +5,7 @@ import (
 
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/plugins/help"
 	"gopkg.in/mup.v0/schema"
@@ -15,7 +16,7 @@ func Test(t *testing.T) { TestingT(t) }
 var _ = Suite(&HelpSuite{})
 
 type HelpSuite struct {
-	dbserver mup.DBServerHelper
+	dbserver dbtest.DBServer
 }
 
 func (s *HelpSuite) SetUpSuite(c *C) {

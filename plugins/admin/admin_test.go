@@ -6,6 +6,7 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/plugins/admin"
 )
@@ -15,7 +16,7 @@ func Test(t *testing.T) { TestingT(t) }
 var _ = Suite(&AdminSuite{})
 
 type AdminSuite struct {
-	dbserver mup.DBServerHelper
+	dbserver dbtest.DBServer
 }
 
 func (s *AdminSuite) SetUpSuite(c *C) {

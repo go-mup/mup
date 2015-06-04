@@ -8,6 +8,7 @@ import (
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 )
@@ -15,7 +16,7 @@ import (
 var _ = Suite(&PluggerSuite{})
 
 type PluggerSuite struct {
-	dbserver mup.DBServerHelper
+	dbserver dbtest.DBServer
 	sent     []string
 	msgs     []*mup.Message
 	ldap     map[string]ldap.Conn
