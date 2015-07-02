@@ -8,6 +8,19 @@ import (
 	"unicode"
 )
 
+const (
+	cmdWelcome   = "001"
+	cmdNickInUse = "433"
+	cmdPrivMsg   = "PRIVMSG"
+	cmdNotice    = "NOTICE"
+	cmdNick      = "NICK"
+	cmdPing      = "PING"
+	cmdPong      = "PONG"
+	cmdJoin      = "JOIN"
+	cmdPart      = "PART"
+	cmdQuit      = "QUIT"
+)
+
 type Message struct {
 	Id bson.ObjectId `bson:"_id,omitempty"`
 

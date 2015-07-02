@@ -16,16 +16,47 @@ type accountManager struct {
 	config   Config
 	session  *mgo.Session
 	database *mgo.Database
-	clients  map[string]*ircClient
+	clients  map[string]accountClient
 	requests chan interface{}
 	incoming chan *Message
+}
+
+type accountClient interface {
+	Alive() bool
+	Stop() error
+
+	AccountName() string
+	Dying() <-chan struct{}
+	Outgoing() chan *Message
+	LastId() bson.ObjectId
+	UpdateInfo(info *accountInfo)
+}
+
+type accountInfo struct {
+	Name        string `bson:"_id"`
+	Host        string
+	TLS         bool
+	TLSInsecure bool
+	Nick        string
+	Password    string
+	Channels    []channelInfo
+	LastId      bson.ObjectId
+}
+
+// NetworkTimeout's value is used as a timeout in a number of network-related activities.
+// Plugins are encouraged to use that same value internally for consistent behavior.
+var NetworkTimeout = 15 * time.Second
+
+type channelInfo struct {
+	Name string
+	Key  string
 }
 
 func startAccountManager(config Config) (*accountManager, error) {
 	logf("Starting account manager...")
 	am := &accountManager{
 		config:   config,
-		clients:  make(map[string]*ircClient),
+		clients:  make(map[string]accountClient),
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
 	}
@@ -184,14 +215,14 @@ func (am *accountManager) handleRefresh() {
 	// Drop clients for dead or deleted accounts.
 	for _, client := range am.clients {
 		select {
-		case <-client.Dying:
+		case <-client.Dying():
 		default:
-			if good[client.Account] {
+			if good[client.AccountName()] {
 				continue
 			}
 		}
 		client.Stop()
-		delete(am.clients, client.Account)
+		delete(am.clients, client.AccountName())
 	}
 
 	// Bring new clients up and update existing ones.
@@ -213,7 +244,7 @@ func (am *accountManager) handleRefresh() {
 	}
 }
 
-func (am *accountManager) tail(client *ircClient) error {
+func (am *accountManager) tail(client accountClient) error {
 	session := am.session.Copy()
 	defer session.Close()
 	database := am.database.With(session)
@@ -231,7 +262,7 @@ func (am *accountManager) tail(client *ircClient) error {
 	// The logic below knows how to retry on all three, and also when there
 	// are arbitrary communication errors.
 
-	lastId := client.LastId
+	lastId := client.LastId()
 	if lastId == "" {
 		lastId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 	}
@@ -240,7 +271,7 @@ func (am *accountManager) tail(client *ircClient) error {
 
 		// Prepare a new tailing iterator.
 		session.Refresh()
-		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"account", client.Account}})
+		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"account", client.AccountName()}})
 		iter := query.Sort("$natural").Tail(2 * time.Second)
 
 		// Loop while iterator remains valid.
@@ -249,7 +280,7 @@ func (am *accountManager) tail(client *ircClient) error {
 			for iter.Next(&msg) {
 				debugf("[%s] Tail iterator got outgoing message: %s", msg.Account, msg.String())
 				select {
-				case client.Outgoing <- msg:
+				case client.Outgoing() <- msg:
 					// Send back to plugins for outgoing message handling.
 					msg.Time = time.Now()
 					err := incoming.Insert(msg)
@@ -258,7 +289,7 @@ func (am *accountManager) tail(client *ircClient) error {
 					}
 					lastId = msg.Id
 					msg = nil
-				case <-client.Dying:
+				case <-client.Dying():
 					iter.Close()
 					return nil
 				}
@@ -276,7 +307,7 @@ func (am *accountManager) tail(client *ircClient) error {
 		case <-time.After(100 * time.Millisecond):
 		case <-am.tomb.Dying():
 			return nil
-		case <-client.Dying:
+		case <-client.Dying():
 			return nil
 		}
 	}

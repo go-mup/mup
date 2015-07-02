@@ -12,39 +12,6 @@ import (
 	"time"
 )
 
-const (
-	cmdWelcome   = "001"
-	cmdNickInUse = "433"
-	cmdPrivMsg   = "PRIVMSG"
-	cmdNotice    = "NOTICE"
-	cmdNick      = "NICK"
-	cmdPing      = "PING"
-	cmdPong      = "PONG"
-	cmdJoin      = "JOIN"
-	cmdPart      = "PART"
-	cmdQuit      = "QUIT"
-)
-
-type accountInfo struct {
-	Name        string `bson:"_id"`
-	Host        string
-	TLS         bool
-	TLSInsecure bool
-	Nick        string
-	Password    string
-	Channels    []channelInfo
-	LastId      bson.ObjectId
-}
-
-type channelInfo struct {
-	Name string
-	Key  string
-}
-
-// NetworkTimeout's value is used as a timeout in a number of network-related activities.
-// Plugins are encouraged to use that same value internally for consistent behavior.
-var NetworkTimeout = 15 * time.Second
-
 const nickChangeDelay = 30 * time.Second
 
 type ircClient struct {
@@ -61,30 +28,32 @@ type ircClient struct {
 	requests chan interface{}
 	stopAuth chan bool
 
-	Account  string
-	Dying    <-chan struct{}
-	Incoming chan *Message
-	Outgoing chan *Message
-	LastId   bson.ObjectId
+	accountName string
+	dying       <-chan struct{}
+	incoming    chan *Message
+	outgoing    chan *Message
+	lastId      bson.ObjectId
 }
 
-func startIrcClient(info *accountInfo, incoming chan *Message) *ircClient {
+func (c *ircClient) AccountName() string     { return c.accountName }
+func (c *ircClient) Dying() <-chan struct{}  { return c.dying }
+func (c *ircClient) Outgoing() chan *Message { return c.outgoing }
+func (c *ircClient) LastId() bson.ObjectId   { return c.lastId }
+
+func startIrcClient(info *accountInfo, incoming chan *Message) accountClient {
 	c := &ircClient{
+		accountName: info.Name,
+
 		info:     *info,
 		requests: make(chan interface{}, 1),
 		stopAuth: make(chan bool),
-		Account:  info.Name,
-		Incoming: incoming,
-		Outgoing: make(chan *Message),
+		incoming: incoming,
+		outgoing: make(chan *Message),
 	}
-	c.LastId = c.info.LastId
-	c.Dying = c.tomb.Dying()
+	c.lastId = c.info.LastId
+	c.dying = c.tomb.Dying()
 	c.tomb.Go(c.run)
 	return c
-}
-
-func (c *ircClient) Err() error {
-	return c.tomb.Err()
 }
 
 func (c *ircClient) Alive() bool {
@@ -95,13 +64,13 @@ func (c *ircClient) Stop() error {
 	// Try to disconnect gracefully.
 	timeout := time.After(NetworkTimeout)
 	select {
-	case c.Outgoing <- &Message{Command: cmdQuit, Params: []string{":brb"}}:
+	case c.outgoing <- &Message{Command: cmdQuit, Params: []string{":brb"}}:
 		select {
-		case <-c.tomb.Dying():
+		case <-c.dying:
 		case <-timeout:
 		}
 	case c.stopAuth <- true:
-	case <-c.tomb.Dying():
+	case <-c.dying:
 	case <-timeout:
 	}
 	c.tomb.Kill(errStop)
@@ -117,14 +86,14 @@ type ireqUpdateInfo *accountInfo
 // UpdateInfo updates the account information. Everything but
 // the account name may be updated.
 func (c *ircClient) UpdateInfo(info *accountInfo) {
-	if info.Name != c.Account {
+	if info.Name != c.accountName {
 		panic("cannot change the account name")
 	}
 	// Make a copy as its use will continue after returning to the caller.
 	infoCopy := *info
 	select {
 	case c.requests <- ireqUpdateInfo(&infoCopy):
-	case <-c.tomb.Dying():
+	case <-c.dying:
 	}
 }
 
@@ -133,22 +102,22 @@ func (c *ircClient) run() error {
 
 	err := c.connect()
 	if err != nil {
-		logf("[%s] While connecting to IRC server: %v", c.Account, err)
-		c.tomb.Killf("%s: cannot connect to IRC server: %v", c.Account, err)
+		logf("[%s] While connecting to IRC server: %v", c.accountName, err)
+		c.tomb.Killf("%s: cannot connect to IRC server: %v", c.accountName, err)
 		return nil
 	}
 
 	err = c.auth()
 	if err != nil {
-		logf("[%s] While authenticating on IRC server: %v", c.Account, err)
-		c.tomb.Killf("%s: cannot authenticate on IRC server: %v", c.Account, err)
+		logf("[%s] While authenticating on IRC server: %v", c.accountName, err)
+		c.tomb.Killf("%s: cannot authenticate on IRC server: %v", c.accountName, err)
 		return nil
 	}
 
 	err = c.forward()
 	if err != nil {
-		logf("[%s] While talking to IRC server: %v", c.Account, err)
-		c.tomb.Killf("%s: while talking to IRC server: %v", c.Account, err)
+		logf("[%s] While talking to IRC server: %v", c.accountName, err)
+		c.tomb.Killf("%s: while talking to IRC server: %v", c.accountName, err)
 		return nil
 	}
 
@@ -156,23 +125,23 @@ func (c *ircClient) run() error {
 }
 
 func (c *ircClient) die() {
-	logf("[%s] Cleaning IRC connection resources", c.Account)
+	logf("[%s] Cleaning IRC connection resources", c.accountName)
 
 	// Stop the writer before closing the connection, so that
 	// in progress writes are politely finished.
 	if c.ircW != nil {
 		err := c.ircW.Stop()
 		if err != nil {
-			logf("[%s] IRC writer failure: %s", c.Account, err)
+			logf("[%s] IRC writer failure: %s", c.accountName, err)
 		}
 	}
 	// Close the connection before stopping the reader, as the
 	// reader is likely blocked attempting to get more data.
 	if c.conn != nil {
-		debugf("[%s] Closing connection", c.Account)
+		debugf("[%s] Closing connection", c.accountName)
 		err := c.conn.Close()
 		if err != nil {
-			logf("[%s] Failure closing IRC server connection: %s", c.Account, err)
+			logf("[%s] Failure closing IRC server connection: %s", c.accountName, err)
 		}
 		c.conn = nil
 	}
@@ -180,16 +149,16 @@ func (c *ircClient) die() {
 	if c.ircR != nil {
 		err := c.ircR.Stop()
 		if err != nil {
-			logf("[%s] IRC reader failure: %s", c.Account, err)
+			logf("[%s] IRC reader failure: %s", c.accountName, err)
 		}
 	}
 
 	c.tomb.Kill(nil)
-	logf("[%s] Client terminated (%v)", c.Account, c.tomb.Err())
+	logf("[%s] IRC client terminated (%v)", c.accountName, c.tomb.Err())
 }
 
 func (c *ircClient) connect() (err error) {
-	logf("[%s] Connecting with nick %q to IRC server %q (tls=%v)", c.Account, c.info.Nick, c.info.Host, c.info.TLS)
+	logf("[%s] Connecting with nick %q to IRC server %q (tls=%v)", c.accountName, c.info.Nick, c.info.Host, c.info.TLS)
 	dialer := &net.Dialer{Timeout: NetworkTimeout}
 	if c.info.TLS {
 		var config tls.Config
@@ -204,10 +173,10 @@ func (c *ircClient) connect() (err error) {
 		c.conn = nil
 		return err
 	}
-	logf("[%s] Connected to %q", c.Account, c.info.Host)
+	logf("[%s] Connected to %q", c.accountName, c.info.Host)
 
-	c.ircR = startIrcReader(c.Account, c.conn)
-	c.ircW = startIrcWriter(c.Account, c.conn)
+	c.ircR = startIrcReader(c.accountName, c.conn)
+	c.ircW = startIrcWriter(c.accountName, c.conn)
 	return nil
 }
 
@@ -231,8 +200,8 @@ func (c *ircClient) auth() (err error) {
 		var msg *Message
 		select {
 		case msg = <-c.ircR.Incoming:
-		case <-c.Dying:
-			return c.Err()
+		case <-c.dying:
+			return c.tomb.Err()
 		case <-c.ircR.Dying:
 			return c.ircR.Err()
 		case <-c.ircW.Dying:
@@ -242,7 +211,7 @@ func (c *ircClient) auth() (err error) {
 		}
 
 		if msg.Command == cmdNickInUse {
-			logf("[%s] Nick %q is in use. Trying with %q.", c.Account, nick, nick+"_")
+			logf("[%s] Nick %q is in use. Trying with %q.", c.accountName, nick, nick+"_")
 			nick += "_"
 			err = c.ircW.Sendf("NICK %s", nick)
 			if err != nil {
@@ -259,7 +228,7 @@ func (c *ircClient) auth() (err error) {
 		}
 		if msg.Command == cmdWelcome {
 			c.activeNick = msg.AsNick
-			logf("[%s] Got welcome notice.", c.Account)
+			logf("[%s] Got welcome notice.", c.accountName)
 			break
 		}
 	}
@@ -277,7 +246,7 @@ func (c *ircClient) forward() error {
 	var inSend, outSend chan<- *Message
 
 	inRecv = c.ircR.Incoming
-	outRecv = c.Outgoing
+	outRecv = c.outgoing
 
 	quitting := false
 	for {
@@ -292,7 +261,7 @@ func (c *ircClient) forward() error {
 				continue
 			}
 			inRecv = nil
-			inSend = c.Incoming
+			inSend = c.incoming
 
 		case inSend <- inMsg:
 			inMsg = nil
@@ -308,7 +277,7 @@ func (c *ircClient) forward() error {
 
 		case outSend <- outMsg:
 			outMsg = nil
-			outRecv = c.Outgoing
+			outRecv = c.outgoing
 			outSend = nil
 
 		case req := <-c.requests:
@@ -320,8 +289,8 @@ func (c *ircClient) forward() error {
 				}
 			}
 
-		case <-c.Dying:
-			return c.Err()
+		case <-c.dying:
+			return c.tomb.Err()
 		case <-c.ircR.Dying:
 			if quitting {
 				return errStop
@@ -375,13 +344,13 @@ func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
 		if msg.Command == cmdJoin {
 			if pos == -1 {
 				c.activeChannels = append(c.activeChannels, channel)
-				logf("[%s] Joined channel %q.", c.Account, channel)
+				logf("[%s] Joined channel %q.", c.accountName, channel)
 			}
 		} else {
 			if pos != -1 {
 				copy(c.activeChannels[pos:], c.activeChannels[pos+1:])
 				c.activeChannels = c.activeChannels[:len(c.activeChannels)-1]
-				logf("[%s] Left channel %q.", c.Account, channel)
+				logf("[%s] Left channel %q.", c.accountName, channel)
 			}
 		}
 	}
@@ -441,21 +410,21 @@ Outer2:
 
 // An ircWriter reads messages from the Outgoing channel and sends it to the server.
 type ircWriter struct {
-	account string
-	conn    net.Conn
-	buf     *bufio.Writer
-	tomb    tomb.Tomb
+	accountName string
+	conn        net.Conn
+	buf         *bufio.Writer
+	tomb        tomb.Tomb
 
 	Dying    <-chan struct{}
 	Outgoing chan *Message
 }
 
-func startIrcWriter(name string, conn net.Conn) *ircWriter {
+func startIrcWriter(accountName string, conn net.Conn) *ircWriter {
 	w := &ircWriter{
-		account:  name,
-		conn:     conn,
-		buf:      bufio.NewWriter(conn),
-		Outgoing: make(chan *Message, 1),
+		accountName: accountName,
+		conn:        conn,
+		buf:         bufio.NewWriter(conn),
+		Outgoing:    make(chan *Message, 1),
 	}
 	w.Dying = w.tomb.Dying()
 	w.tomb.Go(w.loop)
@@ -467,7 +436,7 @@ func (w *ircWriter) Err() error {
 }
 
 func (w *ircWriter) Stop() error {
-	debugf("[%s] Requesting writer to stop...", w.account)
+	debugf("[%s] Requesting writer to stop...", w.accountName)
 	w.tomb.Kill(errStop)
 	err := w.tomb.Wait()
 	if err != errStop {
@@ -486,11 +455,11 @@ func (w *ircWriter) Send(msg *Message) error {
 }
 
 func (w *ircWriter) Sendf(format string, args ...interface{}) error {
-	return w.Send(ParseOutgoing(w.account, fmt.Sprintf(format, args...)))
+	return w.Send(ParseOutgoing(w.accountName, fmt.Sprintf(format, args...)))
 }
 
 func (w *ircWriter) die() {
-	debugf("[%s] Writer is dead (%v)", w.account, w.tomb.Err())
+	debugf("[%s] Writer is dead (%v)", w.accountName, w.tomb.Err())
 }
 
 func (w *ircWriter) loop() error {
@@ -507,7 +476,7 @@ loop:
 		case msg := <-w.Outgoing:
 			line := msg.String()
 			if msg.Command != cmdPong {
-				logf("[%s] Sending: %s", w.account, line)
+				logf("[%s] Sending: %s", w.accountName, line)
 			}
 			if (msg.Command == cmdPrivMsg || msg.Command == cmdNotice || msg.Command == "") && msg.Id != "" {
 				send = []string{line, "\r\nPING :sent:", msg.Id.Hex(), "\r\n"}
@@ -546,22 +515,22 @@ loop:
 
 // An ircReader reads lines from the server and injects it in the Incoming channel.
 type ircReader struct {
-	account    string
-	conn       net.Conn
-	activeNick string
-	buf        *bufio.Reader
-	tomb       tomb.Tomb
+	accountName string
+	conn        net.Conn
+	activeNick  string
+	buf         *bufio.Reader
+	tomb        tomb.Tomb
 
 	Dying    <-chan struct{}
 	Incoming chan *Message
 }
 
-func startIrcReader(name string, conn net.Conn) *ircReader {
+func startIrcReader(accountName string, conn net.Conn) *ircReader {
 	r := &ircReader{
-		account:  name,
-		conn:     conn,
-		buf:      bufio.NewReader(conn),
-		Incoming: make(chan *Message, 1),
+		accountName: accountName,
+		conn:        conn,
+		buf:         bufio.NewReader(conn),
+		Incoming:    make(chan *Message, 1),
 	}
 	r.Dying = r.tomb.Dying()
 	r.tomb.Go(r.loop)
@@ -575,7 +544,7 @@ func (r *ircReader) Err() error {
 var errStop = fmt.Errorf("stop requested")
 
 func (r *ircReader) Stop() error {
-	debugf("[%s] Requesting reader to stop...", r.account)
+	debugf("[%s] Requesting reader to stop...", r.accountName)
 	r.tomb.Kill(errStop)
 	err := r.tomb.Wait()
 	if err != errStop {
@@ -585,7 +554,7 @@ func (r *ircReader) Stop() error {
 }
 
 func (r *ircReader) die() {
-	debugf("[%s] Reader is dead (%v)", r.account, r.tomb.Err())
+	debugf("[%s] Reader is dead (%v)", r.accountName, r.tomb.Err())
 }
 
 func (r *ircReader) loop() error {
@@ -602,22 +571,22 @@ func (r *ircReader) loop() error {
 			r.tomb.Killf("line is too long")
 			break
 		}
-		msg := ParseIncoming(r.account, r.activeNick, "!", string(line))
+		msg := ParseIncoming(r.accountName, r.activeNick, "!", string(line))
 		if msg.Command != cmdPong && msg.Command != cmdPing {
-			logf("[%s] Received: %s", r.account, line)
+			logf("[%s] Received: %s", r.accountName, line)
 		}
 		switch msg.Command {
 		case cmdNick:
 			if r.activeNick == "" || r.activeNick == msg.Nick {
 				r.activeNick = msg.Text
 				msg.AsNick = r.activeNick
-				logf("[%s] Nick %q accepted.", r.account, r.activeNick)
+				logf("[%s] Nick %q accepted.", r.accountName, r.activeNick)
 			}
 		case cmdWelcome:
 			if len(msg.Params) > 0 {
 				r.activeNick = msg.Params[0]
 				msg.AsNick = r.activeNick
-				logf("[%s] Nick %q accepted.", r.account, r.activeNick)
+				logf("[%s] Nick %q accepted.", r.accountName, r.activeNick)
 			}
 		}
 		select {
