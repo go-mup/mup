@@ -34,6 +34,7 @@ type accountClient interface {
 
 type accountInfo struct {
 	Name        string `bson:"_id"`
+	Kind        string
 	Host        string
 	TLS         bool
 	TLSInsecure bool
@@ -235,7 +236,14 @@ func (am *accountManager) handleRefresh() {
 			info.Nick = "mup"
 		}
 		if client, ok := am.clients[info.Name]; !ok {
-			client = startIrcClient(info, am.incoming)
+			switch info.Kind {
+			case "irc", "":
+				client = startIrcClient(info, am.incoming)
+			case "telegram":
+				client = startTgClient(info, am.incoming)
+			default:
+				continue
+			}
 			am.clients[info.Name] = client
 			go am.tail(client)
 		} else {
