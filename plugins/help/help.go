@@ -24,6 +24,10 @@ var Commands = schema.Commands{{
 	Args: schema.Args{{
 		Name: "cmdname",
 	}},
+}, {
+	Name: "start",
+	Help: "Displays available commands.",
+	Hide: true,
 }}
 
 func init() {
