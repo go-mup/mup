@@ -265,7 +265,7 @@ func parse(account, asnick, bang, line string) *Message {
 				t1 = t1[1:]
 			}
 			nl := len(m.AsNick)
-			if nl > 0 && len(t1) > nl+1 && (t1[nl] == ':' || t1[nl] == ',' || len(t1) != len(m.Text)) && t1[:nl] == m.AsNick {
+			if nl > 0 && len(t1) > nl+1 && (t1[nl] == ':' || t1[nl] == ',' || t1[nl] == ' ' && m.Text[0] == '@') && (t1[:nl] == m.AsNick || strings.TrimPrefix(t1[:nl], "bot") == m.AsNick) {
 				m.BotText = strings.TrimSpace(t1[nl+1:])
 				t2 = m.BotText
 			} else if m.Channel == "" || m.Channel[0] == '@' {

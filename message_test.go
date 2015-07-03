@@ -157,6 +157,18 @@ var parseIncomingTests = []parseTest{
 		},
 	},
 
+	// Telegram forces the "bot" suffix on bots. Accept sentences without it as personal too.
+	{
+		"PRIVMSG #channel :@mup Hello there",
+		mup.Message{
+			Command: "PRIVMSG",
+			Channel: "#channel",
+			Text:    "@mup Hello there",
+			BotText: "Hello there",
+			AsNick:  "mupbot",
+		},
+	},
+
 	// Bang prefix handling
 	{
 		"CMD",
