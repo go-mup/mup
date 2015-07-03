@@ -214,11 +214,19 @@ func (p *Plugger) LDAP(name string) (ldap.Conn, error) {
 func (p *Plugger) Sendf(to Addressable, format string, args ...interface{}) error {
 	text := fmt.Sprintf(format, args...)
 	a := to.Address()
-	if a.Channel != "" && a.Channel[0] != '@' && a.Nick != "" {
-		text = a.Nick + ": " + text
-	}
-	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: text}
+	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: replyText(a, text)}
 	return p.Send(msg)
+}
+
+func replyText(a Address, text string) string {
+	if a.Channel != "" && a.Channel[0] != '@' && a.Nick != "" {
+		if a.Host == "telegram" {
+			text = "@" + a.Nick + " " + text
+		} else {
+			text = a.Nick + ": " + text
+		}
+	}
+	return text
 }
 
 // SendDirectf sends a direct message to the address obtained from the provided addressable.
@@ -268,9 +276,7 @@ func (p *Plugger) Broadcast(msg *Message) error {
 		copy.Account = t.address.Account
 		copy.Channel = t.address.Channel
 		copy.Nick = t.address.Nick
-		if copy.Text != "" && copy.Channel != "" && copy.Channel[0] != '@' && copy.Nick != "" {
-			copy.Text = copy.Nick + ": " + copy.Text
-		}
+		copy.Text = replyText(t.address, copy.Text)
 		err := p.Send(&copy)
 		if err != nil && first == nil {
 			first = err

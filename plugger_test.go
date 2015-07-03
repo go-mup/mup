@@ -146,6 +146,13 @@ func (s *PluggerSuite) TestSendfChannel(c *C) {
 	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :nick: <reply>"})
 }
 
+func (s *PluggerSuite) TestSendfChannelTelegram(c *C) {
+	p := s.plugger(nil, nil, nil)
+	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@telegram PRIVMSG #channel :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :@nick <reply>"})
+}
+
 func (s *PluggerSuite) TestSendfNoNick(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", "PRIVMSG #channel :mup: query")
@@ -153,7 +160,7 @@ func (s *PluggerSuite) TestSendfNoNick(c *C) {
 	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :<reply>"})
 }
 
-func (s *PluggerSuite) TestSendfPrivateChannel(c *C) {
+func (s *PluggerSuite) TestSendfUserChannel(c *C) {
 	p := s.plugger(nil, nil, nil)
 	msg := mup.ParseIncoming("origin", "mup", "!", ":nick!~user@host PRIVMSG @user:123 :mup: query")
 	p.Sendf(msg, "<%s>", "reply")
