@@ -246,6 +246,27 @@ var parseIncomingTests = []parseTest{
 			Text:    "!Hello there",
 		},
 	},
+
+	// @ extension for channels to handle protocols that depend on a chat id (Telegram).
+	{
+		"PRIVMSG @user:chat :@mup Hello there",
+		mup.Message{
+			Command: "PRIVMSG",
+			Channel: "@user:chat",
+			Text:    "@mup Hello there",
+			BotText: "Hello there",
+			AsNick:  "mup",
+		},
+	}, {
+		"PRIVMSG @user:chat :Hello there",
+		mup.Message{
+			Command: "PRIVMSG",
+			Channel: "@user:chat",
+			Text:    "Hello there",
+			BotText: "Hello there",
+			AsNick:  "mup",
+		},
+	},
 }
 
 var parseOutgoingTests = []parseTest{

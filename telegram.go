@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 )
 
 const tgBotPrefix = "https://api.telegram.org/bot"
@@ -256,14 +258,14 @@ loop:
 
 		var err error
 		var chatId int64
-		if len(msg.Channel) > 2 && msg.Channel[:2] == "#g" {
-			chatId, err = strconv.ParseInt(msg.Channel[2:], 16, 64)
-			chatId = -chatId
-		} else if len(msg.Channel) > 2 && msg.Channel[0] == '#' {
-			chatId, err = strconv.ParseInt(msg.Channel[1:], 16, 64)
+		if len(msg.Channel) > 2 && (msg.Channel[0] == '#' || msg.Channel[0] == '@') {
+			i := strings.LastIndex(msg.Channel, ":")
+			if i > 0 {
+				chatId, err = strconv.ParseInt(msg.Channel[i+1:], 10, 64)
+			}
 		}
 		if chatId == 0 || err != nil {
-			logf("Outgoing Telegram message with invalid channel: %q", msg.Channel)
+			logf("[%s] Outgoing Telegram message with invalid channel: %q", w.accountName, msg.Channel)
 			continue
 		}
 
@@ -480,11 +482,23 @@ func (r *tgReader) loop() error {
 			lastUpdateId = result.UpdateId
 			from := result.Message.From
 			chat := result.Message.Chat
-			channel := strconv.AppendInt(nil, chat.Id, 16)
-			if channel[0] == '-' {
-				channel[0] = 'g'
+			channelPrefix := '#'
+			channelTitle := chat.Title
+			if chat.Username != "" {
+				channelPrefix = '@'
+				channelTitle = chat.Username
+			} else {
+				buf := make([]byte, 0, len(channelTitle))
+				for _, r := range chat.Title {
+					if unicode.IsLetter(r) || unicode.IsNumber(r) {
+						buf = append(buf, string(r)...)
+					} else {
+						buf = append(buf, '_')
+					}
+				}
+				channelTitle = string(buf)
 			}
-			line := fmt.Sprintf(":%s!~user@host PRIVMSG #%s :%s", from.Username, channel, result.Message.Text)
+			line := fmt.Sprintf(":%s!~user@telegram PRIVMSG %c%s:%d :%s", from.Username, channelPrefix, channelTitle, chat.Id, result.Message.Text)
 			logf("[%s] Received: %s", r.accountName, line)
 			msg := ParseIncoming(r.accountName, r.activeNick, "/", line)
 			select {

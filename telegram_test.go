@@ -1,12 +1,8 @@
 package mup_test
 
 import (
+	"encoding/json"
 	"fmt"
-
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/dbtest"
-	"gopkg.in/mup.v0"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +10,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	. "gopkg.in/check.v1"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/dbtest"
+	"gopkg.in/mup.v0"
 )
 
 type TelegramSuite struct {
@@ -98,10 +100,11 @@ func (s *TelegramSuite) RecvMessage(c *C, chat_id int, text string) {
 	c.Assert(msg.text, Equals, text)
 }
 
-func (s *TelegramSuite) TestIncoming(c *C) {
-	before := time.Now().Add(-2 * time.Second)
-
-	s.SendUpdates(c, `{
+var incomingTests = []struct {
+	update  string
+	message mup.Message
+}{{
+	`{
 		"update_id": 12,
 		"message": {
 			"message_id": 34,
@@ -109,62 +112,110 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 			"chat": {"id": 56, "username": "bob"},
 			"text": "Hello mup!"
 		}
-	}`)
-	time.Sleep(100 * time.Millisecond)
-
-	c.Assert(s.tgserver.LastUpdateOffset(), Equals, 13)
-
-	var msg mup.Message
-	incoming := s.session.DB("").C("incoming")
-	err := incoming.Find(nil).Sort("$natural").One(&msg)
-	c.Assert(err, IsNil)
-
-	after := time.Now().Add(2 * time.Second)
-
-	c.Logf("Message time: %s", msg.Time)
-
-	c.Assert(msg.Time.After(before), Equals, true)
-	c.Assert(msg.Time.Before(after), Equals, true)
-
-	// FIXME Handle such direct messages properly instead of pretending to be in a channel.
-
-	msg.Time = time.Time{}
-	msg.Id = ""
-	c.Assert(msg, DeepEquals, mup.Message{
+	}`,
+	mup.Message{
 		Account: "one",
 		Nick:    "bob",
 		User:    "~user",
-		Host:    "host",
+		Host:    "telegram",
 		Command: "PRIVMSG",
-		Channel: "#38",
+		Channel: "@bob:56",
 		Text:    "Hello mup!",
-		BotText: "",
+		BotText: "Hello mup!",
 		Bang:    "/",
 		AsNick:  "mupbot",
-	})
+	},
+}, {
+	`{
+		"update_id": 13,
+		"message": {
+			"message_id": 34,
+			"from": {"id": 56, "username": "bob"},
+			"chat": {"id": -78, "title": "Group Chat"},
+			"text": "Hello there!"
+		}
+	}`,
+	mup.Message{
+		Account: "one",
+		Nick:    "bob",
+		User:    "~user",
+		Host:    "telegram",
+		Command: "PRIVMSG",
+		Channel: "#Group_Chat:-78",
+		Text:    "Hello there!",
+		Bang:    "/",
+		AsNick:  "mupbot",
+	},
+}}
+
+func (s *TelegramSuite) TestIncoming(c *C) {
+	incoming := s.session.DB("").C("incoming")
+
+	var lastId bson.ObjectId
+	for _, test := range incomingTests {
+		before := time.Now().Add(-2 * time.Second)
+		s.SendUpdates(c, test.update)
+
+		var msg mup.Message
+		var err error
+		for i := 0; i < 10; i++ {
+			err = incoming.Find(nil).Sort("-$natural").One(&msg)
+			if err == nil && msg.Id != lastId {
+				break
+			}
+		}
+		if err == mgo.ErrNotFound || msg.Id == lastId {
+			c.Fatalf("Telegram update not received as an incoming message: %s", test.update)
+		}
+		c.Assert(err, IsNil)
+
+		lastId = msg.Id
+
+		after := time.Now().Add(2 * time.Second)
+		c.Logf("Message time: %s", msg.Time)
+		c.Assert(msg.Time.After(before), Equals, true)
+		c.Assert(msg.Time.Before(after), Equals, true)
+
+		msg.Time = time.Time{}
+		msg.Id = ""
+		c.Assert(msg, DeepEquals, test.message)
+
+		// Check that the client is providing the right offset to consume messages.
+		var update struct {
+			Id int `json:"update_id"`
+		}
+		err = json.Unmarshal([]byte(test.update), &update)
+		c.Assert(err, IsNil)
+		c.Assert(s.tgserver.LastUpdateOffset(), Equals, update.Id+1)
+	}
 }
 
 func (s *TelegramSuite) TestOutgoing(c *C) {
-	// FIXME Handle direct messages properly instead of pretending to be in a channel.
 
 	outgoing := s.session.DB("").C("outgoing")
 	err := outgoing.Insert(
-		&mup.Message{Account: "one", Channel: "#38", Nick: "someone", Text: "Implicit PRIVMSG."},
-		&mup.Message{Account: "one", Channel: "#38", Nick: "someone", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
-		&mup.Message{Account: "one", Channel: "#38", Nick: "someone", Text: "Explicit NOTICE.", Command: "NOTICE"},
+		&mup.Message{Account: "one", Channel: "@nick:56", Nick: "nick", Text: "Implicit PRIVMSG."},
+		&mup.Message{Account: "one", Channel: "@nick:56", Nick: "nick", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
+		&mup.Message{Account: "one", Channel: "@nick:56", Nick: "nick", Text: "Explicit NOTICE.", Command: "NOTICE"},
+		&mup.Message{Account: "one", Channel: "#some_group:56", Nick: "nick", Text: "Group chat."},
+		&mup.Message{Account: "one", Channel: "@nick:-56", Nick: "nick", Text: "Negative chat id."},
+		&mup.Message{Account: "one", Channel: "#some_group:-56", Nick: "nick", Text: "Negative group chat id."},
 	)
 	c.Assert(err, IsNil)
 
 	s.RecvMessage(c, 56, "Implicit PRIVMSG.")
 	s.RecvMessage(c, 56, "Explicit PRIVMSG.")
 	s.RecvMessage(c, 56, "Explicit NOTICE.")
+	s.RecvMessage(c, 56, "Group chat.")
+	s.RecvMessage(c, -56, "Negative chat id.")
+	s.RecvMessage(c, -56, "Negative group chat id.")
 
 	s.tgserver.FailSend()
 
 	err = outgoing.Insert(&mup.Message{
 		Account: "one",
-		Channel: "#38",
-		Nick:    "someone",
+		Channel: "@nick:56",
+		Nick:    "nick",
 		Text:    "Hello again!",
 	})
 	c.Assert(err, IsNil)

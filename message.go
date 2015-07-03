@@ -155,7 +155,8 @@ func (m *Message) String() string {
 }
 
 func isChannel(name string) bool {
-	return name != "" && (name[0] == '#' || name[0] == '&') && !strings.ContainsAny(name, " ,\x07")
+	// @ is a mup extension to handle the chat id concept from Telegram.
+	return name != "" && (name[0] == '#' || name[0] == '&' || name[0] == '@') && !strings.ContainsAny(name, " ,\x07")
 }
 
 // ParseIncoming parses line as an incoming IRC protocol message line.
@@ -267,7 +268,7 @@ func parse(account, asnick, bang, line string) *Message {
 			if nl > 0 && len(t1) > nl+1 && (t1[nl] == ':' || t1[nl] == ',' || len(t1) != len(m.Text)) && t1[:nl] == m.AsNick {
 				m.BotText = strings.TrimSpace(t1[nl+1:])
 				t2 = m.BotText
-			} else if m.Channel == "" {
+			} else if m.Channel == "" || m.Channel[0] == '@' {
 				m.BotText = strings.TrimSpace(m.Text)
 				t2 = m.BotText
 			}
