@@ -14,6 +14,7 @@ type Command struct {
 	Name string
 	Help string
 	Args Args
+	Hide bool
 }
 
 type Args []Arg

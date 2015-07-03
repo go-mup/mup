@@ -49,7 +49,7 @@ var helpTests = []helpTest{{
 	send:  "help",
 	recv:  `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
 	known: true,
-	cmds:  schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}},
+	cmds:  schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}, {Name: "cmd3", Hide: true}},
 }, {
 	send: "help cmdname",
 	recv: `PRIVMSG nick :Command "cmdname" not found.`,

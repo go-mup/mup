@@ -215,6 +215,7 @@ func (p *helpPlugin) cmdList() ([]string, error) {
 	var known []struct {
 		Commands []struct {
 			Name string
+			Hide bool
 		}
 	}
 	err := plugins.Find(nil).All(&known)
@@ -224,7 +225,9 @@ func (p *helpPlugin) cmdList() ([]string, error) {
 	seen := make(map[string]bool)
 	for _, plugin := range known {
 		for _, cmd := range plugin.Commands {
-			seen[cmd.Name] = true
+			if !cmd.Hide {
+				seen[cmd.Name] = true
+			}
 		}
 	}
 	result := make([]string, 0, len(seen))
