@@ -1,6 +1,7 @@
 package mup_test
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -137,6 +138,29 @@ func (s *ServerSuite) TestNickInUse(c *C) {
 	s.server.RefreshAccounts()
 
 	s.ReadLine(c, "NICK mup")
+}
+
+func (s *ServerSuite) TestNickChange(c *C) {
+	s.SendWelcome(c)
+
+	currentNick := "mup"
+	for _, nickPrefix := range []string{"", ":"} {
+		s.SendLine(c, fmt.Sprintf(":%s!~user@host NICK %s%s_", currentNick, nickPrefix, currentNick))
+
+		s.SendLine(c, ":nick!~user@host PRIVMSG mup :Hello mup!")
+		s.Roundtrip(c)
+		time.Sleep(50 * time.Millisecond)
+
+		var msg mup.Message
+		incoming := s.session.DB("").C("incoming")
+		err := incoming.Find(nil).Sort("-$natural").One(&msg)
+		c.Assert(err, IsNil)
+
+		c.Assert(msg.Text, Equals, "Hello mup!")
+		c.Assert(msg.AsNick, Equals, currentNick+"_")
+
+		currentNick += "_"
+	}
 }
 
 func (s *ServerSuite) TestPingPong(c *C) {

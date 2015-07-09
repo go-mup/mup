@@ -578,7 +578,11 @@ func (r *ircReader) loop() error {
 		switch msg.Command {
 		case cmdNick:
 			if r.activeNick == "" || r.activeNick == msg.Nick {
-				r.activeNick = msg.Text
+				if len(msg.Params) > 0 {
+					r.activeNick = msg.Params[0]
+				} else if msg.Text != "" {
+					r.activeNick = msg.Text
+				}
 				msg.AsNick = r.activeNick
 				logf("[%s] Nick %q accepted.", r.accountName, r.activeNick)
 			}
