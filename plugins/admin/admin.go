@@ -2,6 +2,7 @@ package admin
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"time"
 
 	"gopkg.in/mgo.v2"
@@ -9,8 +10,7 @@ import (
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
 
-	"code.google.com/p/go.crypto/scrypt"
-	"encoding/hex"
+	"golang.org/x/crypto/scrypt"
 )
 
 var Plugin = mup.PluginSpec{
