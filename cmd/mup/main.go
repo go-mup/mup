@@ -73,6 +73,11 @@ func run() error {
 		config.Plugins = strings.Split(*plugins, ",")
 	}
 
+	envdb := os.Getenv("MUPDB")
+	if *db == "localhost/mup" && envdb != "" {
+		*db = envdb
+	}
+
 	logger.Printf("Connecting to MongoDB: %s", *db)
 	session, err := mgo.Dial(*db)
 	if err != nil {
