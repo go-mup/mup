@@ -111,9 +111,9 @@ const (
 	defaultEndpoint         = "https://api.github.com/"
 	defaultPollDelay        = 3 * time.Minute
 	defaultJustShownTimeout = 1 * time.Minute
-	defaultPrefixNewIssue   = "Issue %v created"
+	defaultPrefixNewIssue   = "Issue %v opened"
 	defaultPrefixOldIssue   = "Issue %v changed"
-	defaultPrefixNewPull    = "PR %v created"
+	defaultPrefixNewPull    = "PR %v opened"
 	defaultPrefixOldPull    = "PR %v changed"
 )
 
@@ -561,18 +561,27 @@ func (p *ghPlugin) pollIssues() error {
 		}
 
 		var newIssues []*ghIssue
-		err := p.request("/repos/"+p.config.Project+"/issues", &newIssues)
-		if err != nil {
-			continue
+		for page := 1; page <= 10; page++ {
+			var pageIssues []*ghIssue
+			err := p.request("/repos/"+p.config.Project+"/issues?direction=asc&per_page=100&page="+strconv.Itoa(page), &pageIssues)
+			if err != nil {
+				continue
+			}
+			// Cut out potential dups due to in-between activity.
+			for len(newIssues) > 0 && len(pageIssues) > 0 && newIssues[len(newIssues)-1].Number >= pageIssues[0].Number {
+				newIssues = newIssues[:len(newIssues)-1]
+			}
+			newIssues = append(newIssues, pageIssues...)
+			if len(pageIssues) < 100 {
+				break
+			}
 		}
 
 		if first {
 			first = false
 			oldIssues = newIssues
-			//p.plugger.Debugf("Initial issues: %v", issueNums(newIssues))
 			continue
 		}
-		//p.plugger.Debugf("Current issues: %v", issueNums(newIssues))
 
 		var showNewIssues, showOldIssues []*ghIssue
 		var showNewPulls, showOldPulls []*ghIssue
