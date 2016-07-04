@@ -1,4 +1,4 @@
-package launchpad
+package github
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
+	"io/ioutil"
 )
 
 var Plugins = []mup.PluginSpec{{
@@ -29,6 +30,10 @@ var Plugins = []mup.PluginSpec{{
 	`,
 	Start:    startIssueData,
 	Commands: BugDataCommands,
+}, {
+	Name:  "ghissuewatch",
+	Help:  "Shows status changes on issues and pull requests for a selected GitHub repository.",
+	Start: startIssueWatch,
 }}
 
 var BugDataCommands = schema.Commands{{
@@ -57,6 +62,7 @@ type pluginMode int
 
 const (
 	issueData pluginMode = iota + 1
+	issueWatch
 )
 
 type ghPlugin struct {
@@ -72,6 +78,14 @@ type ghPlugin struct {
 		Endpoint string
 		Project  string
 		Overhear bool
+		Options  string
+
+		TrimProject string
+
+		PrefixNewIssue string
+		PrefixOldIssue string
+		PrefixNewPull  string
+		PrefixOldPull  string
 
 		JustShownTimeout mup.DurationString
 		PollDelay        mup.DurationString
@@ -97,10 +111,18 @@ const (
 	defaultEndpoint         = "https://api.github.com/"
 	defaultPollDelay        = 3 * time.Minute
 	defaultJustShownTimeout = 1 * time.Minute
+	defaultPrefixNewIssue   = "Issue %v created"
+	defaultPrefixOldIssue   = "Issue %v changed"
+	defaultPrefixNewPull    = "PR %v created"
+	defaultPrefixOldPull    = "PR %v changed"
 )
 
 func startIssueData(plugger *mup.Plugger) mup.Stopper {
 	return startPlugin(issueData, plugger)
+}
+
+func startIssueWatch(plugger *mup.Plugger) mup.Stopper {
+	return startPlugin(issueWatch, plugger)
 }
 
 func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
@@ -124,6 +146,21 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	if p.config.Endpoint == "" {
 		p.config.Endpoint = defaultEndpoint
 	}
+	if p.config.TrimProject == "" {
+		p.config.TrimProject = p.config.Project
+	}
+	if p.config.PrefixNewIssue == "" {
+		p.config.PrefixNewIssue = defaultPrefixNewIssue
+	}
+	if p.config.PrefixOldIssue == "" {
+		p.config.PrefixOldIssue = defaultPrefixOldIssue
+	}
+	if p.config.PrefixNewPull == "" {
+		p.config.PrefixNewPull = defaultPrefixNewPull
+	}
+	if p.config.PrefixOldPull == "" {
+		p.config.PrefixOldPull = defaultPrefixOldPull
+	}
 
 	if p.mode == issueData {
 		targets := plugger.Targets()
@@ -140,6 +177,8 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 	switch p.mode {
 	case issueData:
 		p.tomb.Go(p.loop)
+	case issueWatch:
+		p.tomb.Go(p.pollIssues)
 	default:
 		panic("internal error: unknown github plugin mode")
 	}
@@ -214,7 +253,7 @@ func (p *ghPlugin) handle(ghmsg *ghMessage) {
 			if overheard && p.justShown(addr, issue) {
 				continue
 			}
-			p.showIssue(ghmsg.msg, issue)
+			p.showIssue(ghmsg.msg, issue, "")
 		}
 	}
 }
@@ -238,12 +277,13 @@ type ghIssue struct {
 
 	Title    string    `json:"title"`
 	Number   int       `json:"number"`
+	RepoURL  string    `json:"repository_url"`
 	State    string    `json:"state"`
 	Assignee string    `json:"assignee"`
 	Labels   []ghLabel `json:"labels"`
 	User     ghUser    `json:"user"`
 	ClosedBy ghUser    `json:"closed_by"`
-	PR       ghPR      `json:"pull_request"`
+	Pull     ghPull    `json:"pull_request"`
 }
 
 type ghUser struct {
@@ -256,14 +296,18 @@ type ghLabel struct {
 	Color string `json:"color"`
 }
 
-type ghPR struct {
+type ghPull struct {
 	Merged    bool
 	Mergeable bool
 	MergedBy  ghUser `json:"merged_by"`
 	HTMLURL   string `json:"html_url"`
 }
 
-func (p *ghPlugin) showIssue(msg *mup.Message, issue *ghIssue) {
+func (issue *ghIssue) isPull() bool {
+	return issue.Pull.HTMLURL != ""
+}
+
+func (p *ghPlugin) showIssue(msg *mup.Message, issue *ghIssue, prefix string) {
 	err := p.request("/repos/"+issue.org+"/"+issue.repo+"/issues/"+strconv.Itoa(issue.Number), &issue)
 	if err != nil {
 		if msg != nil && msg.BotText != "" {
@@ -275,11 +319,12 @@ func (p *ghPlugin) showIssue(msg *mup.Message, issue *ghIssue) {
 		}
 		return
 	}
+	defaultPrefix := "Issue %v"
 	what := "issue"
-	pr := issue.PR.HTMLURL != ""
-	if pr {
+	if issue.isPull() {
+		defaultPrefix = "PR %v"
 		what = "pull"
-		err := p.request("/repos/"+issue.org+"/"+issue.repo+"/pulls/"+strconv.Itoa(issue.Number), &issue.PR)
+		err := p.request("/repos/"+issue.org+"/"+issue.repo+"/pulls/"+strconv.Itoa(issue.Number), &issue.Pull)
 		if err != nil {
 			if msg != nil && msg.BotText != "" {
 				p.plugger.Sendf(msg, "Oops: %v", err)
@@ -287,13 +332,12 @@ func (p *ghPlugin) showIssue(msg *mup.Message, issue *ghIssue) {
 			return
 		}
 	}
-	prefix := "Issue"
-	if pr {
-		prefix = "PR"
+	if !strings.Contains(prefix, "%v") || strings.Count(prefix, "%") > 1 {
+		prefix = defaultPrefix
 	}
 	issue.Title = strings.TrimRight(issue.Title, ".")
-	format := "%s %s: %s%s <https://github.com/%s/%s/%s/%d>"
-	args := []interface{}{prefix, p.issueKey(issue), issue.Title, p.formatNotes(issue), issue.org, issue.repo, what, issue.Number}
+	format := prefix + ": %s%s <https://github.com/%s/%s/%s/%d>"
+	args := []interface{}{p.issueKey(issue), issue.Title, p.formatNotes(issue), issue.org, issue.repo, what, issue.Number}
 	switch {
 	case msg == nil:
 		p.plugger.Broadcastf(format, args...)
@@ -311,10 +355,10 @@ func (p *ghPlugin) showIssue(msg *mup.Message, issue *ghIssue) {
 }
 
 func (p *ghPlugin) issueKey(issue *ghIssue) string {
-	if issue.org+"/"+issue.repo == p.config.Project {
+	if issue.org+"/"+issue.repo == p.config.TrimProject {
 		return fmt.Sprintf("#%d", issue.Number)
 	}
-	if issue.org == p.config.Project || strings.HasPrefix(p.config.Project, issue.org+"/") {
+	if issue.org == p.config.TrimProject || strings.HasPrefix(p.config.TrimProject, issue.org+"/") {
 		return fmt.Sprintf("%s#%d", issue.repo, issue.Number)
 	}
 	return fmt.Sprintf("%s/%s#%d", issue.org, issue.repo, issue.Number)
@@ -330,11 +374,11 @@ func (p *ghPlugin) formatNotes(issue *ghIssue) string {
 	}
 
 	fmt.Fprintf(&buf, " <Created by %s>", issue.User.Login)
-	if issue.State == "closed" && issue.PR.Merged {
-		fmt.Fprintf(&buf, " <Merged by %s>", issue.PR.MergedBy.Login)
+	if issue.State == "closed" && issue.Pull.Merged {
+		fmt.Fprintf(&buf, " <Merged by %s>", issue.Pull.MergedBy.Login)
 	} else if issue.State == "closed" {
 		fmt.Fprintf(&buf, " <Closed by %s>", issue.ClosedBy.Login)
-	} else if issue.State == "open" && issue.PR.HTMLURL != "" && !issue.PR.Mergeable {
+	} else if issue.State == "open" && issue.Pull.HTMLURL != "" && !issue.Pull.Mergeable {
 		fmt.Fprintf(&buf, " <Conflict>")
 	}
 
@@ -347,6 +391,13 @@ func (p *ghPlugin) request(url string, result interface{}) error {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		endpoint := p.config.Endpoint
 		url = strings.TrimRight(endpoint, "/") + "/" + strings.TrimLeft(url, "/")
+	}
+	if p.config.Options != "" {
+		if strings.Contains(url, "?") {
+			url += "&" + p.config.Options
+		} else {
+			url += "?" + p.config.Options
+		}
 	}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -366,7 +417,12 @@ func (p *ghPlugin) request(url string, result interface{}) error {
 		err = fmt.Errorf("%s", resp.Status)
 	}
 	if err != nil {
-		p.plugger.Logf("Cannot perform GitHub request: %v", err)
+		data, _ := ioutil.ReadAll(resp.Body)
+		if len(data) > 0 {
+			p.plugger.Logf("Cannot perform GitHub request: %v\nGitHub response: %s", err, data)
+		} else {
+			p.plugger.Logf("Cannot perform GitHub request: %v", err)
+		}
 		return fmt.Errorf("cannot perform GitHub request: %v", err)
 	}
 	defer resp.Body.Close()
@@ -375,7 +431,40 @@ func (p *ghPlugin) request(url string, result interface{}) error {
 		p.plugger.Logf("Cannot decode GitHub response: %v", err)
 		return fmt.Errorf("cannot decode GitHub response: %v", err)
 	}
+	if !parseOrgRepo(result) {
+		p.plugger.Logf("Cannot parse repository URL on GitHub issue at %s", url)
+		return fmt.Errorf("cannot parse repository URL on GitHub issue at %s", url)
+	}
 	return nil
+}
+
+func parseOrgRepo(result interface{}) bool {
+	issues, ok := result.(*[]*ghIssue)
+	if !ok {
+		issue, ok := result.(*ghIssue)
+		if !ok {
+			return true
+		}
+		issues = &[]*ghIssue{issue}
+	}
+	ok = true
+	for _, issue := range *issues {
+		start := strings.Index(issue.RepoURL, "/repos/")
+		if start < 0 {
+			ok = false
+			continue
+		}
+		start += len("/repos/")
+		slash := strings.Index(issue.RepoURL[start:], "/")
+		if slash < 1 {
+			ok = false
+			continue
+		}
+		slash += start
+		issue.org = issue.RepoURL[start:slash]
+		issue.repo = issue.RepoURL[slash+1:]
+	}
+	return ok
 }
 
 var issueChat = regexp.MustCompile(`(?i)((?:issue|pr|pull|pull ?req(?:uest)?)s? )?((?:([a-zA-Z][-a-zA-Z0-9]*)/)?([a-zA-Z][-a-zA-Z0-9]*)(?:/pull/|/issue/|#)|#)?([0-9]+)`)
@@ -410,7 +499,7 @@ func (p *ghPlugin) parseIssueArgs(text string) ([]*ghIssue, error) {
 	for _, s := range strings.Fields(text) {
 		match := issueArg.FindStringSubmatch(s)
 		if match == nil {
-			return nil, fmt.Errorf("cannot parse number from argument: %s", s)
+			return nil, fmt.Errorf("cannot parse issue or pull number from argument: %s", s)
 		}
 		org, repo, ok := p.repository(match[1], match[2])
 		if !ok {
@@ -451,4 +540,94 @@ func containsIssue(issues []*ghIssue, issue *ghIssue) bool {
 		}
 	}
 	return false
+}
+
+func issueNums(issues []*ghIssue) []int {
+	var nums []int
+	for _, issue := range issues {
+		nums = append(nums, issue.Number)
+	}
+	return nums
+}
+
+func (p *ghPlugin) pollIssues() error {
+	var oldIssues []*ghIssue
+	var first = true
+	for {
+		select {
+		case <-time.After(p.config.PollDelay.Duration):
+		case <-p.tomb.Dying():
+			return nil
+		}
+
+		var newIssues []*ghIssue
+		err := p.request("/repos/"+p.config.Project+"/issues", &newIssues)
+		if err != nil {
+			continue
+		}
+
+		if first {
+			first = false
+			oldIssues = newIssues
+			//p.plugger.Debugf("Initial issues: %v", issueNums(newIssues))
+			continue
+		}
+		//p.plugger.Debugf("Current issues: %v", issueNums(newIssues))
+
+		var showNewIssues, showOldIssues []*ghIssue
+		var showNewPulls, showOldPulls []*ghIssue
+		var o, n int
+		for o < len(oldIssues) || n < len(newIssues) {
+			switch {
+			case o == len(oldIssues) || n < len(newIssues) && newIssues[n].Number < oldIssues[o].Number:
+				if newIssues[n].isPull() {
+					showNewPulls = append(showNewPulls, newIssues[n])
+				} else {
+					showNewIssues = append(showNewIssues, newIssues[n])
+				}
+				n++
+			case n == len(newIssues) || o < len(oldIssues) && oldIssues[o].Number < newIssues[n].Number:
+				if oldIssues[n].isPull() {
+					showOldPulls = append(showOldPulls, oldIssues[n])
+				} else {
+					showOldIssues = append(showOldIssues, oldIssues[n])
+				}
+				o++
+			default:
+				o++
+				n++
+				continue
+			}
+		}
+		p.showIssues(showOldIssues, p.config.PrefixOldIssue)
+		p.showIssues(showNewIssues, p.config.PrefixNewIssue)
+		p.showIssues(showOldPulls, p.config.PrefixOldPull)
+		p.showIssues(showNewPulls, p.config.PrefixNewPull)
+
+		oldIssues = newIssues
+	}
+	return nil
+}
+
+func (p *ghPlugin) showIssues(issues []*ghIssue, prefix string) {
+	if len(issues) > 3 {
+		p.showIssueList(issues, prefix)
+	} else {
+		for _, issue := range issues {
+			p.showIssue(nil, issue, prefix)
+		}
+	}
+}
+
+func (p *ghPlugin) showIssueList(issues []*ghIssue, prefix string) {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, prefix, "#")
+	buf.WriteString(": ")
+	for i, issue := range issues {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(p.issueKey(issue))
+	}
+	p.plugger.Broadcast(&mup.Message{Text: buf.String()})
 }
