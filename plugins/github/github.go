@@ -112,9 +112,9 @@ const (
 	defaultPollDelay        = 3 * time.Minute
 	defaultJustShownTimeout = 1 * time.Minute
 	defaultPrefixNewIssue   = "Issue %v opened"
-	defaultPrefixOldIssue   = "Issue %v changed"
+	defaultPrefixOldIssue   = "Issue %v closed"
 	defaultPrefixNewPull    = "PR %v opened"
-	defaultPrefixOldPull    = "PR %v changed"
+	defaultPrefixOldPull    = "PR %v closed"
 )
 
 func startIssueData(plugger *mup.Plugger) mup.Stopper {
