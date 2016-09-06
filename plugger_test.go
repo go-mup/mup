@@ -19,6 +19,7 @@ type PluggerSuite struct {
 	dbserver dbtest.DBServer
 	sent     []string
 	msgs     []*mup.Message
+	handled  []string
 	ldap     map[string]ldap.Conn
 }
 
@@ -50,13 +51,17 @@ func (s *PluggerSuite) plugger(db *mgo.Database, config, targets interface{}) *m
 		s.msgs = append(s.msgs, msg)
 		return nil
 	}
+	handle := func(msg *mup.Message) error {
+		s.handled = append(s.handled, "[@"+msg.Account+"] "+msg.String())
+		return nil
+	}
 	ldap := func(name string) (ldap.Conn, error) {
 		if conn, ok := s.ldap[name]; ok {
 			return conn, nil
 		}
 		return nil, fmt.Errorf("test suite has no %q LDAP connection", name)
 	}
-	return mup.NewPlugger("theplugin/label", db, send, ldap, config, targets)
+	return mup.NewPlugger("theplugin/label", db, send, handle, ldap, config, targets)
 }
 
 func (s *PluggerSuite) TestName(c *C) {
@@ -130,6 +135,27 @@ func (s *PluggerSuite) TestCollection(c *C) {
 		c.Assert(coll.Database.Session, Equals, session)
 		c.Assert(coll.Database.Session, Not(Equals), master)
 	}
+}
+
+func (s *PluggerSuite) TestHandle(c *C) {
+	p := s.plugger(nil, nil, []bson.M{
+		{"account": "one", "channel": "#chan"},
+		{"account": "two", "nick": "nick"},
+		{"account": ""},
+	})
+
+	err := p.Handle(mup.ParseIncoming("one", "mup", "!", ":nick!~user@host PRIVMSG #other :text"))
+	c.Assert(err, IsNil)
+	err = p.Handle(mup.ParseIncoming("two", "mup", "!", ":other!~user@host PRIVMSG mup :text"))
+	c.Assert(err, IsNil)
+	err = p.Handle(mup.ParseIncoming("one", "mup", "!", ":nick!~user@host PRIVMSG #chan :text"))
+	c.Assert(err, IsNil)
+	err = p.Handle(mup.ParseIncoming("two", "mup", "!", ":nick!~user@host PRIVMSG mup :text"))
+	c.Assert(err, IsNil)
+
+	c.Assert(s.handled[0], Equals, "[@one] :nick!~user@host PRIVMSG #chan :text")
+	c.Assert(s.handled[1], Equals, "[@two] :nick!~user@host PRIVMSG mup :text")
+	c.Assert(s.handled, HasLen, 2)
 }
 
 func (s *PluggerSuite) TestSendfPrivate(c *C) {

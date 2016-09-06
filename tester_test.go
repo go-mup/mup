@@ -133,6 +133,24 @@ func (s *TesterSuite) TestRecvOtherAccount(c *C) {
 	c.Assert(tester.Recv(), Equals, "[@other] PRIVMSG #chan :text")
 }
 
+func (s *TesterSuite) TestHandleRecvIncoming(c *C) {
+	tester := mup.NewPluginTester("echoA")
+	tester.SetTargets([]bson.M{
+		{"account": "test"},
+		{"account": "one", "channel": "#one"},
+		{"account": "two", "channel": "#two"},
+	})
+	tester.Start()
+	p := tester.Plugger()
+	p.Handle(&mup.Message{Account: "test", Channel: "mup", Text: "text"})
+	p.Handle(&mup.Message{Account: "one", Channel: "#one", Text: "text"})
+	p.Handle(&mup.Message{Account: "two", Channel: "#two", Text: "text"})
+	tester.Stop()
+	c.Assert(tester.RecvIncoming(), Equals, "PRIVMSG mup :text")
+	c.Assert(tester.RecvIncoming(), Equals, "[@one] PRIVMSG #one :text")
+	c.Assert(tester.RecvIncoming(), Equals, "[@two] PRIVMSG #two :text")
+}
+
 func (s *TesterSuite) TestStop(c *C) {
 	tester := mup.NewPluginTester("echoA")
 	tester.Start()

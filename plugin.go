@@ -119,6 +119,7 @@ type pluginManager struct {
 	requests chan interface{}
 	incoming chan *Message
 	outgoing *mgo.Collection
+	incomcol *mgo.Collection
 	rollback chan bson.ObjectId
 	plugins  map[string]*pluginState
 	ldaps    map[string]*ldapState
@@ -140,6 +141,7 @@ func startPluginManager(config Config) (*pluginManager, error) {
 	m.session = config.Database.Session.Copy()
 	m.database = config.Database.With(m.session)
 	m.outgoing = m.database.C("outgoing")
+	m.incomcol = m.database.C("incoming")
 	if err := createCollections(m.database); err != nil {
 		logf("Cannot create collections: %v", err)
 		return nil, fmt.Errorf("cannot create collections: %v", err)
@@ -490,7 +492,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 		logf("Plugin is not registered: %s", pluginKey(info.Name))
 		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
-	plugger := newPlugger(info.Name, m.sendMessage, m.ldapConn)
+	plugger := newPlugger(info.Name, m.sendMessage, m.handleMessage, m.ldapConn)
 	plugger.setDatabase(m.database)
 	plugger.setConfig(info.Config)
 	plugger.setTargets(info.Targets)
@@ -514,6 +516,13 @@ func (m *pluginManager) sendMessage(msg *Message) error {
 		panic("plugin attempted to send message after its Stop method returned")
 	}
 	return m.outgoing.Insert(msg)
+}
+
+func (m *pluginManager) handleMessage(msg *Message) error {
+	if !m.tomb.Alive() {
+		panic("plugin attempted to enqueue incoming message after its Stop method returned")
+	}
+	return m.incomcol.Insert(msg)
 }
 
 func (m *pluginManager) ldapConn(name string) (ldap.Conn, error) {

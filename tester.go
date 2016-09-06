@@ -15,12 +15,13 @@ import (
 // NewPluginTester interacts with an internally managed instance of a
 // registered plugin for testing purposes.
 type PluginTester struct {
-	mu      sync.Mutex
-	cond    sync.Cond
-	stopped bool
-	state   pluginState
-	replies []string
-	ldaps   map[string]ldap.Conn
+	mu       sync.Mutex
+	cond     sync.Cond
+	stopped  bool
+	state    pluginState
+	replies  []string
+	incoming []string
+	ldaps    map[string]ldap.Conn
 }
 
 // NewPluginTester creates a new tester for interacting with an internally
@@ -34,11 +35,11 @@ func NewPluginTester(pluginName string) *PluginTester {
 	t.cond.L = &t.mu
 	t.ldaps = make(map[string]ldap.Conn)
 	t.state.spec = spec
-	t.state.plugger = newPlugger(pluginName, t.appendMessage, t.ldap)
+	t.state.plugger = newPlugger(pluginName, t.sendMessage, t.handleMessage, t.ldap)
 	return t
 }
 
-func (t *PluginTester) appendMessage(msg *Message) error {
+func (t *PluginTester) sendMessage(msg *Message) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.stopped {
@@ -51,6 +52,21 @@ func (t *PluginTester) appendMessage(msg *Message) error {
 	t.replies = append(t.replies, msgstr)
 	t.cond.Signal()
 	t.state.handle(msg, "")
+	return nil
+}
+
+func (t *PluginTester) handleMessage(msg *Message) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		panic("plugin attempted to enqueue incoming message after being stopped")
+	}
+	msgstr := msg.String()
+	if msg.Account != "test" {
+		msgstr = "[@" + msg.Account + "] " + msgstr
+	}
+	t.incoming = append(t.incoming, msgstr)
+	t.cond.Signal()
 	return nil
 }
 
@@ -195,6 +211,47 @@ func (t *PluginTester) RecvAll() []string {
 	t.replies = nil
 	t.mu.Unlock()
 	return replies
+}
+
+// RecvIncoming receives the next message enqueued as incoming by the plugin being tested.
+// If no message is currently pending, RecvIncoming waits up to a few seconds for a
+// message to arrive. If no messages arrive even then, an empty string is returned.
+//
+// The message is formatted as a raw IRC protocol message, and optionally prefixed
+// by the account name under brackets ("[@<account>] ") if the message is delivered
+// to any other account besides the default "test" one.
+//
+// RecvIncoming may be used after the tester is stopped.
+func (t *PluginTester) RecvIncoming() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	timeout := time.Now().Add(3 * time.Second)
+	for !t.stopped && len(t.incoming) == 0 && time.Now().Before(timeout) {
+		t.cond.Wait()
+	}
+	if len(t.incoming) == 0 {
+		return ""
+	}
+	in := t.incoming[0]
+	copy(t.incoming, t.incoming[1:])
+	t.incoming = t.incoming[0 : len(t.incoming)-1]
+	return in
+}
+
+// RecvAllIncoming receives all currently pending messages enqueued as incoming by
+// the plugin being tested.
+//
+// All messages are formatted as raw IRC protocol messages, and optionally prefixed
+// by the account name under brackets ("[@<account>] ") if the message is delivered
+// to any other account besides the default "test" one.
+//
+// RecvAllIncoming may be used after the tester is stopped.
+func (t *PluginTester) RecvAllIncoming() []string {
+	t.mu.Lock()
+	incoming := t.incoming
+	t.incoming = nil
+	t.mu.Unlock()
+	return incoming
 }
 
 // Sendf formats a PRIVMSG coming from "nick!~user@host" and delivers to the plugin

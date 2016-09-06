@@ -14,6 +14,7 @@ import (
 type Plugger struct {
 	name    string
 	send    func(msg *Message) error
+	handle  func(msg *Message) error
 	ldap    func(name string) (ldap.Conn, error)
 	config  bson.Raw
 	targets []PluginTarget
@@ -63,11 +64,12 @@ func (t *PluginTarget) String() string {
 
 var emptyDoc = bson.Raw{3, []byte("\x05\x00\x00\x00\x00")}
 
-func newPlugger(name string, send func(msg *Message) error, ldap func(name string) (ldap.Conn, error)) *Plugger {
+func newPlugger(name string, send, handle func(msg *Message) error, ldap func(name string) (ldap.Conn, error)) *Plugger {
 	return &Plugger{
-		name: name,
-		send: send,
-		ldap: ldap,
+		name:   name,
+		send:   send,
+		handle: handle,
+		ldap:   ldap,
 	}
 }
 
@@ -183,6 +185,24 @@ func (p *Plugger) Collection(suffix string, kind CollKind) (*mgo.Session, *mgo.C
 	return session, c
 }
 
+// Handle inserts the provided message on the incoming queue for processing.
+func (p *Plugger) Handle(msg *Message) error {
+	copy := *msg
+	for _, target := range p.Targets() {
+		if msg.Account == "" {
+			copy.Account = target.address.Account
+		}
+		if target.address.Account == "" || !target.address.Contains(copy.Address()) {
+			continue
+		}
+		if err := p.handle(&copy); err != nil {
+			logf("Cannot put message in incoming queue: %v", err)
+			return fmt.Errorf("cannot put message in incoming queue: %v", err)
+		}
+	}
+	return nil
+}
+
 // Targets returns all targets enabled for the plugin.
 func (p *Plugger) Targets() []PluginTarget {
 	return p.targets
@@ -220,7 +240,7 @@ func (p *Plugger) Sendf(to Addressable, format string, args ...interface{}) erro
 
 func replyText(a Address, text string) string {
 	if a.Channel != "" && a.Channel[0] != '@' && a.Nick != "" {
-		if a.Host == "telegram" {
+		if a.Host == "telegram" || a.Host == "rocket" || a.Host == "webhook" {
 			text = "@" + a.Nick + " " + text
 		} else {
 			text = a.Nick + ": " + text
