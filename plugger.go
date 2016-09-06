@@ -240,7 +240,7 @@ func (p *Plugger) Sendf(to Addressable, format string, args ...interface{}) erro
 
 func replyText(a Address, text string) string {
 	if a.Channel != "" && a.Channel[0] != '@' && a.Nick != "" {
-		if a.Host == "telegram" || a.Host == "rocket" || a.Host == "webhook" {
+		if a.Host == "telegram" || a.Host == "webhook" {
 			text = "@" + a.Nick + " " + text
 		} else {
 			text = a.Nick + ": " + text

@@ -172,9 +172,9 @@ func (s *WebHookSuite) TestOutgoing(c *C) {
 
 	outgoing := s.session.DB("").C("outgoing")
 	err := outgoing.Insert(
-		&mup.Message{Account: "one", Channel: "@nick", Nick: "nick", Text: "Implicit PRIVMSG."},
-		&mup.Message{Account: "one", Channel: "@nick", Nick: "nick", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
-		&mup.Message{Account: "one", Channel: "@nick", Nick: "nick", Text: "Explicit NOTICE.", Command: "NOTICE"},
+		&mup.Message{Account: "one", Nick: "nick", Text: "Implicit PRIVMSG."},
+		&mup.Message{Account: "one", Nick: "nick", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
+		&mup.Message{Account: "one", Nick: "nick", Text: "Explicit NOTICE.", Command: "NOTICE"},
 		&mup.Message{Account: "one", Channel: "#some_group", Nick: "nick", Text: "Group chat."},
 	)
 	c.Assert(err, IsNil)
@@ -188,7 +188,6 @@ func (s *WebHookSuite) TestOutgoing(c *C) {
 
 	err = outgoing.Insert(&mup.Message{
 		Account: "one",
-		Channel: "@nick",
 		Nick:    "nick",
 		Text:    "Hello again!",
 	})

@@ -270,6 +270,10 @@ loop:
 			Channel: msg.Channel,
 			Text:    msg.Text,
 		}
+		if payload.Channel == "" {
+			payload.Channel = "@" + msg.Nick
+		}
+
 		data, err := json.Marshal(&payload)
 		if err != nil {
 			w.tomb.Killf("cannot marshal outgoing json payload: %v", err)
