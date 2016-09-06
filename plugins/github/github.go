@@ -596,10 +596,10 @@ func (p *ghPlugin) pollIssues() error {
 				}
 				n++
 			case n == len(newIssues) || o < len(oldIssues) && oldIssues[o].Number < newIssues[n].Number:
-				if oldIssues[n].isPull() {
-					showOldPulls = append(showOldPulls, oldIssues[n])
+				if oldIssues[o].isPull() {
+					showOldPulls = append(showOldPulls, oldIssues[o])
 				} else {
-					showOldIssues = append(showOldIssues, oldIssues[n])
+					showOldIssues = append(showOldIssues, oldIssues[o])
 				}
 				o++
 			default:
