@@ -35,6 +35,7 @@ type accountClient interface {
 type accountInfo struct {
 	Name        string `bson:"_id"`
 	Kind        string
+	Endpoint    string
 	Host        string
 	TLS         bool
 	TLSInsecure bool
@@ -241,6 +242,8 @@ func (am *accountManager) handleRefresh() {
 				client = startIrcClient(info, am.incoming)
 			case "telegram":
 				client = startTgClient(info, am.incoming)
+			case "webhook":
+				client = startWebHookClient(info, am.incoming)
 			default:
 				continue
 			}

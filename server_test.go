@@ -640,6 +640,8 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 	s.SendWelcome(c)
 	s.Roundtrip(c)
 
+	time.Sleep(100 * time.Millisecond)
+
 	var ks []struct {
 		Name string "_id"
 	}

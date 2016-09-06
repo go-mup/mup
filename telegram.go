@@ -3,14 +3,15 @@ package mup
 import (
 	"encoding/json"
 	"fmt"
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/tomb.v2"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/tomb.v2"
 )
 
 const tgBotPrefix = "https://api.telegram.org/bot"
@@ -406,15 +407,6 @@ type tgUpdateChat struct {
 	LastName  string `json:"last_name"`
 	Username  string `json:"username"`
 }
-
-type respStyle string
-
-const (
-	respStyleNoNick    respStyle = "x"
-	respStyleNickColon respStyle = ":"
-	respStyleNickComma respStyle = ","
-	respStyleAtNick    respStyle = "@"
-)
 
 func (r *tgReader) updateNick() error {
 	resp, err := httpClient.Get(r.apiPrefix + r.apiKey + "/getMe")
