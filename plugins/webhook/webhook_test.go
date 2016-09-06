@@ -41,31 +41,31 @@ type webhookTest struct {
 var webhookTests = []webhookTest{{
 	// Missing target.
 	payload: `{"token": "secret", "user_name": "nick", "text": "Hello"}`,
-	config:  bson.M{"token": "secret"},
+	config:  bson.M{"tokens": []string{"secret"}},
 	message: ``,
 }, {
 	// Bad secret.
 	payload: `{"token": "bad", "user_name": "nick", "text": "Hello"}`,
-	config:  bson.M{"token": "secret"},
+	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "test"}},
 	message: ``,
 }, {
 	// All good.
 	payload: `{"token": "secret", "user_name": "nick", "text": "Hello"}`,
 	message: `:nick!~user@webhook PRIVMSG mup :Hello`,
-	config:  bson.M{"token": "secret"},
+	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "test"}},
 }, {
 	// In a channel.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "#chan", "text": "Hello"}`,
 	message: `:nick!~user@webhook PRIVMSG #chan :Hello`,
-	config:  bson.M{"token": "secret"},
+	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "test"}},
 }, {
 	// Different account.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "#chan", "text": "Hello"}`,
 	message: `[@other] :nick!~user@webhook PRIVMSG #chan :Hello`,
-	config:  bson.M{"token": "secret"},
+	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "other"}},
 }}
 

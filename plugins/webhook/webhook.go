@@ -39,9 +39,9 @@ type webhookPlugin struct {
 	plugger  *mup.Plugger
 	listener net.Listener
 	config   struct {
-		Token string
-		Nick  string
-		Addr  string
+		Tokens []string
+		Nick   string
+		Addr   string
 	}
 }
 
@@ -118,6 +118,15 @@ type payloadMessage struct {
 	Bot         bool   `json:"bot"`
 }
 
+func (p *webhookPlugin) hasToken(token string) bool {
+	for _, t := range p.config.Tokens {
+		if token == t {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *webhookPlugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
@@ -145,7 +154,7 @@ func (p *webhookPlugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if pmsg.Token != p.config.Token {
+	if !p.hasToken(pmsg.Token) {
 		p.plugger.Logf("Invalid token received: %s", pmsg.Token)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"success:": false, "message": "invalid token"}`))
