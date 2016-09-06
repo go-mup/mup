@@ -10,6 +10,8 @@ import (
 
 	"gopkg.in/mup.v0"
 	"gopkg.in/tomb.v2"
+	"io"
+	"io/ioutil"
 )
 
 var Plugin = mup.PluginSpec{
@@ -128,20 +130,12 @@ func (p *webhookPlugin) hasToken(token string) bool {
 }
 
 func (p *webhookPlugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseForm()
-	if err != nil {
-		p.plugger.Logf("Got request with broken form.")
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
-		return
-	}
-
-	payloadData := r.Form.Get("payload")
-
-	if len(payloadData) == 0 || r.Method != "POST" {
+	contentType := r.Header.Get("Content-Type")
+	payloadData, err := ioutil.ReadAll(&io.LimitedReader{R: r.Body, N: 16385})
+	if len(payloadData) == 0 || r.Method != "POST" || contentType != "application/json" {
 		p.plugger.Logf("Got request with empty payload (%d) or invalid method (%s)", len(payloadData), r.Method)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"success:": false, "message": "message must be POSTed as JSON inside the "payload" parameter."}`))
+		w.Write([]byte(`{"success:": false, "message": "message must be POSTed as JSON in request body with proper content-type"}`))
 		return
 	}
 

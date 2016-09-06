@@ -1,18 +1,15 @@
 package webhook_test
 
 import (
+	"bytes"
+	"net"
+	"net/http"
 	"testing"
 
-	"net/http"
-	"net/url"
-
+	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
-
-	. "gopkg.in/check.v1"
-
 	_ "gopkg.in/mup.v0/plugins/webhook"
-	"net"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -92,7 +89,7 @@ func (s *WebHookSuite) TestIn(c *C) {
 			}
 		}
 
-		resp, err := client.PostForm("http://localhost:10645/", url.Values{"payload": {test.payload}})
+		resp, err := client.Post("http://localhost:10645/", "application/json", bytes.NewBufferString(test.payload))
 		c.Assert(err, IsNil)
 		resp.Body.Close()
 
