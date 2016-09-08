@@ -50,7 +50,7 @@ func init() {
 	mup.RegisterPlugin(&Plugin)
 }
 
-var defaultEndpoint = "http://play.golang.org"
+var defaultEndpoint = "https://play.golang.org"
 
 type playPlugin struct {
 	tomb     tomb.Tomb
