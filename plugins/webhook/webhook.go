@@ -12,6 +12,7 @@ import (
 	"gopkg.in/tomb.v2"
 	"io"
 	"io/ioutil"
+	"strings"
 )
 
 var Plugin = mup.PluginSpec{
@@ -148,6 +149,11 @@ func (p *webhookPlugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if pmsg.Bot {
+		// Ignore bot messages.
+		return
+	}
+
 	if !p.hasToken(pmsg.Token) {
 		p.plugger.Logf("Invalid token received: %s", pmsg.Token)
 		w.WriteHeader(http.StatusBadRequest)
@@ -166,6 +172,8 @@ func (p *webhookPlugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if pmsg.ChannelName == "" {
 		pmsg.ChannelName = p.config.Nick
+	} else if !strings.HasPrefix(pmsg.ChannelName, "#") {
+		pmsg.ChannelName = "#" + pmsg.ChannelName
 	}
 
 	line := fmt.Sprintf(":%s!~%s@webhook PRIVMSG %s :%s", pmsg.UserName, pmsg.UserID, pmsg.ChannelName, pmsg.Text)

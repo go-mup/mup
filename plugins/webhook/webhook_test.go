@@ -59,11 +59,23 @@ var webhookTests = []webhookTest{{
 	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "test"}},
 }, {
+	// In a channel, without # in name.
+	payload: `{"token": "secret", "user_name": "nick", "channel_name": "chan", "text": "Hello"}`,
+	message: `:nick!~user@webhook PRIVMSG #chan :Hello`,
+	config:  bson.M{"tokens": []string{"secret"}},
+	targets: []bson.M{{"account": "test"}},
+}, {
 	// Different account.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "#chan", "text": "Hello"}`,
 	message: `[@other] :nick!~user@webhook PRIVMSG #chan :Hello`,
 	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "other"}},
+}, {
+	// From a bot.
+	payload: `{"token": "secret", "user_name": "nick", "channel_name": "chan", "text": "Hello", "bot": true}`,
+	message: ``,
+	config:  bson.M{"tokens": []string{"secret"}},
+	targets: []bson.M{{"account": "test"}},
 }}
 
 func (s *WebHookSuite) TestIn(c *C) {
