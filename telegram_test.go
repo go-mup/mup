@@ -244,7 +244,8 @@ type tgServer struct {
 }
 
 type tgMessage struct {
-	text, chat_id string
+	text, chat_id  string
+	disablePreview bool
 }
 
 func (s *tgServer) Start() {
@@ -346,8 +347,13 @@ func (s *tgServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			fmt.Fprintf(w, `{"ok": false, "description": "failure requested by test suite"}`)
 		default:
 		}
+		msg := tgMessage{
+			text:           req.Form.Get("text"),
+			chat_id:        req.Form.Get("chat_id"),
+			disablePreview: req.Form.Get("disable_web_page_preview") == "true",
+		}
 		select {
-		case s.messages <- tgMessage{text: req.Form.Get("text"), chat_id: req.Form.Get("chat_id")}:
+		case s.messages <- msg:
 			fmt.Fprintf(w, `{"ok": true, "result": {}}`)
 		case <-time.After(100 * time.Millisecond):
 			panic("Client is sending messages much faster than test suite is trying to receive them")
