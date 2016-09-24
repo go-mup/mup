@@ -84,89 +84,8 @@ func (s *WebHookSuite) RecvMessage(c *C, channel, text string) {
 	c.Assert(err, IsNil)
 	c.Assert(msg.Channel, Equals, channel)
 	c.Assert(msg.Text, Equals, text)
+	c.Assert(msg.Groupable, Equals, true)
 }
-
-//var incomingWebHookTests = []struct {
-//	update  string
-//	message mup.Message
-//}{{
-//	`{
-//		"update_id": 12,
-//		"message": {
-//			"message_id": 34,
-//			"from": {"id": 56, "username": "bob"},
-//			"chat": {"id": 56, "username": "bob"},
-//			"text": "Hello mup!"
-//		}
-//	}`,
-//	mup.Message{
-//		Account: "one",
-//		Nick:    "bob",
-//		User:    "~user",
-//		Host:    "telegram",
-//		Command: "PRIVMSG",
-//		Channel: "@bob:56",
-//		Text:    "Hello mup!",
-//		BotText: "Hello mup!",
-//		Bang:    "/",
-//		AsNick:  "mupbot",
-//	},
-//}, {
-//	`{
-//		"update_id": 13,
-//		"message": {
-//			"message_id": 34,
-//			"from": {"id": 56, "username": "bob"},
-//			"chat": {"id": -78, "title": "Group Chat"},
-//			"text": "Hello there!"
-//		}
-//	}`,
-//	mup.Message{
-//		Account: "one",
-//		Nick:    "bob",
-//		User:    "~user",
-//		Host:    "telegram",
-//		Command: "PRIVMSG",
-//		Channel: "#Group_Chat:-78",
-//		Text:    "Hello there!",
-//		Bang:    "/",
-//		AsNick:  "mupbot",
-//	},
-//}}
-//
-//func (s *WebHookSuite) TestIncoming(c *C) {
-//	incoming := s.session.DB("").C("incoming")
-//
-//	var lastId bson.ObjectId
-//	for _, test := range incomingWebHookTests {
-//		before := time.Now().Add(-2 * time.Second)
-//		s.SendUpdates(c, test.update)
-//
-//		var msg mup.Message
-//		var err error
-//		for i := 0; i < 10; i++ {
-//			err = incoming.Find(nil).Sort("-$natural").One(&msg)
-//			if err == nil && msg.Id != lastId {
-//				break
-//			}
-//		}
-//		if err == mgo.ErrNotFound || msg.Id == lastId {
-//			c.Fatalf("WebHook update not received as an incoming message: %s", test.update)
-//		}
-//		c.Assert(err, IsNil)
-//
-//		lastId = msg.Id
-//
-//		after := time.Now().Add(2 * time.Second)
-//		c.Logf("Message time: %s", msg.Time)
-//		c.Assert(msg.Time.After(before), Equals, true)
-//		c.Assert(msg.Time.Before(after), Equals, true)
-//
-//		msg.Time = time.Time{}
-//		msg.Id = ""
-//		c.Assert(msg, DeepEquals, test.message)
-//	}
-//}
 
 func (s *WebHookSuite) TestOutgoing(c *C) {
 
@@ -213,8 +132,9 @@ type webhookServer struct {
 }
 
 type webhookMessage struct {
-	Channel string `json:"channel"`
-	Text    string `json:"text"`
+	Channel   string `json:"channel"`
+	Text      string `json:"text"`
+	Groupable bool   `json:"groupable"`
 }
 
 func (s *webhookServer) Start() {

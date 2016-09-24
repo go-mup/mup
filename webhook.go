@@ -240,8 +240,9 @@ func (w *webhookWriter) die() {
 }
 
 type webhookPayload struct {
-	Channel string `json:"channel"`
-	Text    string `json:"text"`
+	Channel   string `json:"channel"`
+	Text      string `json:"text"`
+	Groupable bool   `json:"groupable,omitempty"`
 }
 
 func (w *webhookWriter) loop() error {
@@ -267,8 +268,9 @@ loop:
 		logf("[%s] Sending: %s", w.accountName, msg.String())
 
 		payload := webhookPayload{
-			Channel: msg.Channel,
-			Text:    msg.Text,
+			Channel:   msg.Channel,
+			Text:      msg.Text,
+			Groupable: true,
 		}
 		if payload.Channel == "" {
 			payload.Channel = "@" + msg.Nick
