@@ -426,9 +426,14 @@ func (p *ghPlugin) request(url string, result interface{}) error {
 		return fmt.Errorf("cannot perform GitHub request: %v", err)
 	}
 	defer resp.Body.Close()
-	err = json.NewDecoder(resp.Body).Decode(result)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		p.plugger.Logf("Cannot decode GitHub response: %v", err)
+		p.plugger.Logf("Cannot read GitHub response: %v", err)
+		return fmt.Errorf("cannot read GitHub response: %v", err)
+	}
+	err = json.Unmarshal(body, result)
+	if err != nil {
+		p.plugger.Logf("Cannot decode GitHub response:\n-----\n%s\n-----", body)
 		return fmt.Errorf("cannot decode GitHub response: %v", err)
 	}
 	if !parseOrgRepo(result) {
