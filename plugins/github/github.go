@@ -275,15 +275,15 @@ type ghIssue struct {
 	org  string
 	repo string
 
-	Title    string    `json:"title"`
-	Number   int       `json:"number"`
-	RepoURL  string    `json:"repository_url"`
-	State    string    `json:"state"`
-	Assignee string    `json:"assignee"`
-	Labels   []ghLabel `json:"labels"`
-	User     ghUser    `json:"user"`
-	ClosedBy ghUser    `json:"closed_by"`
-	Pull     ghPull    `json:"pull_request"`
+	Title     string    `json:"title"`
+	Number    int       `json:"number"`
+	RepoURL   string    `json:"repository_url"`
+	State     string    `json:"state"`
+	Assignees []ghUser  `json:"assignees"`
+	Labels    []ghLabel `json:"labels"`
+	User      ghUser    `json:"user"`
+	ClosedBy  ghUser    `json:"closed_by"`
+	Pull      ghPull    `json:"pull_request"`
 }
 
 type ghUser struct {
@@ -378,8 +378,6 @@ func (p *ghPlugin) formatNotes(issue *ghIssue) string {
 		fmt.Fprintf(&buf, " <Merged by %s>", issue.Pull.MergedBy.Login)
 	} else if issue.State == "closed" {
 		fmt.Fprintf(&buf, " <Closed by %s>", issue.ClosedBy.Login)
-	} else if issue.State == "open" && issue.Pull.HTMLURL != "" && !issue.Pull.Mergeable {
-		fmt.Fprintf(&buf, " <Conflict>")
 	}
 
 	return buf.String()
@@ -433,7 +431,7 @@ func (p *ghPlugin) request(url string, result interface{}) error {
 	}
 	err = json.Unmarshal(body, result)
 	if err != nil {
-		p.plugger.Logf("Cannot decode GitHub response:\n-----\n%s\n-----", body)
+		p.plugger.Logf("Cannot decode GitHub response: %v\n-----\n%s\n-----", err, body)
 		return fmt.Errorf("cannot decode GitHub response: %v", err)
 	}
 	if !parseOrgRepo(result) {
