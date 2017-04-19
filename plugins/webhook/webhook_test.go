@@ -76,6 +76,12 @@ var webhookTests = []webhookTest{{
 	message: ``,
 	config:  bson.M{"tokens": []string{"secret"}},
 	targets: []bson.M{{"account": "test"}},
+}, {
+	// From a bot with a document.
+	payload: `{"token": "secret", "user_name": "nick", "channel_name": "chan", "text": "Hello", "bot": {"i": "foobar"}}`,
+	message: ``,
+	config:  bson.M{"tokens": []string{"secret"}},
+	targets: []bson.M{{"account": "test"}},
 }}
 
 func (s *WebHookSuite) TestIn(c *C) {

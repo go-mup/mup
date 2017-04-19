@@ -111,14 +111,14 @@ func (p *webhookPlugin) loop() error {
 }
 
 type payloadMessage struct {
-	Token       string `json:"token"`        // "jhkjK7Khwe7whekjhwe7lwlh"
-	Timestamp   string `json:"timestamp"`    // "2016-09-05T02:54:47.616Z"
-	Text        string `json:"text"`         // "Hello there"
-	ChannelID   string `json:"channel_id"`   // "3kjhkKQkjwekjwjwkJhkewjhqejKWM8Lvw"
-	ChannelName string `json:"channel_name"` // "#general" (not there for private)
-	UserID      string `json:"user_id"`      // "Kh41HKEqnjekqwekj"
-	UserName    string `json:"user_name"`    // "joe"
-	Bot         bool   `json:"bot"`
+	Token       string      `json:"token"`        // "jhkjK7Khwe7whekjhwe7lwlh"
+	Timestamp   string      `json:"timestamp"`    // "2016-09-05T02:54:47.616Z"
+	Text        string      `json:"text"`         // "Hello there"
+	ChannelID   string      `json:"channel_id"`   // "3kjhkKQkjwekjwjwkJhkewjhqejKWM8Lvw"
+	ChannelName string      `json:"channel_name"` // "#general" (not there for private)
+	UserID      string      `json:"user_id"`      // "Kh41HKEqnjekqwekj"
+	UserName    string      `json:"user_name"`    // "joe"
+	Bot         interface{} `json:"bot"`          // false or {"i": "<id>"}
 }
 
 func (p *webhookPlugin) hasToken(token string) bool {
@@ -149,7 +149,7 @@ func (p *webhookPlugin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if pmsg.Bot {
+	if pmsg.Bot != nil && pmsg.Bot != false {
 		// Ignore bot messages.
 		return
 	}
