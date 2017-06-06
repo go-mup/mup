@@ -12,6 +12,7 @@ import (
 	_ "gopkg.in/mup.v0/plugins/log"
 	_ "gopkg.in/mup.v0/plugins/playground"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
+	_ "gopkg.in/mup.v0/plugins/spreadcron"
 	_ "gopkg.in/mup.v0/plugins/webhook"
 	_ "gopkg.in/mup.v0/plugins/wolframalpha"
 )
