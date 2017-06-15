@@ -56,16 +56,16 @@ type Content struct {
 }
 
 type Committer struct {
-	Name  string
-	Email string
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type Payload struct {
-	Message   string
-	Content   string
-	Committer *Committer
-	Branch    string
-	Sha       string
+	Message   string     `json:"message"`
+	Content   string     `json:"content"`
+	Committer *Committer `json:"committer"`
+	Branch    string     `json:"branch"`
+	Sha       string     `json:"sha"`
 }
 
 var httpClient = http.Client{Timeout: mup.NetworkTimeout}
@@ -197,8 +197,8 @@ func (p *spreadcronPlugin) do(verb, path string, b io.Reader) ([]byte, error) {
 
 	req, err := http.NewRequest(verb, url, b)
 	if err != nil {
-		p.plugger.Logf("Cannot perform GH request: %v", err)
-		return nil, fmt.Errorf("cannot perform GH request: %v", err)
+		p.plugger.Logf("Cannot create GH request: %v", err)
+		return nil, fmt.Errorf("cannot create GH request: %v", err)
 	}
 	req.SetBasicAuth(p.config.Username, p.config.Token)
 
@@ -208,21 +208,24 @@ func (p *spreadcronPlugin) do(verb, path string, b io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("resource not found")
 	}
 	if err == nil && resp.StatusCode/100 != 2 {
-		resp.Body.Close()
 		err = fmt.Errorf("%s", resp.Status)
 	}
+	defer resp.Body.Close()
 	if err != nil {
 		if resp != nil {
-			data, _ := ioutil.ReadAll(resp.Body)
+			data, err2 := ioutil.ReadAll(resp.Body)
+			if err2 != nil {
+				p.plugger.Logf("Cannot read response body %s", err2)
+				return nil, fmt.Errorf("cannot perform GH request: %v", err2)
+			}
 			if len(data) > 0 {
-				p.plugger.Logf("Cannot perform GH request: %v\nGH response: %s", err, data)
+				p.plugger.Logf("Cannot perform GH request: %v\nGH response: %s, verb: %s, url: %s", err, data, verb, url)
 			} else {
-				p.plugger.Logf("Cannot perform GH request: %v", err)
+				p.plugger.Logf("Cannot perform GH request: %v, empty body, verb: %s, url: %s", err, verb, url)
 			}
 		}
 		return nil, fmt.Errorf("cannot perform GH request: %v", err)
 	}
-	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		p.plugger.Logf("Cannot read GH response: %v", err)

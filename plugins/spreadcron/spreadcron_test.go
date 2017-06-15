@@ -1,15 +1,19 @@
 package spreadcron_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"gopkg.in/check.v1"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/plugins/spreadcron"
 )
 
 func Test(t *testing.T) { check.TestingT(t) }
@@ -31,6 +35,35 @@ func (s *ghServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if username != "myusername" || token != "mytoken" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
+	}
+	if req.Method == "PUT" {
+		// check for required fields
+		data, err := ioutil.ReadAll(req.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+		// first check for the required fields in lower case from the data before unmarshaling
+		// (this is what GH wants)
+		sdata := string(data)
+		for _, item := range []string{`"content":`, `"message":`, `"name":`, `"email":`} {
+			if !strings.Contains(sdata, item) {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				return
+			}
+		}
+
+		payload := &spreadcron.Payload{}
+		err = json.Unmarshal(data, payload)
+		if err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+		if payload.Content == "" || payload.Message == "" ||
+			payload.Committer.Email == "" || payload.Committer.Name == "" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
 	}
 
 	totalResponses := len(s.responses)
