@@ -41,6 +41,8 @@ type spreadcronPlugin struct {
 		Token    string
 		Allowed  []string
 		Project  string
+		Name     string
+		Email    string
 	}
 }
 
@@ -159,7 +161,14 @@ func (p *spreadcronPlugin) trigger(branch string) (string, error) {
 			}
 			sha = results.Sha
 		}
-		commiter := &Committer{Name: "myname", Email: "myemail"}
+		if p.config.Name == "" {
+			p.config.Name = "myname"
+		}
+		if p.config.Email == "" {
+			p.config.Email = "myemail"
+		}
+
+		commiter := &Committer{Name: p.config.Name, Email: p.config.Email}
 		content := "build triggered by mup"
 		body := &Payload{
 			Message:   content,
