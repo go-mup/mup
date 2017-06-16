@@ -86,7 +86,11 @@ func (s *travisSuite) TearDownTest(c *C) {
 
 func (s *travisSuite) setUpTester() {
 	s.tester = mup.NewPluginTester("travisbuildwatch")
-	config := bson.M{"endpoint": s.travisServer.URL(), "project": "testproject", "polldelay": "50ms"}
+	config := bson.M{
+		"endpoint":  s.travisServer.URL(),
+		"project":   "testproject",
+		"polldelay": "50ms",
+		"allowed":   []string{"master", "allowed"}}
 	s.tester.SetConfig(config)
 
 	targets := []bson.M{{"account": "test", "channel": "test"}}
@@ -392,6 +396,24 @@ var travisTests = []travisTest{
 		recv: []string{
 			"PRIVMSG test :Travis build FAILED: fourth changes <project: testproject> <branch: master> <https://travis-ci.org/testproject/builds/4>",
 			"PRIVMSG test :Travis build passed: seventh changes <project: testproject> <branch: master> <https://travis-ci.org/testproject/builds/7>",
+		},
+	}, {
+		summary: "Do not report builds from not included branches",
+		serverResponses: []string{
+			`[{"id":1,"number":"1","state":"finished","result":0,"branch":"master","message":"first changes"}]`,
+
+			`[{"id":7,"number":"7","state":"finished","result":0,"branch":"allowed","message":"seventh changes"},
+        {"id":6,"number":"6","state":"finished","result":1,"branch":"allowed","message":"sixth changes"},
+        {"id":5,"number":"5","state":"finished","result":0,"branch":"master","message":"fifth changes"},
+        {"id":4,"number":"4","state":"finished","result":1,"branch":"master","message":"fourth changes"},
+        {"id":3,"number":"3","state":"finished","result":0,"branch":"not-allowed","message":"third changes"},
+        {"id":2,"number":"2","state":"finished","result":1,"branch":"not-allowed","message":"second changes"},
+        {"id":1,"number":"1","state":"finished","result":0,"branch":"master","message":"first changes"}]`},
+		recv: []string{
+			"PRIVMSG test :Travis build FAILED: fourth changes <project: testproject> <branch: master> <https://travis-ci.org/testproject/builds/4>",
+			"PRIVMSG test :Travis build passed: fifth changes <project: testproject> <branch: master> <https://travis-ci.org/testproject/builds/5>",
+			"PRIVMSG test :Travis build FAILED: sixth changes <project: testproject> <branch: allowed> <https://travis-ci.org/testproject/builds/6>",
+			"PRIVMSG test :Travis build passed: seventh changes <project: testproject> <branch: allowed> <https://travis-ci.org/testproject/builds/7>",
 		},
 	},
 }

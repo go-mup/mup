@@ -36,6 +36,8 @@ type travisPlugin struct {
 		Project  string
 
 		PollDelay mup.DurationString
+
+		Allowed []string
 	}
 
 	rand *rand.Rand
@@ -196,6 +198,20 @@ func (p *travisPlugin) showBuild(build *travisBuild) {
 	// check if the notification must be skipped
 	if strings.Contains(build.Message, "<skip notify>") {
 		return
+	}
+
+	// check if the branch is allowed
+	if len(p.config.Allowed) > 0 {
+		var found bool
+		for _, allowed := range p.config.Allowed {
+			if allowed == build.Branch {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
 	}
 
 	var args []interface{}
