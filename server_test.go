@@ -12,6 +12,7 @@ import (
 	"gopkg.in/mup.v0/ldap"
 	_ "gopkg.in/mup.v0/plugins/help"
 	"gopkg.in/mup.v0/schema"
+	"sync"
 )
 
 type ServerSuite struct {
@@ -500,9 +501,14 @@ func (p *testLdapPlugin) HandleCommand(cmd *mup.Command) {
 func (s *ServerSuite) TestLDAP(c *C) {
 	s.SendWelcome(c)
 
-	var dials []*ldap.Config
+	var mu sync.Mutex
+	var dials = make(map[string]*ldap.Config)
+	var dialn int
 	ldap.TestDial = func(config *ldap.Config) (ldap.Conn, error) {
-		dials = append(dials, config)
+		mu.Lock()
+		dials[config.URL] = config
+		dialn++
+		mu.Unlock()
 		return &ldapConn{}, nil
 	}
 	defer func() {
@@ -545,11 +551,15 @@ func (s *ServerSuite) TestLDAP(c *C) {
 
 	s.StopServer(c)
 
-	c.Assert(dials, HasLen, 4)
-	c.Assert(dials[0], DeepEquals, &ldap.Config{URL: "the-url1", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
-	c.Assert(dials[1], DeepEquals, &ldap.Config{URL: "the-url2"})
-	c.Assert(dials[2], DeepEquals, &ldap.Config{URL: "the-url4", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
-	c.Assert(dials[3], DeepEquals, &ldap.Config{URL: "the-url3"})
+	mu.Lock()
+	defer mu.Unlock()
+
+	c.Assert(dials["the-url1"], DeepEquals, &ldap.Config{URL: "the-url1", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
+	c.Assert(dials["the-url2"], DeepEquals, &ldap.Config{URL: "the-url2"})
+	c.Assert(dials["the-url4"], DeepEquals, &ldap.Config{URL: "the-url4", BaseDN: "the-basedn", BindDN: "the-binddn", BindPass: "the-bindpass"})
+	c.Assert(dials["the-url3"], DeepEquals, &ldap.Config{URL: "the-url3"})
+
+	c.Assert(dialn, Equals, 4)
 }
 
 var testDBSpec = mup.PluginSpec{
