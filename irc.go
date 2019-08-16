@@ -229,6 +229,10 @@ func (c *ircClient) auth() (err error) {
 		if msg.Command == cmdWelcome {
 			c.activeNick = msg.AsNick
 			logf("[%s] Got welcome notice.", c.accountName)
+			err = c.identify()
+			if err != nil {
+				return err
+			}
 			break
 		}
 	}
@@ -316,10 +320,22 @@ func changedChannel(msg *Message) string {
 	return ""
 }
 
+func (c *ircClient) identify() error {
+	if c.info.Identify == "" {
+		return nil
+	}
+	logf("[%s] Identifying as %q to nickserv.", c.accountName, c.info.Nick)
+	return c.ircW.Sendf("PRIVMSG nickserv :IDENTIFY %s %s", c.info.Nick, c.info.Identify)
+}
+
 func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
 	switch msg.Command {
 	case cmdNick:
 		c.activeNick = msg.AsNick
+		err = c.identify()
+		if err != nil {
+			return false, err
+		}
 	case cmdPing:
 		err = c.ircW.Sendf("PONG :%s", msg.Text)
 		if err != nil {
@@ -396,6 +412,12 @@ Outer2:
 		now := time.Now()
 		if c.nextNickChange.Before(now) {
 			c.nextNickChange = now.Add(nickChangeDelay)
+			if c.info.Identify != "" {
+				err := c.ircW.Sendf("PRIVMSG nickserv :GHOST %s %s", c.info.Nick, c.info.Identify)
+				if err != nil {
+					return err
+				}
+			}
 			err := c.ircW.Sendf("NICK %s", c.info.Nick)
 			if err != nil {
 				return err
@@ -584,13 +606,13 @@ func (r *ircReader) loop() error {
 					r.activeNick = msg.Text
 				}
 				msg.AsNick = r.activeNick
-				logf("[%s] Nick %q accepted.", r.accountName, r.activeNick)
+				logf("[%s] Nick %q accepted by server.", r.accountName, r.activeNick)
 			}
 		case cmdWelcome:
 			if len(msg.Params) > 0 {
 				r.activeNick = msg.Params[0]
 				msg.AsNick = r.activeNick
-				logf("[%s] Nick %q accepted.", r.accountName, r.activeNick)
+				logf("[%s] Nick %q accepted by server.", r.accountName, r.activeNick)
 			}
 		}
 		select {

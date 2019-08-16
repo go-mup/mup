@@ -40,6 +40,7 @@ type accountInfo struct {
 	TLS         bool
 	TLSInsecure bool
 	Nick        string
+	Identify    string
 	Password    string
 	Channels    []channelInfo
 	LastId      bson.ObjectId

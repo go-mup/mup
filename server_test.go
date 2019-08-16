@@ -113,7 +113,7 @@ func (s *ServerSuite) ReadLine(c *C, line string) {
 	c.Assert(s.lserver.ReadLine(), Equals, line)
 
 	// Confirm read message.
-	if strings.HasPrefix(line, "PRIVMSG ") || strings.HasPrefix(line, "NOTICE ") {
+	if (strings.HasPrefix(line, "PRIVMSG ") || strings.HasPrefix(line, "NOTICE ")) && !strings.Contains(line, "nickserv") {
 		ping := s.lserver.ReadLine()
 		c.Assert(ping, Matches, "PING :sent:.*")
 		s.lserver.SendLine("PONG " + ping[5:])
@@ -162,6 +162,39 @@ func (s *ServerSuite) TestNickChange(c *C) {
 
 		currentNick += "_"
 	}
+}
+
+func (s *ServerSuite) TestIdentify(c *C) {
+	s.StopServer(c)
+
+	accounts := s.session.DB("").C("accounts")
+	err := accounts.UpdateId("one", M{"$set": M{"identify": "nickpass"}})
+	c.Assert(err, IsNil)
+
+	s.RestartServer(c)
+
+	s.SendWelcome(c)
+	s.ReadLine(c, "PRIVMSG nickserv :IDENTIFY mup nickpass")
+	s.Roundtrip(c)
+}
+
+func (s *ServerSuite) TestIdentifyNickInUse(c *C) {
+	s.StopServer(c)
+
+	accounts := s.session.DB("").C("accounts")
+	err := accounts.UpdateId("one", M{"$set": M{"identify": "nickpass"}})
+	c.Assert(err, IsNil)
+
+	s.RestartServer(c)
+
+	s.SendLine(c, ":n.net 433 * mup :Nickname is already in use.")
+	s.ReadLine(c, "NICK mup_")
+	s.SendLine(c, ":n.net 001 mup_ :Welcome!")
+
+	s.ReadLine(c, "PRIVMSG nickserv :IDENTIFY mup nickpass")
+	s.ReadLine(c, "PRIVMSG nickserv :GHOST mup nickpass")
+	s.ReadLine(c, "NICK mup")
+	s.Roundtrip(c)
 }
 
 func (s *ServerSuite) TestPingPong(c *C) {
