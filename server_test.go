@@ -175,6 +175,15 @@ func (s *ServerSuite) TestIdentify(c *C) {
 
 	s.SendWelcome(c)
 	s.ReadLine(c, "PRIVMSG nickserv :IDENTIFY mup nickpass")
+
+	s.server.RefreshAccounts()
+	s.Roundtrip(c)
+
+	err = accounts.UpdateId("one", M{"$set": M{"identify": "other"}})
+	c.Assert(err, IsNil)
+
+	s.server.RefreshAccounts()
+	s.ReadLine(c, "PRIVMSG nickserv :IDENTIFY mup other")
 	s.Roundtrip(c)
 }
 

@@ -394,6 +394,7 @@ Outer2:
 		}
 		joins = append(joins, ci.Name)
 	}
+	activeIdentify := c.info.Identify
 	c.info = *info
 	if len(joins) > 0 {
 		// TODO Handle channel keys.
@@ -404,6 +405,12 @@ Outer2:
 	}
 	if len(parts) > 0 {
 		err := c.ircW.Sendf("PART %s", strings.Join(parts, ","))
+		if err != nil {
+			return err
+		}
+	}
+	if activeIdentify != c.info.Identify {
+		err := c.identify()
 		if err != nil {
 			return err
 		}
