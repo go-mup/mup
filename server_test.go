@@ -5,9 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	_ "gopkg.in/mup.v0/plugins/help"
@@ -18,22 +17,23 @@ import (
 type ServerSuite struct {
 	LineServerSuite
 
-	dbserver dbtest.DBServer
-	session  *mgo.Session
-	config   *mup.Config
-	server   *mup.Server
-	lserver  *LineServer
+	config  *mup.Config
+	server  *mup.Server
+	lserver *LineServer
+
+	dbdir string
+	db    *sql.DB
 }
 
 var _ = Suite(&ServerSuite{})
 
 func (s *ServerSuite) SetUpSuite(c *C) {
-	s.dbserver.SetPath(c.MkDir())
 	s.LineServerSuite.SetUpSuite(c)
+
+	s.dbdir = c.MkDir()
 }
 
 func (s *ServerSuite) TearDownSuite(c *C) {
-	s.dbserver.Stop()
 	s.LineServerSuite.TearDownSuite(c)
 }
 
@@ -43,29 +43,32 @@ func (s *ServerSuite) SetUpTest(c *C) {
 	mup.SetDebug(true)
 	mup.SetLogger(c)
 
-	s.session = s.dbserver.Session()
+	var err error
+	s.db, err = mup.OpenDB(s.dbdir)
+	c.Assert(err, IsNil)
 
-	db := s.session.DB("")
 	s.config = &mup.Config{
-		Database: db,
-		Refresh:  -1, // Manual refreshing for testing.
+		DB:      s.db,
+		Refresh: -1, // Manual refreshing for testing.
 	}
 
-	err := db.C("accounts").Insert(M{"_id": "one", "host": s.Addr.String(), "password": "password"})
+	_, err = s.db.Exec("INSERT INTO account (name,host,password) VALUES ('one',?,'password')", s.Addr.String())
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
 }
 
 func (s *ServerSuite) TearDownTest(c *C) {
-	defer s.dbserver.Wipe()
-
-	s.session.Close()
-
 	mup.SetDebug(false)
 	mup.SetLogger(nil)
 
 	s.StopServer(c)
+
+	s.db.Close()
+	s.db = nil
+	s.dbdir = c.MkDir()
+	//c.Assert(mup.WipeDB(s.dbdir), IsNil)
+
 	s.LineServerSuite.TearDownTest(c)
 }
 
@@ -152,13 +155,11 @@ func (s *ServerSuite) TestNickChange(c *C) {
 		s.Roundtrip(c)
 		time.Sleep(50 * time.Millisecond)
 
-		var msg mup.Message
-		incoming := s.session.DB("").C("incoming")
-		err := incoming.Find(nil).Sort("-$natural").One(&msg)
-		c.Assert(err, IsNil)
-
-		c.Assert(msg.Text, Equals, "Hello mup!")
-		c.Assert(msg.AsNick, Equals, currentNick+"_")
+		row := s.db.QueryRow("SELECT text,as_nick FROM incoming ORDER BY id DESC")
+		var text, nick string
+		c.Assert(row.Scan(&text, &nick), IsNil)
+		c.Assert(text, Equals, "Hello mup!")
+		c.Assert(nick, Equals, currentNick+"_")
 
 		currentNick += "_"
 	}
@@ -167,8 +168,7 @@ func (s *ServerSuite) TestNickChange(c *C) {
 func (s *ServerSuite) TestIdentify(c *C) {
 	s.StopServer(c)
 
-	accounts := s.session.DB("").C("accounts")
-	err := accounts.UpdateId("one", M{"$set": M{"identify": "nickpass"}})
+	_, err := s.db.Exec("UPDATE account SET identify='nickpass' WHERE name='one'")
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
@@ -179,7 +179,7 @@ func (s *ServerSuite) TestIdentify(c *C) {
 	s.server.RefreshAccounts()
 	s.Roundtrip(c)
 
-	err = accounts.UpdateId("one", M{"$set": M{"identify": "other"}})
+	_, err = s.db.Exec("UPDATE account SET identify='other' WHERE name='one'")
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
@@ -190,8 +190,7 @@ func (s *ServerSuite) TestIdentify(c *C) {
 func (s *ServerSuite) TestIdentifyNickInUse(c *C) {
 	s.StopServer(c)
 
-	accounts := s.session.DB("").C("accounts")
-	err := accounts.UpdateId("one", M{"$set": M{"identify": "nickpass"}})
+	_, err := s.db.Exec("UPDATE account SET identify='nickpass' WHERE name='one'")
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
@@ -237,9 +236,17 @@ func (s *ServerSuite) TestQuitPostAuth(c *C) {
 func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendWelcome(c)
 
-	accounts := s.session.DB("").C("accounts")
-	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}, {"name": "#c3"}, {"name": "#c4"}}}})
+	tx, err := s.db.Begin()
 	c.Assert(err, IsNil)
+	_, err = tx.Exec("INSERT INTO channel (account,name) VALUES ('one','#c1')")
+	c.Assert(err, IsNil)
+	_, err = tx.Exec("INSERT INTO channel (account,name) VALUES ('one','#c2')")
+	c.Assert(err, IsNil)
+	_, err = tx.Exec("INSERT INTO channel (account,name) VALUES ('one','#c3')")
+	c.Assert(err, IsNil)
+	_, err = tx.Exec("INSERT INTO channel (account,name) VALUES ('one','#c4')")
+	c.Assert(err, IsNil)
+	c.Assert(tx.Commit(), IsNil)
 
 	s.server.RefreshAccounts()
 	s.ReadLine(c, "JOIN #c1,#c2,#c3,#c4")
@@ -252,8 +259,13 @@ func (s *ServerSuite) TestJoinChannel(c *C) {
 	s.SendLine(c, ":mup!~mup@10.0.0.1 JOIN #c4")
 	s.Roundtrip(c)
 
-	err = accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#c1"}, {"name": "#c2"}, {"name": "#c5"}}}})
+	tx, err = s.db.Begin()
 	c.Assert(err, IsNil)
+	_, err = s.db.Exec("INSERT INTO channel (account,name) VALUES ('one','#c5')")
+	c.Assert(err, IsNil)
+	_, err = s.db.Exec("DELETE FROM channel WHERE name='#c3' OR name='#c4'")
+	c.Assert(err, IsNil)
+	c.Assert(tx.Commit(), IsNil)
 
 	s.server.RefreshAccounts()
 	s.ReadLine(c, "JOIN #c5")
@@ -298,8 +310,11 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	time.Sleep(500 * time.Millisecond)
 
 	var msg mup.Message
-	incoming := s.session.DB("").C("incoming")
-	err := incoming.Find(nil).Sort("$natural").One(&msg)
+
+	rows, err := s.db.Query("SELECT time,account,nick,user,host,command,text,bot_text,bang,as_nick FROM incoming ORDER BY id")
+	c.Assert(err, IsNil)
+	c.Assert(rows.Next(), Equals, true)
+	err = rows.Scan(&msg.Time, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command, &msg.Text, &msg.BotText, &msg.Bang, &msg.AsNick)
 	c.Assert(err, IsNil)
 
 	after := time.Now().Add(2 * time.Second)
@@ -324,21 +339,27 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	})
 }
 
+func exec(c *C, db *sql.DB, stmts ...string) {
+	tx, err := db.Begin()
+	c.Assert(err, IsNil)
+	defer tx.Rollback()
+	for _, stmt := range stmts {
+		_, err := tx.Exec(stmt)
+		c.Assert(err, IsNil)
+	}
+	tx.Commit()
+}
+
 func (s *ServerSuite) TestOutgoing(c *C) {
 	// Stop default server to test the behavior of outgoing messages on start up.
 	s.StopServer(c)
 
-	accounts := s.session.DB("").C("accounts")
-	err := accounts.UpdateId("one", M{"$set": M{"channels": []M{{"name": "#test"}}}})
-	c.Assert(err, IsNil)
-
-	outgoing := s.session.DB("").C("outgoing")
-	err = outgoing.Insert(
-		&mup.Message{Account: "one", Nick: "someone", Text: "Implicit PRIVMSG."},
-		&mup.Message{Account: "one", Nick: "someone", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
-		&mup.Message{Account: "one", Nick: "someone", Text: "Explicit NOTICE.", Command: "NOTICE"},
+	exec(c, s.db,
+		"INSERT INTO channel (account,name) VALUES ('one','#test')",
+		"INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000001','one','someone','Implicit PRIVMSG.','')",
+		"INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000002','one','someone','Explicit PRIVMSG.','PRIVMSG')",
+		"INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000003','one','someone','Explicit NOTICE.','NOTICE')",
 	)
-	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
 	s.SendWelcome(c)
@@ -355,31 +376,26 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.Roundtrip(c)
 
 	// This must be ignored. Different account.
-	err = outgoing.Insert(&mup.Message{
-		Account: "two",
-		Nick:    "someone",
-		Text:    "Ignore me.",
-	})
-	c.Assert(err, IsNil)
+	exec(c, s.db, "INSERT INTO outgoing (id,account,nick,text) VALUES ('000000000004','two','someone','Ignore me.')")
 
+	println("BEFORE")
 	// Send another message with the server running.
-	err = outgoing.Insert(&mup.Message{
-		Account: "one",
-		Nick:    "someone",
-		Text:    "Hello again!",
-	})
-	c.Assert(err, IsNil)
+	exec(c, s.db, "INSERT INTO outgoing (id,account,nick,text) VALUES ('000000000005','one','someone','Hello again!')")
+	println("AFTER")
 
 	// Do not use the s.ReadLine helper as the message won't be confirmed.
 	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
 	s.RestartServer(c)
 	s.SendWelcome(c)
+	println("AFTER 2")
 
 	// The unconfirmed message is resent.
 	c.Assert(s.lserver.ReadLine(), Equals, "JOIN #test")
 	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
+
+	println("AFTER 3")
 }
 
 func (s *ServerSuite) TestPlugin(c *C) {
@@ -391,9 +407,10 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoBmsg B1")
 	s.Roundtrip(c)
 
-	plugins := s.session.DB("").C("plugins")
-	err := plugins.Insert(M{"_id": "echoA", "config": M{"prefix": "A."}, "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoA','one')`,
+	)
 	s.server.RefreshPlugins()
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A2")
@@ -406,8 +423,10 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.ReadLine(c, "PRIVMSG nick :[cmd] A.A2")
 	s.ReadLine(c, "PRIVMSG nick :[msg] A.A2")
 
-	err = plugins.Insert(M{"_id": "echoB", "config": M{"prefix": "B."}, "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO plugin (name,config) VALUES ('echoB','{"prefix": "B."}')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoB','one')`,
+	)
 	s.server.RefreshPlugins()
 
 	s.ReadLine(c, "PRIVMSG nick :[cmd] B.B1")
@@ -438,13 +457,14 @@ func (s *ServerSuite) TestPlugin(c *C) {
 func (s *ServerSuite) TestPluginTarget(c *C) {
 	s.SendWelcome(c)
 
-	plugins := s.session.DB("").C("plugins")
-	err := plugins.Insert(
-		M{"_id": "echoA", "config": M{"prefix": "A."}, "targets": []M{{"account": "one", "channel": "#chan1"}}},
-		M{"_id": "echoB", "config": M{"prefix": "B."}, "targets": []M{{"account": "one", "channel": "#chan2"}}},
-		M{"_id": "echoC", "config": M{"prefix": "C."}, "targets": []M{{"account": "one"}}},
+	exec(c, s.db,
+		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoB','{"prefix": "B."}')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoC','{"prefix": "C."}')`,
+		`INSERT INTO target (plugin,account,channel) VALUES ('echoA','one','#chan1')`,
+		`INSERT INTO target (plugin,account,channel) VALUES ('echoB','one','#chan2')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoC','one')`,
 	)
-	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG #chan1 :mup: echoAcmd A1")
@@ -463,23 +483,25 @@ func (s *ServerSuite) TestPluginTarget(c *C) {
 func (s *ServerSuite) TestPluginUpdates(c *C) {
 	s.SendWelcome(c)
 
-	plugins := s.session.DB("").C("plugins")
-	err := plugins.Insert(
-		M{"_id": "echoA", "config": M{"prefix": "A."}, "targets": []M{{"account": "one"}}},
-		M{"_id": "echoB", "config": M{"prefix": "B."}, "targets": []M{{"account": "one", "target": "none"}}},
-		M{"_id": "echoC", "config": M{"prefix": "C."}, "targets": []M{{"account": "one", "target": "#chan"}}},
-		M{"_id": "echoD", "config": M{"prefix": "D."}, "targets": []M{{"account": "one", "target": "#chan"}}},
+	exec(c, s.db,
+		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoB','{"prefix": "B."}')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoC','{"prefix": "C."}')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoD','{"prefix": "D."}')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoA','one')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoB','one')`,
+		`INSERT INTO target (plugin,account,channel) VALUES ('echoC','one','#chan')`,
+		`INSERT INTO target (plugin,account,channel) VALUES ('echoD','one','none')`,
 	)
-	c.Assert(err, IsNil)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
-	err = plugins.Remove(M{"_id": "echoA"})
-	c.Assert(err, IsNil)
-	err = plugins.UpdateId("echoB", M{"$set": M{"targets.0.target": "#chan"}})
-	c.Assert(err, IsNil)
-	err = plugins.UpdateId("echoD", M{"$set": M{"config.prefix": "E."}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`DELETE FROM plugin WHERE name='echoA'`,
+		`UPDATE plugin SET config='{"prefix": "D2."}' WHERE name='echoD'`,
+		`UPDATE target SET channel='none' WHERE plugin='echoC'`,
+		`UPDATE target SET channel='#chan' WHERE plugin='echoD'`,
+	)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
@@ -491,8 +513,7 @@ func (s *ServerSuite) TestPluginUpdates(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG #chan :mup: echoDcmd D")
 
 	s.ReadLine(c, "PRIVMSG #chan :nick: [cmd] B.B")
-	s.ReadLine(c, "PRIVMSG #chan :nick: [cmd] C.C")
-	s.ReadLine(c, "PRIVMSG #chan :nick: [cmd] E.D")
+	s.ReadLine(c, "PRIVMSG #chan :nick: [cmd] D2.D")
 }
 
 var testLDAPSpec = mup.PluginSpec{
@@ -557,14 +578,12 @@ func (s *ServerSuite) TestLDAP(c *C) {
 		ldap.TestDial = nil
 	}()
 
-	ldaps := s.session.DB("").C("ldap")
-	plugins := s.session.DB("").C("plugins")
-	err := ldaps.Insert(M{"_id": "test1", "url": "the-url1", "basedn": "the-basedn", "binddn": "the-binddn", "bindpass": "the-bindpass"})
-	c.Assert(err, IsNil)
-	err = ldaps.Insert(M{"_id": "test2", "url": "the-url2"})
-	c.Assert(err, IsNil)
-	err = plugins.Insert(M{"_id": "testldap", "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO ldap (name,url,base_dn,bind_dn,bind_pass) VALUES ('test1','the-url1','the-basedn','the-binddn','the-bindpass')`,
+		`INSERT INTO ldap (name,url) VALUES ('test2','the-url2')`,
+		`INSERT INTO plugin (name) VALUES ('testldap')`,
+		`INSERT INTO target (plugin,account) VALUES ('testldap','one')`,
+	)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
@@ -575,12 +594,11 @@ func (s *ServerSuite) TestLDAP(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test2")
 	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
 
-	err = ldaps.Insert(M{"_id": "test3", "url": "the-url3"})
-	c.Assert(err, IsNil)
-	err = ldaps.UpdateId("test1", M{"$set": M{"url": "the-url4"}})
-	c.Assert(err, IsNil)
-	err = ldaps.RemoveId("test2")
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO ldap (name,url) VALUES ('test3','the-url3')`,
+		`UPDATE ldap SET url='the-url4' WHERE name='test1'`,
+		`DELETE FROM ldap WHERE name='test2'`,
+	)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
@@ -627,18 +645,24 @@ func (p *testDBPlugin) Stop() error {
 }
 
 func (p *testDBPlugin) HandleCommand(cmd *mup.Command) {
-	session, c := p.plugger.Collection("mine", 0)
-	defer session.Close()
-	n, err := c.Database.C("accounts").Count()
+	var n int
+	db := p.plugger.DB()
+	rows, err := db.Query("SELECT count(*) FROM account")
+	if err == nil {
+		defer rows.Close()
+		rows.Next()
+		err = rows.Scan(&n)
+	}
 	p.plugger.Sendf(cmd, "Number of accounts found: %d (err=%v)", n, err)
 }
 
 func (s *ServerSuite) TestDatabase(c *C) {
 	s.SendWelcome(c)
 
-	plugins := s.session.DB("").C("plugins")
-	err := plugins.Insert(M{"_id": "testdb", "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO plugin (name) VALUES ('testdb')`,
+		`INSERT INTO target (plugin,account) VALUES ('testdb','one')`,
+	)
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
@@ -649,9 +673,10 @@ func (s *ServerSuite) TestDatabase(c *C) {
 func (s *ServerSuite) TestHelp(c *C) {
 	s.SendWelcome(c)
 
-	plugins := s.session.DB("").C("plugins")
-	err := plugins.Insert(M{"_id": "help", "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO plugin (name) VALUES ('help')`,
+		`INSERT INTO target (plugin,account) VALUES ('help','one')`,
+	)
 	s.server.RefreshPlugins()
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :help help")
@@ -660,8 +685,11 @@ func (s *ServerSuite) TestHelp(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
 	s.ReadLine(c, `PRIVMSG nick :Plugin "testdb" is not running.`)
 
-	err = plugins.Insert(M{"_id": "testdb", "targets": []M{{"account": "other"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO plugin (name) VALUES ('testdb')`,
+		`INSERT INTO account (name) VALUES ('other')`,
+		`INSERT INTO target (plugin,account) VALUES ('testdb','other')`,
+	)
 	s.server.RefreshPlugins()
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
@@ -671,36 +699,44 @@ func (s *ServerSuite) TestHelp(c *C) {
 func (s *ServerSuite) TestPluginSelection(c *C) {
 	s.StopServer(c)
 
-	plugins := s.session.DB("").C("plugins")
-	known := s.session.DB("").C("plugins.known")
-
 	// Must exist for the following logic to be meaningful.
-	n, err := known.Find(M{"_id": "testdb"}).Count()
-	c.Assert(err, IsNil)
+	row := s.db.QueryRow("SELECT COUNT(*) FROM plugin_schema WHERE plugin='testdb'")
+	var n int
+	c.Assert(row.Scan(&n), IsNil)
 	c.Assert(n, Equals, 1)
 
-	err = plugins.Insert(M{"_id": "help", "config": M{"boring": true}, "targets": []M{{"account": "one"}}})
+	var on bool
+	err := s.db.QueryRow("PRAGMA foreign_keys").Scan(&on)
 	c.Assert(err, IsNil)
-	err = plugins.Insert(M{"_id": "testdb", "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
+	c.Assert(on, Equals, true)
 
-	_, err = known.RemoveAll(nil)
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO plugin (name,config) VALUES ('help', '{"boring": true}')`,
+		`INSERT INTO plugin (name) VALUES ('testdb')`,
+		`INSERT INTO target (plugin,account) VALUES ('help','one')`,
+		`INSERT INTO target (plugin,account) VALUES ('testdb','one')`,
+		`DELETE FROM plugin_schema`,
+	)
 
 	s.config.Plugins = []string{"help"}
 	s.RestartServer(c)
 	s.SendWelcome(c)
 	s.Roundtrip(c)
 
-	time.Sleep(100 * time.Millisecond)
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :help help")
+	s.ReadLine(c, "PRIVMSG nick :help [<cmdname>] — Displays available commands or details for a specific command.")
 
-	var ks []struct {
-		Name string "_id"
-	}
-	err = known.Find(nil).All(&ks)
+	rows, err := s.db.Query("SELECT plugin FROM plugin_schema")
 	c.Assert(err, IsNil)
-	c.Assert(ks, HasLen, 1)
-	c.Assert(ks[0].Name, Equals, "help")
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		c.Assert(rows.Scan(&name), IsNil)
+		names = append(names, name)
+	}
+	c.Assert(rows.Err(), IsNil)
+	c.Assert(names, DeepEquals, []string{"help"})
 
 	// The following test ensures that the help plugin is properly loaded
 	// and that the testdb is not loaded nor is known. The message is sent
@@ -714,15 +750,13 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 func (s *ServerSuite) TestAccountSelection(c *C) {
 	s.StopServer(c)
 
-	db := s.session.DB("")
-	err := db.C("accounts").Insert(M{"_id": "two", "host": s.Addr.String(), "password": "password"})
-	c.Assert(err, IsNil)
-
-	plugins := db.C("plugins")
-	err = plugins.Insert(M{"_id": "echoA/one", "config": M{"prefix": "one:"}, "targets": []M{{"account": "one"}}})
-	c.Assert(err, IsNil)
-	err = plugins.Insert(M{"_id": "echoA/two", "config": M{"prefix": "two:"}, "targets": []M{{"account": "two"}}})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO account (name,host,password) VALUES  ('two','`+s.Addr.String()+`','password')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoA/one', '{"prefix": "one:"}')`,
+		`INSERT INTO plugin (name,config) VALUES ('echoA/two', '{"prefix": "two:"}')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoA/one','one')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoA/two','two')`,
+	)
 
 	s.config.Accounts = []string{"two"}
 	s.RestartServer(c)

@@ -1,6 +1,7 @@
 package mup_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,29 +13,24 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 )
 
 type TelegramSuite struct {
 	tgserver tgServer
-	dbserver dbtest.DBServer
-	session  *mgo.Session
 	config   *mup.Config
 	server   *mup.Server
 	lserver  *LineServer
+
+	dbdir string
+	db    *sql.DB
 }
 
 var _ = Suite(&TelegramSuite{})
 
 func (s *TelegramSuite) SetUpSuite(c *C) {
-	s.dbserver.SetPath(c.MkDir())
-}
-
-func (s *TelegramSuite) TearDownSuite(c *C) {
-	s.dbserver.Stop()
+	s.dbdir = c.MkDir()
 }
 
 func (s *TelegramSuite) SetUpTest(c *C) {
@@ -43,31 +39,34 @@ func (s *TelegramSuite) SetUpTest(c *C) {
 	mup.SetDebug(true)
 	mup.SetLogger(c)
 
-	s.session = s.dbserver.Session()
+	var err error
+	s.db, err = mup.OpenDB(s.dbdir)
+	c.Assert(err, IsNil)
 
-	db := s.session.DB("")
 	s.config = &mup.Config{
-		Database: db,
-		Refresh:  -1, // Manual refreshing for testing.
+		DB:      s.db,
+		Refresh: -1, // Manual refreshing for testing.
 	}
 
-	err := db.C("accounts").Insert(M{"_id": "one", "kind": "telegram", "host": s.tgserver.Host(), "password": "<apikey>", "nick": "ignored"})
-	c.Assert(err, IsNil)
+	exec(c, s.db,
+		`INSERT INTO account (name,kind,host,password,nick) VALUES ('one','telegram','`+s.tgserver.Host()+`','<apikey>','ignored')`,
+	)
 
 	s.server, err = mup.Start(s.config)
 	c.Assert(err, IsNil)
 }
 
 func (s *TelegramSuite) TearDownTest(c *C) {
-	defer s.dbserver.Wipe()
-
-	s.session.Close()
-
 	mup.SetDebug(false)
 	mup.SetLogger(nil)
 
 	s.server.Stop()
 	s.server = nil
+
+	s.db.Close()
+	s.db = nil
+	//c.Assert(mup.WipeDB(s.dbdir), IsNil)
+	s.dbdir = c.MkDir()
 
 	s.tgserver.Stop()
 }
@@ -149,9 +148,8 @@ var incomingTests = []struct {
 }}
 
 func (s *TelegramSuite) TestIncoming(c *C) {
-	incoming := s.session.DB("").C("incoming")
-
 	var lastId bson.ObjectId
+	_ = lastId
 	for _, test := range incomingTests {
 		before := time.Now().Add(-2 * time.Second)
 		s.SendUpdates(c, test.update)
@@ -159,12 +157,15 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 		var msg mup.Message
 		var err error
 		for i := 0; i < 10; i++ {
-			err = incoming.Find(nil).Sort("-$natural").One(&msg)
+			row := s.db.QueryRow("SELECT id,account,nick,user,host,command,channel,text,bot_text,bang,as_nick,time FROM incoming ORDER BY id DESC")
+			err = row.Scan(&msg.Id, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command,
+				&msg.Channel, &msg.Text, &msg.BotText, &msg.Bang, &msg.AsNick, &msg.Time)
 			if err == nil && msg.Id != lastId {
 				break
 			}
+			time.Sleep(50 * time.Millisecond)
 		}
-		if err == mgo.ErrNotFound || msg.Id == lastId {
+		if err == sql.ErrNoRows || msg.Id == lastId {
 			c.Fatalf("Telegram update not received as an incoming message: %s", test.update)
 		}
 		c.Assert(err, IsNil)
@@ -192,16 +193,15 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 
 func (s *TelegramSuite) TestOutgoing(c *C) {
 
-	outgoing := s.session.DB("").C("outgoing")
-	err := outgoing.Insert(
-		&mup.Message{Account: "one", Channel: "@nick:56", Nick: "nick", Text: "Implicit PRIVMSG."},
-		&mup.Message{Account: "one", Channel: "@nick:56", Nick: "nick", Text: "Explicit PRIVMSG.", Command: "PRIVMSG"},
-		&mup.Message{Account: "one", Channel: "@nick:56", Nick: "nick", Text: "Explicit NOTICE.", Command: "NOTICE"},
-		&mup.Message{Account: "one", Channel: "#some_group:56", Nick: "nick", Text: "Group chat."},
-		&mup.Message{Account: "one", Channel: "@nick:-56", Nick: "nick", Text: "Negative chat id."},
-		&mup.Message{Account: "one", Channel: "#some_group:-56", Nick: "nick", Text: "Negative group chat id."},
+	// FIXME Fix those IDs to be automatic ints.
+	exec(c, s.db,
+		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000001','one','@nick:56','nick','Implicit PRIVMSG.')`,
+		`INSERT INTO outgoing (id,account,channel,nick,text,command) VALUES ('000000000002','one','@nick:56','nick','Explicit PRIVMSG.','PRIVMSG')`,
+		`INSERT INTO outgoing (id,account,channel,nick,text,command) VALUES ('000000000003','one','@nick:56','nick','Explicit NOTICE.','NOTICE')`,
+		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000004','one','#some_group:56','nick','Group chat.')`,
+		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000005','one','@nick:-56','nick','Negative chat id.')`,
+		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000006','one','#some_group:-56','nick','Negative group chat id.')`,
 	)
-	c.Assert(err, IsNil)
 
 	s.RecvMessage(c, 56, "Implicit PRIVMSG.")
 	s.RecvMessage(c, 56, "Explicit PRIVMSG.")
@@ -212,13 +212,10 @@ func (s *TelegramSuite) TestOutgoing(c *C) {
 
 	s.tgserver.FailSend()
 
-	err = outgoing.Insert(&mup.Message{
-		Account: "one",
-		Channel: "@nick:56",
-		Nick:    "nick",
-		Text:    "Hello again!",
-	})
-	c.Assert(err, IsNil)
+	// FIXME Fix those IDs to be automatic ints.
+	exec(c, s.db,
+		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000010','one','@nick:56','nick','Hello again!')`,
+	)
 
 	// Delivered first time, when the server reported back an error to the client.
 	s.RecvMessage(c, 56, "Hello again!")

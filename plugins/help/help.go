@@ -2,10 +2,11 @@ package help
 
 import (
 	"bytes"
+	"database/sql"
+	"fmt"
 	"math/rand"
 	"strings"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
 	"sort"
@@ -55,27 +56,33 @@ func (p *helpPlugin) Stop() error {
 	return nil
 }
 
+func anyRunning(infos []pluginInfo) bool {
+	for _, info := range infos {
+		if info.Running {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *helpPlugin) HandleMessage(msg *mup.Message) {
 	if msg.BotText == "" || msg.Bang != "" && strings.HasPrefix(msg.Text, msg.Bang) {
 		return
 	}
 	cmdname := schema.CommandName(msg.BotText)
 	if cmdname != "" {
-		infos, err := p.pluginsWith(cmdname, false)
-		if err == nil && len(infos) == 0 {
-			infos, err = p.pluginsWith(cmdname, true)
-			if len(infos) > 0 {
-				p.sendNotUsable(msg, &infos[0], "running", "")
-				return
-			}
-		}
+		infos, err := p.pluginsWith(cmdname)
 		if err != nil {
 			p.plugger.Logf("Cannot list available commands: %v", err)
 			p.plugger.Sendf(msg, "Cannot list available commands: %v", err)
 			return
 		}
-		if len(infos) == 0 {
-			p.sendNotKnown(msg, cmdname)
+		if !anyRunning(infos) {
+			if len(infos) == 0 {
+				p.sendNotKnown(msg, cmdname)
+			} else {
+				p.sendNotUsable(msg, &infos[0], "running", "")
+			}
 			return
 		}
 		addr := msg.Address()
@@ -144,10 +151,7 @@ func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 		return
 	}
 
-	infos, err := p.pluginsWith(args.CmdName, false)
-	if err == nil && len(infos) == 0 {
-		infos, err = p.pluginsWith(args.CmdName, true)
-	}
+	infos, err := p.pluginsWith(args.CmdName)
 	if err != nil {
 		p.plugger.Logf("Cannot list available commands: %v", err)
 		p.plugger.Sendf(cmd, "Cannot list available commands: %v", err)
@@ -157,7 +161,7 @@ func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 		p.plugger.Sendf(cmd, "Command %q not found.", args.CmdName)
 		return
 	}
-	command := infos[0].Command
+	command := &infos[0].Command
 	var buf bytes.Buffer
 	buf.Grow(512)
 	formatUsage(&buf, command)
@@ -182,50 +186,96 @@ func (p *helpPlugin) HandleCommand(cmd *mup.Command) {
 }
 
 type pluginInfo struct {
-	Name    string          `bson:"_id"`
-	Command *schema.Command `bson:"commands"`
+	Name    string
+	Running bool
+	Command schema.Command
 	Targets []mup.Address
 }
 
-func (p *helpPlugin) pluginsWith(cmdname string, known bool) ([]pluginInfo, error) {
-	session, c := p.plugger.Collection("", 0)
-	defer session.Close()
-
-	var pipeline = []bson.M{
-		{"$match": bson.M{"commands.name": cmdname}},
-		{"$project": bson.M{"id": 1, "commands": 1, "targets": 1}},
-		{"$match": bson.M{"commands.name": cmdname}},
-		{"$unwind": "$commands"},
+func (p *helpPlugin) pluginsWith(cmdname string) ([]pluginInfo, error) {
+	tx, err := p.plugger.DB().Begin()
+	if err != nil {
+		return nil, fmt.Errorf("cannot begin database transaction: %v", err)
 	}
-
-	cname := "plugins"
-	if known {
-		cname = "plugins.known"
-	}
-	plugins := c.Database.C(cname)
+	defer tx.Rollback()
 
 	var infos []pluginInfo
-	err := plugins.Pipe(pipeline).All(&infos)
-	if err != nil {
-		return nil, err
+	crows, err := tx.Query("SELECT plugin,command,help,hide FROM command_schema WHERE command=?", cmdname)
+	for err == nil && crows.Next() {
+		var info pluginInfo
+
+		// Scan the basic command data.
+		err = crows.Scan(&info.Name, &info.Command.Name, &info.Command.Help, &info.Command.Hide)
+		if err != nil {
+			break
+		}
+
+		// Fetch the argument schema for the command.
+		var arows *sql.Rows
+		arows, err = tx.Query("SELECT argument,hint,type,flag FROM argument_schema WHERE plugin=? AND command=?", info.Name, cmdname)
+		for err == nil && arows.Next() {
+			var arg schema.Arg
+			err = arows.Scan(&arg.Name, &arg.Hint, &arg.Type, &arg.Flag)
+			if err != nil {
+				break
+			}
+			info.Command.Args = append(info.Command.Args, arg)
+		}
+		if arows != nil {
+			arows.Close()
+		}
+		if err != nil {
+			break
+		}
+
+		// Check whether any of the plugins with such a command is running.
+		row := tx.QueryRow("SELECT TRUE FROM plugin WHERE name=? OR name LIKE ? LIMIT 1", info.Name, info.Name+"/%")
+		err = row.Scan(&info.Running)
+		if err != nil && err != sql.ErrNoRows {
+			break
+		}
+
+		// Fetch all targets that can see that command.
+		var trows *sql.Rows
+		trows, err = tx.Query("SELECT account,channel,nick FROM target WHERE plugin=? OR plugin LIKE ?", info.Name, info.Name+"/%")
+		for err == nil && trows.Next() {
+			var target mup.Address
+			err = trows.Scan(&target.Account, &target.Channel, &target.Nick)
+			if err != nil {
+				break
+			}
+			info.Targets = append(info.Targets, target)
+		}
+		if trows != nil {
+			trows.Close()
+		}
+
+		infos = append(infos, info)
 	}
+	if crows != nil {
+		crows.Close()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve command schema from database: %v", err)
+	}
+
 	return infos, nil
 }
 
 func (p *helpPlugin) cmdList() ([]string, error) {
-	session, c := p.plugger.Collection("", 0)
-	defer session.Close()
-	plugins := c.Database.C("plugins.known")
+	//session, c := p.plugger.Collection("", 0)
+	//defer session.Close()
+	//plugins := c.Database.C("plugins.known")
 	var known []struct {
 		Commands []struct {
 			Name string
 			Hide bool
 		}
 	}
-	err := plugins.Find(nil).All(&known)
-	if err != nil {
-		return nil, err
-	}
+	//err := plugins.Find(nil).All(&known)
+	//if err != nil {
+	//	return nil, err
+	//}
 	seen := make(map[string]bool)
 	for _, plugin := range known {
 		for _, cmd := range plugin.Commands {

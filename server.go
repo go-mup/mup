@@ -1,15 +1,20 @@
 package mup
 
 import (
+	"database/sql"
 	"time"
 
 	"gopkg.in/mgo.v2"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Config struct {
 	// Database defines the MongoDB database that holds all data
 	// for the mup instance that this mup server is part of.
 	Database *mgo.Database
+
+	DB *sql.DB
 
 	// Refresh defines how often to refresh account and plugin
 	// information from the database. Default to every few seconds.

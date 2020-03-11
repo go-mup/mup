@@ -2,12 +2,13 @@ package mup
 
 import (
 	"bytes"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
@@ -86,11 +87,74 @@ func RegisterPlugin(spec *PluginSpec) {
 }
 
 type pluginInfo struct {
-	Name    string        `bson:"_id"`
-	LastId  bson.ObjectId `bson:",omitempty"`
+	Name   string        `bson:"_id"`
+	LastId bson.ObjectId `bson:",omitempty"`
+	Config bson.Raw
+	State  bson.Raw
+
+	jsonConfig []byte
+	jsonState  []byte
+
+	Targets []targetInfo
+}
+
+const pluginColumns = "name,last_id,config,state"
+const pluginPlacers = "?,?,?,?"
+
+func (pi *pluginInfo) refs() []interface{} {
+	pi.jsonConfig = bson2json(pi.Config)
+	pi.jsonState = bson2json(pi.State)
+	return []interface{}{&pi.Name, &pi.LastId, &pi.jsonConfig, &pi.jsonState}
+}
+
+type targetInfo struct {
+	Plugin  string
+	Account string
+	Channel string
+	Nick    string
 	Config  bson.Raw
-	Targets bson.Raw
-	State   bson.Raw
+
+	jsonConfig []byte
+}
+
+const targetColumns = "plugin,account,channel,nick,config"
+const targetPlacers = "?,?,?,?,?"
+
+func (ti *targetInfo) refs() []interface{} {
+	ti.jsonConfig = bson2json(ti.Config)
+	return []interface{}{&ti.Plugin, &ti.Account, &ti.Channel, &ti.Nick, &ti.jsonConfig}
+}
+
+// FIXME Drop bson fields and all of that logic.
+func bson2json(b bson.Raw) []byte {
+	if b.Kind == 0 {
+		return nil
+	}
+	var m map[string]interface{}
+	err := b.Unmarshal(&m)
+	if err != nil {
+		panic(err)
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+func json2bson(j []byte) bson.Raw {
+	if len(j) == 0 {
+		return bson.Raw{}
+	}
+	var m map[string]interface{}
+	err := json.Unmarshal(j, &m)
+	if err != nil {
+		panic(err)
+	}
+	data, err := bson.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+	return bson.Raw{0x03, data}
 }
 
 type pluginState struct {
@@ -105,6 +169,13 @@ type ldapInfo struct {
 	Config ldap.Config `bson:",inline"`
 }
 
+const ldapColumns = "name,url,base_dn,bind_dn,bind_pass"
+const ldapPlacers = "?,?,?,?,?"
+
+func (li *ldapInfo) refs() []interface{} {
+	return []interface{}{&li.Name, &li.Config.URL, &li.Config.BaseDN, &li.Config.BindDN, &li.Config.BindPass}
+}
+
 type ldapState struct {
 	raw  bson.Raw
 	info ldapInfo
@@ -114,12 +185,9 @@ type ldapState struct {
 type pluginManager struct {
 	tomb     tomb.Tomb
 	config   Config
-	session  *mgo.Session
-	database *mgo.Database
+	db       *sql.DB
 	requests chan interface{}
 	incoming chan *Message
-	outgoing *mgo.Collection
-	incomcol *mgo.Collection
 	rollback chan bson.ObjectId
 	plugins  map[string]*pluginState
 	ldaps    map[string]*ldapState
@@ -138,14 +206,10 @@ func startPluginManager(config Config) (*pluginManager, error) {
 		incoming: make(chan *Message),
 		rollback: make(chan bson.ObjectId),
 	}
-	m.session = config.Database.Session.Copy()
-	m.database = config.Database.With(m.session)
-	m.outgoing = m.database.C("outgoing")
-	m.incomcol = m.database.C("incoming")
-	if err := createCollections(m.database); err != nil {
-		logf("Cannot create collections: %v", err)
-		return nil, fmt.Errorf("cannot create collections: %v", err)
+	if config.DB == nil {
+		panic("config.DB is NIL")
 	}
+	m.db = config.DB
 	m.tomb.Go(m.loop)
 	return m, nil
 }
@@ -162,7 +226,6 @@ func (m *pluginManager) Stop() error {
 	case <-m.tomb.Dying():
 	}
 	err := m.tomb.Wait()
-	m.session.Close()
 	logf("Plugin manager stopped (%v).", err)
 	if err != errStop {
 		return err
@@ -213,17 +276,49 @@ func (m *pluginManager) die() {
 	m.tomb.Kill(errStop)
 }
 
-func (m *pluginManager) updateKnown() {
-	known := m.database.C("plugins.known")
+func (m *pluginManager) updateSchema() {
+	tx, err := m.db.Begin()
+	if err != nil {
+		logf("Cannot begin database transaction: %v", err)
+		return
+	}
+	defer tx.Rollback()
+
 	for name, spec := range registeredPlugins {
 		if !m.pluginOn(name) {
 			continue
 		}
-		_, err := known.UpsertId(name, bson.D{{"_id", name}, {"commands", spec.Commands}})
+
+		_, err = tx.Exec("DELETE FROM plugin_schema WHERE plugin=?", name)
 		if err != nil {
-			logf("Failed to update information about known plugin %q: %v", name, err)
+			logf("Cannot delete old schema for %q plugin: %v", name, err)
+			return
+		}
+		_, err = tx.Exec("INSERT INTO plugin_schema (plugin,help) VALUES (?,?)", name, spec.Help)
+		if err != nil {
+			logf("Cannot add schema for %q plugin: %v", name, err)
+			return
+		}
+
+		for _, cmd := range spec.Commands {
+			_, err := tx.Exec("INSERT INTO command_schema (plugin,command,help,hide) VALUES (?,?,?,?)",
+				name, cmd.Name, cmd.Help, cmd.Hide)
+			if err != nil {
+				logf("Cannot add schema for %q plugin, %q command: %v", name, cmd.Name, err)
+				return
+			}
+			for _, arg := range cmd.Args {
+				_, err := tx.Exec("INSERT INTO argument_schema (plugin,command,argument,hint,type,flag) VALUES (?,?,?,?,?,?)",
+					name, cmd.Name, arg.Name, arg.Hint, arg.Type, arg.Flag)
+				if err != nil {
+					logf("Cannot add schema for %q plugin, %q command, %q argument: %v", name, cmd.Name, arg.Name, err)
+					return
+				}
+			}
 		}
 	}
+
+	tx.Commit()
 }
 
 func (m *pluginManager) loop() error {
@@ -234,9 +329,10 @@ func (m *pluginManager) loop() error {
 		return nil
 	}
 
+	m.updateSchema()
+
 	m.tomb.Go(m.tail)
 
-	m.updateKnown()
 	m.handleRefresh()
 	var refresh <-chan time.Time
 	if m.config.Refresh > 0 {
@@ -244,9 +340,7 @@ func (m *pluginManager) loop() error {
 		defer ticker.Stop()
 		refresh = ticker.C
 	}
-	plugins := m.database.C("plugins")
 	for {
-		m.session.Refresh()
 		select {
 		case msg := <-m.incoming:
 			if msg.Command == cmdPong {
@@ -259,10 +353,11 @@ func (m *pluginManager) loop() error {
 				}
 				state.info.LastId = msg.Id
 				state.handle(msg, cmdName)
-				err := plugins.UpdateId(name, bson.D{{"$set", bson.D{{"lastid", msg.Id}}}})
+				_, err := m.db.Exec("UPDATE plugin SET last_id=? WHERE name=?", msg.Id, name)
 				if err != nil {
-					logf("Cannot update last message id for plugin %q: %v", name, err)
+					logf("Cannot update plugin with last sent message id: %v", err)
 					// TODO How to recover properly from this?
+					//m.tomb.Kill(err)
 				}
 			}
 		case req := <-m.requests:
@@ -287,6 +382,10 @@ func (m *pluginManager) handleRefresh() {
 	m.refreshPlugins()
 }
 
+func ldapChanged(a, b *ldapInfo) bool {
+	return a.Name != b.Name || a.Config != b.Config
+}
+
 func (m *pluginManager) refreshLdaps() {
 	changed := false
 	defer func() {
@@ -301,21 +400,41 @@ func (m *pluginManager) refreshLdaps() {
 	}()
 
 	// Start new LDAP instances, and stop/restart updated ones.
-	var raw bson.Raw
-	var infos = make([]ldapInfo, 0, len(m.ldaps))
-	var found int
-	var known = len(m.ldaps)
-	iter := m.database.C("ldap").Find(nil).Iter()
-	for iter.Next(&raw) {
+	tx, err := m.db.Begin()
+	if err != nil {
+		logf("Cannot begin database transaction: %v", err)
+		return
+	}
+	defer tx.Rollback()
+
+	var infos []ldapInfo
+
+	rows, err := tx.Query("SELECT " + ldapColumns + " FROM ldap")
+	if err != nil {
+		logf("Cannot fetch LDAP information from database: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
 		var info ldapInfo
-		if err := raw.Unmarshal(&info); err != nil {
-			logf("Cannot unmarshal LDAP document: %v", err)
-			continue
+		err = rows.Scan(info.refs()...)
+		if err != nil {
+			logf("Cannot parse database LDAP information: %v", err)
+			return
 		}
 		infos = append(infos, info)
+	}
+	if rows.Err() != nil {
+		logf("Cannot fetch LDAP connection information from database: %v", rows.Err())
+		return
+	}
+
+	var found int
+	var known = len(m.ldaps)
+	for _, info := range infos {
 		if state, ok := m.ldaps[info.Name]; ok {
 			found++
-			if bytes.Equal(state.raw.Data, raw.Data) {
+			if !ldapChanged(&state.info, &info) {
 				continue
 			}
 			logf("LDAP connection %q changed. Closing and restarting it.", info.Name)
@@ -329,16 +448,10 @@ func (m *pluginManager) refreshLdaps() {
 		}
 
 		m.ldaps[info.Name] = &ldapState{
-			raw:  raw,
 			info: info,
 			conn: ldap.DialManaged(&info.Config),
 		}
 		changed = true
-	}
-	if iter.Err() != nil {
-		// TODO Reduce frequency of logged messages if the database goes down.
-		logf("Cannot fetch LDAP connection information from the database: %v", iter.Err())
-		return
 	}
 
 	// If there are known LDAPs that were not observed in the current
@@ -363,7 +476,19 @@ func (m *pluginManager) refreshLdaps() {
 }
 
 func pluginChanged(a, b *pluginInfo) bool {
-	return !bytes.Equal(a.Config.Data, b.Config.Data) || !bytes.Equal(a.Targets.Data, b.Targets.Data)
+	if !bytes.Equal(a.Config.Data, b.Config.Data) {
+		return true
+	}
+	if len(a.Targets) != len(b.Targets) {
+		return true
+	}
+	for i := range a.Targets {
+		t, u := a.Targets[i], b.Targets[i]
+		if t.Plugin != u.Plugin || t.Account != u.Account || t.Channel != u.Channel || t.Nick != u.Nick || !bytes.Equal(t.Config.Data, u.Config.Data) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *pluginManager) pluginOn(name string) bool {
@@ -379,14 +504,62 @@ func (m *pluginManager) pluginOn(name string) bool {
 }
 
 func (m *pluginManager) refreshPlugins() {
-	plugins := m.database.C("plugins")
+	tx, err := m.db.Begin()
+	if err != nil {
+		logf("Cannot begin database transaction: %v", err)
+		return
+	}
+	defer tx.Rollback()
 
 	var infos []pluginInfo
-	err := plugins.Find(nil).Select(bson.D{{"commands", 0}}).All(&infos)
+	var tinfos = make(map[string][]targetInfo)
+
+	rows, err := tx.Query("SELECT " + pluginColumns + " FROM plugin")
 	if err != nil {
-		// TODO Reduce frequency of logged messages if the database goes down.
-		logf("Cannot fetch server information from the database: %v", err)
+		logf("Cannot fetch plugin information from database: %v", err)
 		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var info pluginInfo
+		err = rows.Scan(info.refs()...)
+		if err != nil {
+			logf("Cannot parse database plugin information: %v", err)
+			return
+		}
+		info.Config = json2bson(info.jsonConfig)
+		info.State = json2bson(info.jsonState)
+		infos = append(infos, info)
+	}
+	if rows.Err() != nil {
+		logf("Cannot fetch plugin information from database: %v", rows.Err())
+		return
+	}
+
+	rows, err = tx.Query("SELECT " + targetColumns + " FROM target")
+	if err != nil {
+		logf("Cannot fetch target information from database: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tinfo targetInfo
+		err = rows.Scan(tinfo.refs()...)
+		if err != nil {
+			logf("Cannot parse database target information: %v", err)
+			return
+		}
+		tinfo.Config = json2bson(tinfo.jsonConfig)
+		tinfos[tinfo.Plugin] = append(tinfos[tinfo.Plugin], tinfo)
+	}
+	if rows.Err() != nil {
+		logf("Cannot fetch target information from database: %v", rows.Err())
+		return
+	}
+
+	for i := range infos {
+		info := &infos[i]
+		info.Targets = tinfos[info.Name]
 	}
 
 	// Start new plugins, and stop/restart updated ones.
@@ -421,10 +594,11 @@ func (m *pluginManager) refreshPlugins() {
 			continue
 		}
 
-		err = plugins.UpdateId(info.Name, bson.D{{"$set", bson.D{{"commands", state.spec.Commands}}}})
-		if err != nil {
-			logf("Cannot update commands schema for plugin %q: %v", info.Name, err)
-		}
+		// FIXME Port command support to SQLite.
+		//err = plugins.UpdateId(info.Name, bson.D{{"$set", bson.D{{"commands", state.spec.Commands}}}})
+		//if err != nil {
+		//	logf("Cannot update commands schema for plugin %q: %v", info.Name, err)
+		//}
 
 		m.plugins[info.Name] = state
 		if rollbackId == "" || rollbackId > state.info.LastId {
@@ -456,11 +630,11 @@ func (m *pluginManager) refreshPlugins() {
 		// Wake up tail iterator by injecting a dummy message. The iterator
 		// won't be able to deliver this message because incoming is
 		// consumed by this goroutine after this method returns.
-		err := m.database.C("incoming").Insert(&Message{Command: cmdPong, Account: rollbackAccount, Text: rollbackText})
-		if err != nil {
-			logf("Cannot insert wake up message in incoming queue: %v", err)
-			return
-		}
+		//err := m.database.C("incoming").Insert(&Message{Command: cmdPong, Account: rollbackAccount, Text: rollbackText})
+		//if err != nil {
+		//	logf("Cannot insert wake up message in incoming queue: %v", err)
+		//	return
+		//}
 
 		// Send oldest observed id to the tail loop for a potential rollback.
 		select {
@@ -493,7 +667,7 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 		return nil, fmt.Errorf("plugin %q not registered", pluginKey(info.Name))
 	}
 	plugger := newPlugger(info.Name, m.sendMessage, m.handleMessage, m.ldapConn)
-	plugger.setDatabase(m.database)
+	plugger.setDatabase(m.db)
 	plugger.setConfig(info.Config)
 	plugger.setTargets(info.Targets)
 	plugin := spec.Start(plugger)
@@ -515,14 +689,24 @@ func (m *pluginManager) sendMessage(msg *Message) error {
 	if !m.tomb.Alive() {
 		panic("plugin attempted to send message after its Stop method returned")
 	}
-	return m.outgoing.Insert(msg)
+	// FIXME Rework that ID logic.
+	if msg.Id == "" {
+		msg.Id = bson.NewObjectId()
+	}
+	_, err := m.db.Exec("INSERT INTO outgoing ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+	return err
 }
 
 func (m *pluginManager) handleMessage(msg *Message) error {
 	if !m.tomb.Alive() {
 		panic("plugin attempted to enqueue incoming message after its Stop method returned")
 	}
-	return m.incomcol.Insert(msg)
+	// FIXME Rework that ID logic.
+	if msg.Id == "" {
+		msg.Id = bson.NewObjectId()
+	}
+	_, err := m.db.Exec("INSERT INTO incoming ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+	return err
 }
 
 func (m *pluginManager) ldapConn(name string) (ldap.Conn, error) {
@@ -544,13 +728,6 @@ func (m *pluginManager) ldapConn(name string) (ldap.Conn, error) {
 const zeroId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
 func (m *pluginManager) tail() error {
-	session := m.session.Copy()
-	defer session.Close()
-	database := m.database.With(session)
-	incoming := database.C("incoming")
-
-	// See comment on the bridge.tail for more details on this procedure.
-
 	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
 
 NextTail:
@@ -567,42 +744,38 @@ NextTail:
 		default:
 		}
 
-		// Prepare a new tailing iterator.
-		session.Refresh()
-		query := incoming.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}})
-		iter := query.Sort("$natural").Tail(2 * time.Second)
-
-		// Loop while iterator remains valid.
-		for m.tomb.Alive() && iter.Err() == nil {
-			var msg *Message
-			for iter.Next(&msg) {
-				debugf("[%s] Tail iterator got incoming message: %s", msg.Account, msg.String())
+		rows, err := m.db.Query("SELECT "+messageColumns+" FROM incoming WHERE id>? ORDER BY id", lastId)
+		if err != nil {
+			logf("Error selecting incoming messages: %v", err)
+		} else {
+			for rows.Next() {
+				var msg Message
+				err := rows.Scan(msg.refs()...)
+				if err != nil {
+					logf("Error parsing incoming messages: %v", err)
+				}
+				debugf("[%s] Iterator got incoming message: %s", msg.Account, msg.String())
 			DeliverMsg:
 				select {
-				case m.incoming <- msg:
+				case m.incoming <- &msg:
 					lastId = msg.Id
-					msg = nil
 				case rollbackId := <-m.rollback:
 					if rollbackId < lastId {
 						logf("Rolling back tail iterator to consider older incoming messages.")
 						lastId = rollbackId
-						iter.Close()
+						rows.Close()
 						continue NextTail
 					}
 					goto DeliverMsg
 				case <-m.tomb.Dying():
-					iter.Close()
+					rows.Close()
 					return nil
 				}
 			}
-			if !iter.Timeout() {
-				break
+			err = rows.Close()
+			if err != nil && m.tomb.Alive() {
+				logf("Error iterating over incoming collection: %v", err)
 			}
-		}
-
-		err := iter.Close()
-		if err != nil && m.tomb.Alive() {
-			logf("Error iterating over incoming collection: %v", err)
 		}
 		select {
 		case <-time.After(100 * time.Millisecond):

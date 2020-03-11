@@ -21,8 +21,18 @@ const (
 	cmdQuit      = "QUIT"
 )
 
+type LaneType int
+
+const (
+	Incoming LaneType = 1
+	Outgoing LaneType = 2
+)
+
 type Message struct {
 	Id bson.ObjectId `bson:"_id,omitempty"`
+
+	// Whether the message is incoming or outgoing.
+	Lane LaneType
 
 	// When the message was received or queued out.
 	Time time.Time
@@ -54,6 +64,18 @@ type Message struct {
 
 	// The bot nick that was in place when the message was received.
 	AsNick string `bson:",omitempty"`
+
+	paramsJoined string
+}
+
+const messageColumns = "id,time,account,channel,nick,user,host,command,params,text,bot_text,bang,as_nick"
+const messagePlacers = "?,?,?,?,?,?,?,?,?,?,?,?,?"
+
+func (m *Message) refs() []interface{} {
+	if len(m.Params) > 0 {
+		m.paramsJoined = strings.Join(m.Params, " ")
+	}
+	return []interface{}{&m.Id, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
 }
 
 // Address holds the fully qualified address of an incoming or outgoing message.

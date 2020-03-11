@@ -271,8 +271,8 @@ loop:
 		}
 
 		params := url.Values{
-			"chat_id": []string{strconv.FormatInt(chatId, 10)},
-			"text":    []string{msg.Text},
+			"chat_id":                  []string{strconv.FormatInt(chatId, 10)},
+			"text":                     []string{msg.Text},
 			"disable_web_page_preview": []string{"true"},
 		}
 		resp, err := httpClient.PostForm(w.apiPrefix+w.apiKey+"/sendMessage", params)

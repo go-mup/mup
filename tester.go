@@ -1,11 +1,11 @@
 package mup
 
 import (
+	"database/sql"
 	"fmt"
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
@@ -98,16 +98,11 @@ func (t *PluginTester) Start() error {
 }
 
 // SetDatabase sets the database to offer the plugin being tested.
-func (t *PluginTester) SetDatabase(db *mgo.Database) {
+func (t *PluginTester) SetDatabase(db *sql.DB) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
 		panic("PluginTester.SetDatabase called after Start")
-	}
-	// Ensure tests run with capped collections properly created.
-	err := createCollections(db)
-	if err != nil {
-		panic("PluginTester.SetDatabase cannot create default collections: " + err.Error())
 	}
 	t.state.plugger.setDatabase(db)
 }
@@ -137,7 +132,14 @@ func (t *PluginTester) SetTargets(value interface{}) {
 	if t.state.plugin != nil {
 		panic("PluginTester.SetTargets called after Start")
 	}
-	t.state.plugger.setTargets(marshalRaw(value))
+	// FIXME Needs a better API than this.
+	raw := marshalRaw(value)
+	var tinfos []targetInfo
+	err := raw.Unmarshal(&tinfos)
+	if err != nil {
+		panic("PluginTester.SetTargets cannot handle the targets format: " + err.Error())
+	}
+	t.state.plugger.setTargets(tinfos)
 }
 
 // SetLDAP makes the provided LDAP connection available to the plugin.

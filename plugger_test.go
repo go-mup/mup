@@ -1,14 +1,13 @@
 package mup_test
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 )
@@ -16,33 +15,39 @@ import (
 var _ = Suite(&PluggerSuite{})
 
 type PluggerSuite struct {
-	dbserver dbtest.DBServer
-	sent     []string
-	msgs     []*mup.Message
-	handled  []string
-	ldap     map[string]ldap.Conn
+	sent    []string
+	msgs    []*mup.Message
+	handled []string
+	ldap    map[string]ldap.Conn
+
+	dbdir string
+	db    *sql.DB
 }
 
 func (s *PluggerSuite) SetUpSuite(c *C) {
-	s.dbserver.SetPath(c.MkDir())
-}
-
-func (s *PluggerSuite) TearDownSuite(c *C) {
-	s.dbserver.Stop()
+	s.dbdir = c.MkDir()
 }
 
 func (s *PluggerSuite) SetUpTest(c *C) {
 	mup.SetLogger(c)
 	mup.SetDebug(true)
+
+	var err error
+	s.db, err = mup.OpenDB(s.dbdir)
+	c.Assert(err, IsNil)
 }
 
 func (s *PluggerSuite) TearDownTest(c *C) {
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
-	s.dbserver.Wipe()
+
+	s.db.Close()
+	s.db = nil
+	//c.Assert(mup.WipeDB(s.dbdir), IsNil)
+	s.dbdir = c.MkDir()
 }
 
-func (s *PluggerSuite) plugger(db *mgo.Database, config, targets interface{}) *mup.Plugger {
+func (s *PluggerSuite) plugger(db *sql.DB, config, targets interface{}) *mup.Plugger {
 	s.sent = nil
 	s.msgs = nil
 	s.ldap = make(map[string]ldap.Conn)
@@ -85,56 +90,9 @@ func (s *PluggerSuite) TestDebugf(c *C) {
 	c.Assert(c.GetTestLog(), Not(Matches), `(?m).*\[theplugin/label\] <one>.*`)
 }
 
-var collTests = []struct {
-	suffix string
-	kind   mup.CollKind
-	name   string
-	db     string
-}{{
-	suffix: "",
-	name:   "unique.theplugin_label",
-	db:     "test",
-}, {
-	suffix: "mine",
-	name:   "unique.theplugin_label.mine",
-	db:     "test",
-}, {
-	suffix: "mine",
-	kind:   mup.Bulk,
-	name:   "unique.theplugin_label.mine",
-	db:     "test_bulk",
-}, {
-	suffix: "",
-	kind:   mup.Shared,
-	name:   "shared.theplugin",
-	db:     "test",
-}, {
-	suffix: "ours",
-	kind:   mup.Shared,
-	name:   "shared.ours",
-	db:     "test",
-}, {
-	suffix: "ours",
-	kind:   mup.Shared | mup.Bulk,
-	name:   "shared.ours",
-	db:     "test_bulk",
-}}
-
-func (s *PluggerSuite) TestCollection(c *C) {
-	master := s.dbserver.Session()
-	defer master.Close()
-
-	p := s.plugger(master.DB(""), nil, nil)
-
-	for _, test := range collTests {
-		session, coll := p.Collection(test.suffix, test.kind)
-		defer session.Close()
-
-		c.Assert(coll.Name, Equals, test.name)
-		c.Assert(coll.Database.Name, Equals, test.db)
-		c.Assert(coll.Database.Session, Equals, session)
-		c.Assert(coll.Database.Session, Not(Equals), master)
-	}
+func (s *PluggerSuite) TestDB(c *C) {
+	p := s.plugger(s.db, nil, nil)
+	c.Assert(p.DB(), Equals, s.db)
 }
 
 func (s *PluggerSuite) TestHandle(c *C) {

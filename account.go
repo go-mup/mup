@@ -1,21 +1,19 @@
 package mup
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/tomb.v2"
-	"strings"
-	"sync"
 )
 
 type accountManager struct {
 	tomb     tomb.Tomb
 	config   Config
-	session  *mgo.Session
-	database *mgo.Database
+	db       *sql.DB
 	clients  map[string]accountClient
 	requests chan interface{}
 	incoming chan *Message
@@ -42,8 +40,16 @@ type accountInfo struct {
 	Nick        string
 	Identify    string
 	Password    string
-	Channels    []channelInfo
 	LastId      bson.ObjectId
+
+	Channels []channelInfo
+}
+
+const accountColumns = "name,kind,endpoint,host,tls,tls_insecure,nick,identify,password,last_id"
+const accountPlacers = "?,?,?,?,?,?,?,?,?,?"
+
+func (ai *accountInfo) refs() []interface{} {
+	return []interface{}{&ai.Name, &ai.Kind, &ai.Endpoint, &ai.Host, &ai.TLS, &ai.TLSInsecure, &ai.Nick, &ai.Identify, &ai.Password, &ai.LastId}
 }
 
 // NetworkTimeout's value is used as a timeout in a number of network-related activities.
@@ -51,8 +57,16 @@ type accountInfo struct {
 var NetworkTimeout = 15 * time.Second
 
 type channelInfo struct {
-	Name string
-	Key  string
+	Account string
+	Name    string
+	Key     string
+}
+
+const channelColumns = "account,name,key"
+const channelPlacers = "?,?,?"
+
+func (ci *channelInfo) refs() []interface{} {
+	return []interface{}{&ci.Account, &ci.Name, &ci.Key}
 }
 
 func startAccountManager(config Config) (*accountManager, error) {
@@ -63,45 +77,17 @@ func startAccountManager(config Config) (*accountManager, error) {
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
 	}
-	am.session = config.Database.Session.Copy()
-	am.database = config.Database.With(am.session)
-	if err := createCollections(am.database); err != nil {
-		logf("Cannot create collections: %v", err)
-		return nil, fmt.Errorf("cannot create collections: %v", err)
-	}
+	am.db = config.DB
 	am.tomb.Go(am.loop)
 	return am, nil
 }
 
 const mb = 1024 * 1024
 
-func createCollections(db *mgo.Database) error {
-	capped := mgo.CollectionInfo{
-		Capped:   true,
-		MaxBytes: 4 * mb,
-	}
-	for _, name := range []string{"incoming", "outgoing"} {
-		coll := db.C(name)
-		err := coll.Create(&capped)
-		if err != nil {
-			if err.Error() == "collection already exists" {
-				err = db.C("system.namespaces").Find(bson.M{"name": coll.FullName, "options.capped": true}).One(nil)
-				if err == mgo.ErrNotFound {
-					return fmt.Errorf("MongoDB collection %q already exists but is not capped", coll.FullName)
-				}
-			} else {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (am *accountManager) Stop() error {
 	logf("Account manager stop requested. Waiting...")
 	am.tomb.Kill(errStop)
 	err := am.tomb.Wait()
-	am.session.Close()
 	logf("Account manager stopped (%v).", err)
 	if err != errStop {
 		return err
@@ -119,16 +105,28 @@ func (am *accountManager) Refresh() {
 }
 
 func (am *accountManager) die() {
-	var wg sync.WaitGroup
-	wg.Add(len(am.clients))
+	pending := len(am.clients)
+	stopped := make(chan bool, pending)
 	for _, client := range am.clients {
 		client := client
 		go func() {
 			client.Stop()
-			wg.Done()
+			stopped <- true
 		}()
 	}
-	wg.Wait()
+
+	// The clients have a reference to am.incoming, and if they're blocked
+	// attempting to send a message into it, their only alternative to
+	// force a stop would be to throw out that message. Instead, accept
+	// incoming messages while there are still clients alive.
+	for pending > 0 {
+		select {
+		case msg := <-am.incoming:
+			am.handleIncoming(msg)
+		case <-stopped:
+			pending--
+		}
+	}
 }
 
 func (am *accountManager) loop() error {
@@ -146,29 +144,10 @@ func (am *accountManager) loop() error {
 		defer ticker.Stop()
 		refresh = ticker.C
 	}
-	var incoming = am.database.C("incoming")
-	var accounts = am.database.C("accounts")
 	for am.tomb.Alive() {
-		am.session.Refresh()
 		select {
 		case msg := <-am.incoming:
-			if msg.Command == cmdPong {
-				if strings.HasPrefix(msg.Text, "sent:") {
-					// TODO Ensure it's a valid ObjectId.
-					lastId := bson.ObjectIdHex(msg.Text[5:])
-					err := accounts.UpdateId(msg.Account, bson.D{{"$set", bson.D{{"lastid", lastId}}}})
-					if err != nil {
-						logf("Cannot update account with last sent message id: %v", err)
-						am.tomb.Kill(err)
-					}
-				}
-			} else {
-				err := incoming.Insert(msg)
-				if err != nil {
-					logf("Cannot insert incoming message: %v", err)
-					am.tomb.Kill(err)
-				}
-			}
+			am.handleIncoming(msg)
 		case req := <-am.requests:
 			switch r := req.(type) {
 			case accountRequestRefresh:
@@ -186,11 +165,11 @@ func (am *accountManager) loop() error {
 	return nil
 }
 
-func (m *accountManager) accountOn(name string) bool {
-	if m.config.Accounts == nil {
+func (am *accountManager) accountOn(name string) bool {
+	if am.config.Accounts == nil {
 		return true
 	}
-	for _, cname := range m.config.Accounts {
+	for _, cname := range am.config.Accounts {
 		if name == cname {
 			return true
 		}
@@ -198,18 +177,77 @@ func (m *accountManager) accountOn(name string) bool {
 	return false
 }
 
+func (am *accountManager) handleIncoming(msg *Message) {
+	if msg.Command == cmdPong {
+		if strings.HasPrefix(msg.Text, "sent:") {
+			// TODO Ensure it's a valid ObjectId.
+			lastId := bson.ObjectIdHex(msg.Text[5:])
+			_, err := am.db.Exec("UPDATE account SET last_id=? WHERE name=?", lastId, msg.Account)
+			if err != nil {
+				logf("Cannot update account with last sent message id: %v", err)
+				am.tomb.Kill(err)
+			}
+		}
+	} else {
+		// FIXME Rework that ID logic.
+		if msg.Id == "" {
+			msg.Id = bson.NewObjectId()
+		}
+		_, err := am.db.Exec("INSERT INTO incoming ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+		if err != nil {
+			logf("Cannot insert incoming message: %v", err)
+			am.tomb.Kill(err)
+		}
+	}
+}
+
 func (am *accountManager) handleRefresh() {
-	var infos []accountInfo
-	err := am.database.C("accounts").Find(nil).All(&infos)
+	tx, err := am.db.Begin()
 	if err != nil {
-		// TODO Reduce frequency of logged messages if the database goes down.
+		logf("Cannot begin database transaction: %v", err)
+		return
+	}
+	defer tx.Rollback()
+
+	var infos []accountInfo
+	var cinfos = make(map[string][]channelInfo)
+
+	rows, err := tx.Query("SELECT " + accountColumns + " FROM account")
+	if err != nil {
 		logf("Cannot fetch account information from the database: %v", err)
 		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var info accountInfo
+		err = rows.Scan(info.refs()...)
+		if err != nil {
+			logf("Cannot parse database account information: %v", err)
+			return
+		}
+		infos = append(infos, info)
+	}
+
+	rows, err = tx.Query("SELECT " + channelColumns + " FROM channel")
+	if err != nil {
+		logf("Cannot fetch channel information from the database: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cinfo channelInfo
+		err = rows.Scan(cinfo.refs()...)
+		if err != nil {
+			logf("Cannot parse database channel information: %v", err)
+			return
+		}
+		cinfos[cinfo.Account] = append(cinfos[cinfo.Account], cinfo)
 	}
 
 	good := make(map[string]bool)
 	for i := range infos {
 		info := &infos[i]
+		info.Channels = cinfos[info.Name]
 		if am.accountOn(info.Name) {
 			good[info.Name] = true
 		}
@@ -257,23 +295,6 @@ func (am *accountManager) handleRefresh() {
 }
 
 func (am *accountManager) tail(client accountClient) error {
-	session := am.session.Copy()
-	defer session.Close()
-	database := am.database.With(session)
-	outgoing := database.C("outgoing")
-	incoming := database.C("incoming")
-
-	// Tailing is more involved than it ought to be. The complexity comes
-	// from the fact that there are three ways to look for a new message,
-	// from cheapest to most expensive:
-	//
-	// - The tail got a new message before the timeout
-	// - The tail has timed out, but the cursor is still valid
-	// - The tail has failed and the cursor is now invalid
-	//
-	// The logic below knows how to retry on all three, and also when there
-	// are arbitrary communication errors.
-
 	lastId := client.LastId()
 	if lastId == "" {
 		lastId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
@@ -281,40 +302,43 @@ func (am *accountManager) tail(client accountClient) error {
 
 	for am.tomb.Alive() && client.Alive() {
 
-		// Prepare a new tailing iterator.
-		session.Refresh()
-		query := outgoing.Find(bson.D{{"_id", bson.D{{"$gt", lastId}}}, {"account", client.AccountName()}})
-		iter := query.Sort("$natural").Tail(2 * time.Second)
-
-		// Loop while iterator remains valid.
-		for am.tomb.Alive() && client.Alive() && iter.Err() == nil {
-			var msg *Message
-			for iter.Next(&msg) {
+		// TODO Prepare this statement.
+		rows, err := am.db.Query("SELECT "+messageColumns+" FROM outgoing WHERE id>? AND account=? ORDER BY id", lastId, client.AccountName())
+		if err != nil {
+			logf("Error retrieving outgoing messages: %v", err)
+		} else {
+			for rows.Next() {
+				var msg Message
+				err := rows.Scan(msg.refs()...)
+				if err != nil {
+					logf("Error parsing outgoing messages: %v", err)
+				}
 				debugf("[%s] Tail iterator got outgoing message: %s", msg.Account, msg.String())
 				select {
-				case client.Outgoing() <- msg:
+				case client.Outgoing() <- &msg:
 					// Send back to plugins for outgoing message handling.
-					msg.Time = time.Now()
-					err := incoming.Insert(msg)
-					if err != nil && !mgo.IsDup(err) {
+					_, err := am.db.Exec("INSERT INTO incoming ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+					// FIXME These will be duped on resends, so the error needs to be ignored.
+					//       Also, this logic means we must make sure IDs are unique across incoming
+					//       and outgoing so the conflict is indeed for the exact same message, that
+					//       was already attempted to be sent before.
+					if err != nil {
+						fmt.Printf("[%s] Cannot insert outgoing message (%q) for plugin handling: %v\n", msg.Account, msg.String(), err)
+						panic("BOOM")
 						logf("[%s] Cannot insert outgoing message for plugin handling: %v", msg.Account, err)
+						am.tomb.Kill(err)
 					}
 					lastId = msg.Id
-					msg = nil
 				case <-client.Dying():
-					iter.Close()
 					return nil
 				}
 			}
-			if !iter.Timeout() {
-				break
+			err := rows.Close()
+			if err != nil && am.tomb.Alive() {
+				logf("Error iterating over outgoing collection: %v", err)
 			}
 		}
 
-		err := iter.Close()
-		if err != nil && am.tomb.Alive() {
-			logf("Error iterating over outgoing collection: %v", err)
-		}
 		select {
 		case <-time.After(100 * time.Millisecond):
 		case <-am.tomb.Dying():

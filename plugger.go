@@ -1,13 +1,13 @@
 package mup
 
 import (
+	"database/sql"
 	"fmt"
-
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mup.v0/ldap"
 	"strings"
 	"time"
+
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mup.v0/ldap"
 )
 
 // Plugger provides the interface between a plugin and the bot infrastructure.
@@ -18,7 +18,7 @@ type Plugger struct {
 	ldap    func(name string) (ldap.Conn, error)
 	config  bson.Raw
 	targets []PluginTarget
-	db      *mgo.Database
+	db      *sql.DB
 }
 
 // PluginTarget defines an Account, Channel, and/or Nick that the
@@ -73,7 +73,7 @@ func newPlugger(name string, send, handle func(msg *Message) error, ldap func(na
 	}
 }
 
-func (p *Plugger) setDatabase(db *mgo.Database) {
+func (p *Plugger) setDatabase(db *sql.DB) {
 	p.db = db
 }
 
@@ -85,24 +85,10 @@ func (p *Plugger) setConfig(config bson.Raw) {
 	}
 }
 
-func (p *Plugger) setTargets(targets bson.Raw) {
-	if targets.Kind == 0 {
-		p.targets = nil
-		return
-	}
-	var slice []struct {
-		Account string
-		Channel string
-		Nick    string
-		Config  bson.Raw
-	}
-	err := targets.Unmarshal(&slice)
-	if err != nil {
-		panic("cannot unmarshal plugin targets: " + err.Error())
-	}
-	p.targets = make([]PluginTarget, len(slice))
-	for i, item := range slice {
-		p.targets[i] = PluginTarget{Address{Account: item.Account, Channel: item.Channel, Nick: item.Nick}, item.Config}
+func (p *Plugger) setTargets(targets []targetInfo) {
+	p.targets = make([]PluginTarget, len(targets))
+	for i, t := range targets {
+		p.targets[i] = PluginTarget{Address{Account: t.Account, Channel: t.Channel, Nick: t.Nick}, t.Config}
 	}
 }
 
@@ -126,63 +112,13 @@ func (p *Plugger) Config(result interface{}) {
 	p.config.Unmarshal(result)
 }
 
-// CollKind flags tune the behavior of the Plugger.Collection method.
-type CollKind int
+// FIXME Explain what the schema namespace is below.
 
-const (
-	Shared CollKind = 1 << iota
-	Bulk
-)
-
-// Collection returns a mgo session and a database collection for plugin-specific data.
-// The returned session must be closed after the collection use is finished.
+// DB returns a reference to the underlying database.
 //
-// By default the returned collection is stored in the main bot database and
-// is named "unique.<plugin name>.<suffix>", or "unique.<plugin name>" if the
-// suffix is empty. If the plugin name is followed by a label (as in "name/label")
-// the slash is replaced by an underline ("name_label").
-//
-// The kind argument may be used to tune these details, and may consist of
-// zero or more of the following flags ORed together:
-//
-//    mup.Shared
-//
-//       The returned collection is named "shared.<suffix>", or "shared.<plugin name>"
-//       if the suffix is empty, so it may be shared across multiple instances of the
-//       same plugin or across multiple plugins.
-//
-//    mup.Bulk
-//
-//       The returned collection is written to the database "<main db name>_bulk".
-//       This should be used by plugins that intend to read or write a significant
-//       amount of data, to prevent fragmenting the main bot database.
-//
-func (p *Plugger) Collection(suffix string, kind CollKind) (*mgo.Session, *mgo.Collection) {
-	if p.db == nil {
-		panic("plugger has no database available")
-	}
-	session := p.db.Session.Copy()
-	var name string
-	if kind&Shared == Shared {
-		if suffix == "" {
-			suffix = pluginKey(p.Name())
-		}
-		name = "shared." + suffix
-	} else {
-		name = strings.Replace(p.Name(), "/", "_", -1)
-		if suffix == "" {
-			name = "unique." + name
-		} else {
-			name = "unique." + name + "." + suffix
-		}
-	}
-	var c *mgo.Collection
-	if kind&Bulk == Bulk {
-		c = session.DB(p.db.Name + "_bulk").C(name)
-	} else {
-		c = p.db.C(name).With(session)
-	}
-	return session, c
+// Plugins using the database must respect the plugin schema namespace.
+func (p *Plugger) DB() *sql.DB {
+	return p.db
 }
 
 // Handle inserts the provided message on the incoming queue for processing.
