@@ -13,7 +13,6 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 )
 
@@ -114,6 +113,7 @@ var incomingTests = []struct {
 	}`,
 	mup.Message{
 		Account: "one",
+		Lane:    1,
 		Nick:    "bob",
 		User:    "~user",
 		Host:    "telegram",
@@ -136,6 +136,7 @@ var incomingTests = []struct {
 	}`,
 	mup.Message{
 		Account: "one",
+		Lane:    1,
 		Nick:    "bob",
 		User:    "~user",
 		Host:    "telegram",
@@ -148,8 +149,7 @@ var incomingTests = []struct {
 }}
 
 func (s *TelegramSuite) TestIncoming(c *C) {
-	var lastId bson.ObjectId
-	_ = lastId
+	var lastId int64
 	for _, test := range incomingTests {
 		before := time.Now().Add(-2 * time.Second)
 		s.SendUpdates(c, test.update)
@@ -157,8 +157,8 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 		var msg mup.Message
 		var err error
 		for i := 0; i < 10; i++ {
-			row := s.db.QueryRow("SELECT id,account,nick,user,host,command,channel,text,bot_text,bang,as_nick,time FROM incoming ORDER BY id DESC")
-			err = row.Scan(&msg.Id, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command,
+			row := s.db.QueryRow("SELECT id,lane,account,nick,user,host,command,channel,text,bot_text,bang,as_nick,time FROM message ORDER BY id DESC")
+			err = row.Scan(&msg.Id, &msg.Lane, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command,
 				&msg.Channel, &msg.Text, &msg.BotText, &msg.Bang, &msg.AsNick, &msg.Time)
 			if err == nil && msg.Id != lastId {
 				break
@@ -178,7 +178,7 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 		c.Assert(msg.Time.Before(after), Equals, true)
 
 		msg.Time = time.Time{}
-		msg.Id = ""
+		msg.Id = 0
 		c.Assert(msg, DeepEquals, test.message)
 
 		// Check that the client is providing the right offset to consume messages.
@@ -193,14 +193,16 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 
 func (s *TelegramSuite) TestOutgoing(c *C) {
 
-	// FIXME Fix those IDs to be automatic ints.
+	// Ensure messages are only inserted after plugin has been loaded.
+	s.server.RefreshAccounts()
+
 	exec(c, s.db,
-		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000001','one','@nick:56','nick','Implicit PRIVMSG.')`,
-		`INSERT INTO outgoing (id,account,channel,nick,text,command) VALUES ('000000000002','one','@nick:56','nick','Explicit PRIVMSG.','PRIVMSG')`,
-		`INSERT INTO outgoing (id,account,channel,nick,text,command) VALUES ('000000000003','one','@nick:56','nick','Explicit NOTICE.','NOTICE')`,
-		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000004','one','#some_group:56','nick','Group chat.')`,
-		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000005','one','@nick:-56','nick','Negative chat id.')`,
-		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000006','one','#some_group:-56','nick','Negative group chat id.')`,
+		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','@nick:56','nick','Implicit PRIVMSG.')`,
+		`INSERT INTO message (lane,account,channel,nick,text,command) VALUES (2,'one','@nick:56','nick','Explicit PRIVMSG.','PRIVMSG')`,
+		`INSERT INTO message (lane,account,channel,nick,text,command) VALUES (2,'one','@nick:56','nick','Explicit NOTICE.','NOTICE')`,
+		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','#some_group:56','nick','Group chat.')`,
+		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','@nick:-56','nick','Negative chat id.')`,
+		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','#some_group:-56','nick','Negative group chat id.')`,
 	)
 
 	s.RecvMessage(c, 56, "Implicit PRIVMSG.")
@@ -212,9 +214,8 @@ func (s *TelegramSuite) TestOutgoing(c *C) {
 
 	s.tgserver.FailSend()
 
-	// FIXME Fix those IDs to be automatic ints.
 	exec(c, s.db,
-		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000010','one','@nick:56','nick','Hello again!')`,
+		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','@nick:56','nick','Hello again!')`,
 	)
 
 	// Delivered first time, when the server reported back an error to the client.

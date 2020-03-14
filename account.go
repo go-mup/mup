@@ -2,12 +2,11 @@ package mup
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/tomb.v2"
+	"strconv"
 )
 
 type accountManager struct {
@@ -26,12 +25,12 @@ type accountClient interface {
 	AccountName() string
 	Dying() <-chan struct{}
 	Outgoing() chan *Message
-	LastId() bson.ObjectId
+	LastId() int64
 	UpdateInfo(info *accountInfo)
 }
 
 type accountInfo struct {
-	Name        string `bson:"_id"`
+	Name        string
 	Kind        string
 	Endpoint    string
 	Host        string
@@ -40,7 +39,7 @@ type accountInfo struct {
 	Nick        string
 	Identify    string
 	Password    string
-	LastId      bson.ObjectId
+	LastId      int64
 
 	Channels []channelInfo
 }
@@ -180,20 +179,20 @@ func (am *accountManager) accountOn(name string) bool {
 func (am *accountManager) handleIncoming(msg *Message) {
 	if msg.Command == cmdPong {
 		if strings.HasPrefix(msg.Text, "sent:") {
-			// TODO Ensure it's a valid ObjectId.
-			lastId := bson.ObjectIdHex(msg.Text[5:])
-			_, err := am.db.Exec("UPDATE account SET last_id=? WHERE name=?", lastId, msg.Account)
+			lastId, err := strconv.ParseInt(msg.Text[5:], 16, 64)
+			if err != nil || lastId < 0 {
+				logf("cannot extract message ID out of pong text: %q", msg.Text)
+				return
+			}
+
+			_, err = am.db.Exec("UPDATE account SET last_id=? WHERE name=?", lastId, msg.Account)
 			if err != nil {
 				logf("Cannot update account with last sent message id: %v", err)
 				am.tomb.Kill(err)
 			}
 		}
 	} else {
-		// FIXME Rework that ID logic.
-		if msg.Id == "" {
-			msg.Id = bson.NewObjectId()
-		}
-		_, err := am.db.Exec("INSERT INTO incoming ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+		_, err := am.db.Exec("INSERT INTO message ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs(Incoming)...)
 		if err != nil {
 			logf("Cannot insert incoming message: %v", err)
 			am.tomb.Kill(err)
@@ -201,8 +200,27 @@ func (am *accountManager) handleIncoming(msg *Message) {
 	}
 }
 
+func beginImmediate(db *sql.DB) (*sql.Tx, error) {
+	tx, err := db.Begin()
+	if err == nil {
+		_, err = tx.Exec("ROLLBACK; BEGIN IMMEDIATE")
+	}
+	return tx, err
+}
+
 func (am *accountManager) handleRefresh() {
-	tx, err := am.db.Begin()
+	latestId, err := latestMsgId(am.db)
+	if err != nil {
+		logf("%v", err)
+		return
+	}
+
+	// We need to use IMMEDIATE mode here, because inside the same
+	// transaction we SELECT and then UPDATE, and without IMMEDIATE
+	// sqlite will emit unretriable SQLITE_BUSY in that situation to
+	// preserve the serializable behavior if a different transaction
+	// committed meanwhile.
+	tx, err := beginImmediate(am.db)
 	if err != nil {
 		logf("Cannot begin database transaction: %v", err)
 		return
@@ -227,6 +245,7 @@ func (am *accountManager) handleRefresh() {
 		}
 		infos = append(infos, info)
 	}
+	rows.Close()
 
 	rows, err = tx.Query("SELECT " + channelColumns + " FROM channel")
 	if err != nil {
@@ -243,14 +262,18 @@ func (am *accountManager) handleRefresh() {
 		}
 		cinfos[cinfo.Account] = append(cinfos[cinfo.Account], cinfo)
 	}
+	rows.Close()
 
 	good := make(map[string]bool)
 	for i := range infos {
 		info := &infos[i]
-		info.Channels = cinfos[info.Name]
-		if am.accountOn(info.Name) {
-			good[info.Name] = true
+		if !am.accountOn(info.Name) {
+			continue
 		}
+
+		info.Channels = cinfos[info.Name]
+
+		good[info.Name] = true
 	}
 
 	// Drop clients for dead or deleted accounts.
@@ -267,6 +290,7 @@ func (am *accountManager) handleRefresh() {
 	}
 
 	// Bring new clients up and update existing ones.
+	commit := false
 	for i := range infos {
 		info := &infos[i]
 		if !good[info.Name] {
@@ -275,7 +299,32 @@ func (am *accountManager) handleRefresh() {
 		if info.Nick == "" {
 			info.Nick = "mup"
 		}
+
 		if client, ok := am.clients[info.Name]; !ok {
+			logf("refresh/before: info.LastId is %d", info.LastId)
+
+			// A zero ID means this is the first time a client for this account is
+			// ever run, so don't try to process anything that was previously in the
+			// queue. An update to the database is also done because from now on this
+			// account will have run, so the skipping procedure should not repeat.
+			if info.LastId == 0 {
+				info.LastId = latestId
+				_, err = tx.Exec("UPDATE account SET last_id=? WHERE name=?", info.LastId, info.Name)
+				if err != nil {
+					logf("Cannot update last ID for account %q: %#v", info.Name, err)
+					var v int
+					tx.QueryRow("PRAGMA busy_timeout").Scan(&v)
+					logf("Pragma: %#v", v)
+
+					println("Panic now:", err.Error())
+					time.Sleep(5 * time.Minute)
+					continue
+				}
+				commit = true
+			}
+
+			logf("refresh/after: info.LastId is %d", info.LastId)
+
 			switch info.Kind {
 			case "irc", "":
 				client = startIrcClient(info, am.incoming)
@@ -286,30 +335,42 @@ func (am *accountManager) handleRefresh() {
 			default:
 				continue
 			}
+
 			am.clients[info.Name] = client
 			go am.tail(client)
 		} else {
 			client.UpdateInfo(info)
 		}
 	}
+
+	if commit {
+		err := tx.Commit()
+		if err != nil {
+			logf("Cannot commit account updates: %v", err)
+		}
+	}
 }
 
 func (am *accountManager) tail(client accountClient) error {
 	lastId := client.LastId()
-	if lastId == "" {
-		lastId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
-	}
+
+	logf("tail: client.LastId is %d", lastId)
 
 	for am.tomb.Alive() && client.Alive() {
 
 		// TODO Prepare this statement.
-		rows, err := am.db.Query("SELECT "+messageColumns+" FROM outgoing WHERE id>? AND account=? ORDER BY id", lastId, client.AccountName())
+
+		// Fetch one message at a time to avoid locking down the database/sql
+		// connection (not the actual database) during the iteration.
+		// since this may be long lived and other
+		// parts of the code will need to
+		rows, err := am.db.Query("SELECT "+messageColumns+" FROM message WHERE id>? AND account=? AND lane=2 ORDER BY id", lastId, client.AccountName())
 		if err != nil {
 			logf("Error retrieving outgoing messages: %v", err)
 		} else {
 			for rows.Next() {
 				var msg Message
-				err := rows.Scan(msg.refs()...)
+				err := rows.Scan(msg.refs(0)...)
 				if err != nil {
 					logf("Error parsing outgoing messages: %v", err)
 				}
@@ -317,19 +378,19 @@ func (am *accountManager) tail(client accountClient) error {
 				select {
 				case client.Outgoing() <- &msg:
 					// Send back to plugins for outgoing message handling.
-					_, err := am.db.Exec("INSERT INTO incoming ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
-					// FIXME These will be duped on resends, so the error needs to be ignored.
-					//       Also, this logic means we must make sure IDs are unique across incoming
-					//       and outgoing so the conflict is indeed for the exact same message, that
-					//       was already attempted to be sent before.
+					// These messages may end up duped when an resend attempt is made for the
+					// outgoing message so that error needs to be ignored. Also, this logic
+					// means we must make sure IDs are unique across incoming and outgoing
+					// so the conflict is indeed for the exact same message, that was already
+					// attempted to be sent before.
+					_, err := am.db.Exec("INSERT OR IGNORE INTO message ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs(Incoming)...)
 					if err != nil {
-						fmt.Printf("[%s] Cannot insert outgoing message (%q) for plugin handling: %v\n", msg.Account, msg.String(), err)
-						panic("BOOM")
 						logf("[%s] Cannot insert outgoing message for plugin handling: %v", msg.Account, err)
 						am.tomb.Kill(err)
 					}
 					lastId = msg.Id
 				case <-client.Dying():
+					rows.Close()
 					return nil
 				}
 			}

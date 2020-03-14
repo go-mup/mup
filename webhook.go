@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/tomb.v2"
+	"strconv"
 )
 
 type webhookClient struct {
@@ -24,13 +24,12 @@ type webhookClient struct {
 
 	incoming chan *Message
 	outgoing chan *Message
-	lastId   bson.ObjectId
 }
 
 func (c *webhookClient) AccountName() string     { return c.accountName }
 func (c *webhookClient) Dying() <-chan struct{}  { return c.dying }
 func (c *webhookClient) Outgoing() chan *Message { return c.outgoing }
-func (c *webhookClient) LastId() bson.ObjectId   { return c.lastId }
+func (c *webhookClient) LastId() int64           { return c.info.LastId }
 
 func startWebHookClient(info *accountInfo, incoming chan *Message) accountClient {
 	c := &webhookClient{
@@ -41,7 +40,6 @@ func startWebHookClient(info *accountInfo, incoming chan *Message) accountClient
 		incoming: incoming,
 		outgoing: make(chan *Message),
 	}
-	c.lastId = c.info.LastId
 	c.dying = c.tomb.Dying()
 	c.tomb.Go(c.run)
 	return c
@@ -306,7 +304,7 @@ loop:
 
 		// Notify the account manager that the message was delivered.
 		select {
-		case w.r.Incoming <- ParseIncoming(w.accountName, "mup", "/", "PONG :sent:"+msg.Id.Hex()):
+		case w.r.Incoming <- ParseIncoming(w.accountName, "mup", "/", "PONG :sent:"+strconv.FormatInt(msg.Id, 16)):
 		case <-w.Dying:
 		case <-w.r.Dying:
 			break

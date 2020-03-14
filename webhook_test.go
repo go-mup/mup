@@ -88,12 +88,14 @@ func (s *WebHookSuite) RecvMessage(c *C, channel, text string) {
 
 func (s *WebHookSuite) TestOutgoing(c *C) {
 
-	// FIXME Fix those IDs to be automatic ints.
+	// Ensure messages are only inserted after plugin has been loaded.
+	s.server.RefreshAccounts()
+
 	exec(c, s.db,
-		`INSERT INTO outgoing (id,account,nick,text) VALUES ('000000000001','one','nick','Implicit PRIVMSG.')`,
-		`INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000002','one','nick','Explicit PRIVMSG.','PRIVMSG')`,
-		`INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000003','one','nick','Explicit NOTICE.','NOTICE')`,
-		`INSERT INTO outgoing (id,account,channel,nick,text) VALUES ('000000000004','one','#some_group','nick','Group chat.')`,
+		`INSERT INTO message (lane,account,nick,text) VALUES (2,'one','nick','Implicit PRIVMSG.')`,
+		`INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','nick','Explicit PRIVMSG.','PRIVMSG')`,
+		`INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','nick','Explicit NOTICE.','NOTICE')`,
+		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','#some_group','nick','Group chat.')`,
 	)
 
 	s.RecvMessage(c, "@nick", "Implicit PRIVMSG.")
@@ -103,9 +105,8 @@ func (s *WebHookSuite) TestOutgoing(c *C) {
 
 	s.whserver.FailSend()
 
-	// FIXME Fix those IDs to be automatic ints.
 	exec(c, s.db,
-		`INSERT INTO outgoing (id,account,nick,text) VALUES ('000000000010','one','nick','Hello again!')`,
+		`INSERT INTO message (lane,account,nick,text) VALUES (2,'one','nick','Hello again!')`,
 	)
 
 	// Delivered first time, when the server reported back an error to the client.

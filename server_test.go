@@ -67,7 +67,6 @@ func (s *ServerSuite) TearDownTest(c *C) {
 	s.db.Close()
 	s.db = nil
 	s.dbdir = c.MkDir()
-	//c.Assert(mup.WipeDB(s.dbdir), IsNil)
 
 	s.LineServerSuite.TearDownTest(c)
 }
@@ -77,6 +76,7 @@ func (s *ServerSuite) StopServer(c *C) {
 		s.lserver.Close()
 		s.lserver = nil
 	}
+
 	if s.server != nil {
 		s.server.Stop()
 		s.server = nil
@@ -155,7 +155,7 @@ func (s *ServerSuite) TestNickChange(c *C) {
 		s.Roundtrip(c)
 		time.Sleep(50 * time.Millisecond)
 
-		row := s.db.QueryRow("SELECT text,as_nick FROM incoming ORDER BY id DESC")
+		row := s.db.QueryRow("SELECT text,as_nick FROM message WHERE lane=1 ORDER BY id DESC")
 		var text, nick string
 		c.Assert(row.Scan(&text, &nick), IsNil)
 		c.Assert(text, Equals, "Hello mup!")
@@ -307,25 +307,28 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	s.SendWelcome(c)
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :Hello mup!")
 	s.Roundtrip(c)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	var msg mup.Message
 
-	rows, err := s.db.Query("SELECT time,account,nick,user,host,command,text,bot_text,bang,as_nick FROM incoming ORDER BY id")
+	rows, err := s.db.Query("SELECT nonce,time,account,nick,user,host,command,text,bot_text,bang,as_nick FROM message WHERE lane=1 ORDER BY id")
 	c.Assert(err, IsNil)
+	defer rows.Close()
 	c.Assert(rows.Next(), Equals, true)
-	err = rows.Scan(&msg.Time, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command, &msg.Text, &msg.BotText, &msg.Bang, &msg.AsNick)
+	err = rows.Scan(&msg.Nonce, &msg.Time, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command, &msg.Text, &msg.BotText, &msg.Bang, &msg.AsNick)
 	c.Assert(err, IsNil)
 
 	after := time.Now().Add(2 * time.Second)
 
 	c.Logf("Message time: %s", msg.Time)
-
 	c.Assert(msg.Time.After(before), Equals, true)
 	c.Assert(msg.Time.Before(after), Equals, true)
 
+	c.Logf("Message nonce: %s", msg.Nonce)
+	c.Assert(msg.Nonce, Matches, "[a-z0-9]{32}")
+
 	msg.Time = time.Time{}
-	msg.Id = ""
+	msg.Nonce = ""
 	c.Assert(msg, DeepEquals, mup.Message{
 		Account: "one",
 		Nick:    "nick",
@@ -356,11 +359,12 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 
 	exec(c, s.db,
 		"INSERT INTO channel (account,name) VALUES ('one','#test')",
-		"INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000001','one','someone','Implicit PRIVMSG.','')",
-		"INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000002','one','someone','Explicit PRIVMSG.','PRIVMSG')",
-		"INSERT INTO outgoing (id,account,nick,text,command) VALUES ('000000000003','one','someone','Explicit NOTICE.','NOTICE')",
+		"INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','someone','Implicit PRIVMSG.','')",
+		"INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','someone','Explicit PRIVMSG.','PRIVMSG')",
+		"INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','someone','Explicit NOTICE.','NOTICE')",
 	)
 
+	c.Logf("Restarting server to handle outgoing messages...")
 	s.RestartServer(c)
 	s.SendWelcome(c)
 
@@ -376,29 +380,33 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.Roundtrip(c)
 
 	// This must be ignored. Different account.
-	exec(c, s.db, "INSERT INTO outgoing (id,account,nick,text) VALUES ('000000000004','two','someone','Ignore me.')")
+	exec(c, s.db, "INSERT INTO message (lane,account,nick,text) VALUES (2,'two','someone','Ignore me.')")
 
-	println("BEFORE")
 	// Send another message with the server running.
-	exec(c, s.db, "INSERT INTO outgoing (id,account,nick,text) VALUES ('000000000005','one','someone','Hello again!')")
-	println("AFTER")
+	exec(c, s.db, "INSERT INTO message (lane,account,nick,text) VALUES (2,'one','someone','Hello again!')")
 
 	// Do not use the s.ReadLine helper as the message won't be confirmed.
 	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
+	c.Logf("Restarting server to handle unacknowledged messages...")
 	s.RestartServer(c)
 	s.SendWelcome(c)
-	println("AFTER 2")
 
 	// The unconfirmed message is resent.
 	c.Assert(s.lserver.ReadLine(), Equals, "JOIN #test")
 	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
 	c.Assert(s.lserver.ReadLine(), Matches, "PING :sent:[0-9a-f]+")
-
-	println("AFTER 3")
 }
 
 func (s *ServerSuite) TestPlugin(c *C) {
+	s.StopServer(c)
+
+	exec(c, s.db,
+		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
+		`INSERT INTO target (plugin,account) VALUES ('echoA','one')`,
+	)
+
+	s.RestartServer(c)
 	s.SendWelcome(c)
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A1")
@@ -407,10 +415,6 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoBmsg B1")
 	s.Roundtrip(c)
 
-	exec(c, s.db,
-		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
-		`INSERT INTO target (plugin,account) VALUES ('echoA','one')`,
-	)
 	s.server.RefreshPlugins()
 
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A2")
@@ -429,10 +433,15 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	)
 	s.server.RefreshPlugins()
 
-	s.ReadLine(c, "PRIVMSG nick :[cmd] B.B1")
-	s.ReadLine(c, "PRIVMSG nick :[msg] B.B1")
-	s.ReadLine(c, "PRIVMSG nick :[cmd] B.B2")
-	s.ReadLine(c, "PRIVMSG nick :[msg] B.B2")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAcmd A3")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoAmsg A3")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoBcmd B3")
+	s.SendLine(c, ":nick!~user@host PRIVMSG mup :echoBmsg B3")
+
+	s.ReadLine(c, "PRIVMSG nick :[cmd] A.A3")
+	s.ReadLine(c, "PRIVMSG nick :[msg] A.A3")
+	s.ReadLine(c, "PRIVMSG nick :[cmd] B.B3")
+	s.ReadLine(c, "PRIVMSG nick :[msg] B.B3")
 	s.Roundtrip(c)
 
 	s.RestartServer(c)
@@ -451,7 +460,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	// Ensure the outgoing handler is being properly called.
 	log := c.GetTestLog()
 	c.Assert(log, Matches, `(?s).*\[echoA\] \[out\] \[cmd\] A\.A2\n.*`)
-	c.Assert(log, Matches, `(?s).*\[echoB\] \[out\] \[cmd\] A\.A2\n.*`)
+	c.Assert(log, Matches, `(?s).*\[echoB\] \[out\] \[cmd\] A\.A3\n.*`)
 }
 
 func (s *ServerSuite) TestPluginTarget(c *C) {

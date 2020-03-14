@@ -1,7 +1,8 @@
 package mup
 
 import (
-	"gopkg.in/mgo.v2/bson"
+	"encoding/hex"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,11 @@ const (
 )
 
 type Message struct {
-	Id bson.ObjectId `bson:"_id,omitempty"`
+	// Sequentially assigned ID of the message.
+	Id int64
+
+	// Unique randomly assigned key for the message.
+	Nonce string
 
 	// Whether the message is incoming or outgoing.
 	Lane LaneType
@@ -38,53 +43,77 @@ type Message struct {
 	Time time.Time
 
 	// These fields form the message Address.
-	Account string `bson:",omitempty"`
-	Channel string `bson:",omitempty"`
-	Nick    string `bson:",omitempty"`
-	User    string `bson:",omitempty"`
-	Host    string `bson:",omitempty"`
+	Account string
+	Channel string
+	Nick    string
+	User    string
+	Host    string
 
 	// The IRC protocol command.
-	Command string `bson:",omitempty"`
+	Command string
 
 	// Raw parameters when not a PRIVMSG or NOTICE, and excluding Text.
-	Params []string `bson:",omitempty"`
+	Params []string
 
 	// The trailing message text for all relevant commands.
-	Text string `bson:",omitempty"`
+	Text string
 
 	// The text that was targetted at the bot in a direct message or
 	// a channel message prefixed by the bot's nick or the bang string.
 	// The bot nick and the bang string prefixes are stripped out.
-	BotText string `bson:",omitempty"`
+	BotText string
 
 	// The bang prefix setting used to address messages to mup
 	// that was in place when the message was received.
-	Bang string `bson:",omitempty"`
+	Bang string
 
 	// The bot nick that was in place when the message was received.
-	AsNick string `bson:",omitempty"`
+	AsNick string
 
 	paramsJoined string
 }
 
-const messageColumns = "id,time,account,channel,nick,user,host,command,params,text,bot_text,bang,as_nick"
-const messagePlacers = "?,?,?,?,?,?,?,?,?,?,?,?,?"
+const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bot_text,bang,as_nick"
 
-func (m *Message) refs() []interface{} {
+var messagePlacers = placers(messageColumns)
+
+func (m *Message) refs(lane LaneType) []interface{} {
+	// FIXME Drop paramsJoined.
 	if len(m.Params) > 0 {
 		m.paramsJoined = strings.Join(m.Params, " ")
 	}
-	return []interface{}{&m.Id, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
+	var idRef, laneRef interface{}
+	if lane == 0 {
+		// Selecting.
+		idRef = &m.Id
+		laneRef = &m.Lane
+	} else {
+		// Inserting.
+		laneRef = lane
+		if m.Nonce == "" {
+			var buf [16]byte
+			rand.Read(buf[:])
+			m.Nonce = hex.EncodeToString(buf[:])
+		}
+	}
+	return []interface{}{idRef, &m.Nonce, laneRef, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
+}
+
+func (m *Message) refsNoId() []interface{} {
+	// FIXME Drop paramsJoined.
+	if len(m.Params) > 0 {
+		m.paramsJoined = strings.Join(m.Params, " ")
+	}
+	return []interface{}{nil, &m.Nonce, &m.Lane, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
 }
 
 // Address holds the fully qualified address of an incoming or outgoing message.
 type Address struct {
-	Account string `bson:",omitempty"`
-	Channel string `bson:",omitempty"`
-	Nick    string `bson:",omitempty"`
-	User    string `bson:",omitempty"`
-	Host    string `bson:",omitempty"`
+	Account string
+	Channel string
+	Nick    string
+	User    string
+	Host    string
 }
 
 // Address returns a itself so it also implements Addressable.

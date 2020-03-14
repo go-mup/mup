@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/tomb.v2"
 )
 
@@ -29,13 +28,12 @@ type tgClient struct {
 
 	incoming chan *Message
 	outgoing chan *Message
-	lastId   bson.ObjectId
 }
 
 func (c *tgClient) AccountName() string     { return c.accountName }
 func (c *tgClient) Dying() <-chan struct{}  { return c.dying }
 func (c *tgClient) Outgoing() chan *Message { return c.outgoing }
-func (c *tgClient) LastId() bson.ObjectId   { return c.lastId }
+func (c *tgClient) LastId() int64           { return c.info.LastId }
 
 func startTgClient(info *accountInfo, incoming chan *Message) accountClient {
 	c := &tgClient{
@@ -46,7 +44,6 @@ func startTgClient(info *accountInfo, incoming chan *Message) accountClient {
 		incoming: incoming,
 		outgoing: make(chan *Message),
 	}
-	c.lastId = c.info.LastId
 	c.dying = c.tomb.Dying()
 	c.tomb.Go(c.run)
 	return c
@@ -296,7 +293,7 @@ loop:
 
 		// Notify the account manager that the message was delivered.
 		select {
-		case w.r.Incoming <- ParseIncoming(w.accountName, "mup", "/", "PONG :sent:"+msg.Id.Hex()):
+		case w.r.Incoming <- ParseIncoming(w.accountName, "mup", "/", "PONG :sent:"+strconv.FormatInt(msg.Id, 16)):
 		case <-w.Dying:
 		case <-w.r.Dying:
 			break

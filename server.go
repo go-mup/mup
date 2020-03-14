@@ -4,16 +4,13 @@ import (
 	"database/sql"
 	"time"
 
-	"gopkg.in/mgo.v2"
-
 	_ "github.com/mattn/go-sqlite3"
+	"math/rand"
 )
 
 type Config struct {
-	// Database defines the MongoDB database that holds all data
+	// Database defines the database that holds all data
 	// for the mup instance that this mup server is part of.
-	Database *mgo.Database
-
 	DB *sql.DB
 
 	// Refresh defines how often to refresh account and plugin
@@ -56,6 +53,7 @@ type Server struct {
 // Start starts a mup server that handles some or all of the duties
 // of a mup instance, as defined in the provided configuration.
 func Start(config *Config) (*Server, error) {
+	rand.Seed(time.Now().UnixNano())
 	var st Server
 	var err error
 	configCopy := *config

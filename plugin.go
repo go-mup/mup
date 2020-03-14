@@ -87,8 +87,8 @@ func RegisterPlugin(spec *PluginSpec) {
 }
 
 type pluginInfo struct {
-	Name   string        `bson:"_id"`
-	LastId bson.ObjectId `bson:",omitempty"`
+	Name   string
+	LastId int64
 	Config bson.Raw
 	State  bson.Raw
 
@@ -165,8 +165,8 @@ type pluginState struct {
 }
 
 type ldapInfo struct {
-	Name   string      `bson:"_id"`
-	Config ldap.Config `bson:",inline"`
+	Name   string
+	Config ldap.Config
 }
 
 const ldapColumns = "name,url,base_dn,bind_dn,bind_pass"
@@ -188,7 +188,7 @@ type pluginManager struct {
 	db       *sql.DB
 	requests chan interface{}
 	incoming chan *Message
-	rollback chan bson.ObjectId
+	rollback chan int64
 	plugins  map[string]*pluginState
 	ldaps    map[string]*ldapState
 
@@ -204,7 +204,7 @@ func startPluginManager(config Config) (*pluginManager, error) {
 		ldaps:    make(map[string]*ldapState),
 		requests: make(chan interface{}),
 		incoming: make(chan *Message),
-		rollback: make(chan bson.ObjectId),
+		rollback: make(chan int64),
 	}
 	if config.DB == nil {
 		panic("config.DB is NIL")
@@ -318,7 +318,10 @@ func (m *pluginManager) updateSchema() {
 		}
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		logf("Cannot update plugins schema: %v", err)
+	}
 }
 
 func (m *pluginManager) loop() error {
@@ -504,6 +507,17 @@ func (m *pluginManager) pluginOn(name string) bool {
 }
 
 func (m *pluginManager) refreshPlugins() {
+	rollbackId, err := rollbackMsgId(m.db)
+	if err != nil {
+		logf("%v", err)
+		return
+	}
+	latestId, err := latestMsgId(m.db)
+	if err != nil {
+		logf("%v", err)
+		return
+	}
+
 	tx, err := m.db.Begin()
 	if err != nil {
 		logf("Cannot begin database transaction: %v", err)
@@ -566,7 +580,8 @@ func (m *pluginManager) refreshPlugins() {
 	var known = len(m.plugins)
 	var seen = make(map[string]bool)
 	var found int
-	var rollbackId bson.ObjectId
+	var lowestId = latestId
+	var changed = false
 	for i := range infos {
 		info := &infos[i]
 		if !m.pluginOn(info.Name) {
@@ -578,6 +593,7 @@ func (m *pluginManager) refreshPlugins() {
 			if !pluginChanged(&state.info, info) {
 				continue
 			}
+			changed = true
 			logf("Plugin %q config or targets changed. Stopping and restarting it.", info.Name)
 			err := state.plugin.Stop()
 			if err != nil {
@@ -600,15 +616,24 @@ func (m *pluginManager) refreshPlugins() {
 		//	logf("Cannot update commands schema for plugin %q: %v", info.Name, err)
 		//}
 
-		m.plugins[info.Name] = state
-		if rollbackId == "" || rollbackId > state.info.LastId {
-			rollbackId = state.info.LastId
+		// If the plugin has never seen any messages, start from the tip. Otherwise
+		// only allow the plugin to go as far back as the rollbackLimit.
+		if state.info.LastId == 0 {
+			state.info.LastId = latestId
+		} else if state.info.LastId < rollbackId {
+			state.info.LastId = rollbackId
 		}
+		if state.info.LastId < lowestId {
+			lowestId = state.info.LastId
+		}
+
+		m.plugins[info.Name] = state
 	}
 
 	// If there are known plugins that were not observed in the current
 	// set of plugins, they must be stopped and removed.
 	if known != found {
+		changed = true
 		for name, state := range m.plugins {
 			if seen[name] {
 				continue
@@ -626,19 +651,21 @@ func (m *pluginManager) refreshPlugins() {
 	// position of the tail iterator, the iterator must be restarted
 	// at a previous position to avoid losing messages, so that plugins
 	// may be restarted at any point without losing incoming messages.
-	if rollbackId != "" {
-		// Wake up tail iterator by injecting a dummy message. The iterator
-		// won't be able to deliver this message because incoming is
-		// consumed by this goroutine after this method returns.
-		//err := m.database.C("incoming").Insert(&Message{Command: cmdPong, Account: rollbackAccount, Text: rollbackText})
-		//if err != nil {
-		//	logf("Cannot insert wake up message in incoming queue: %v", err)
-		//	return
-		//}
+	if changed {
+		// If the tail iterator ever blocks waiting for the database to
+		// respond with new messages, this logic needs to wake it up by
+		// injecting a message into the incoming lane that looks something
+		// like the following. The iterator won't be able to deliver
+		// this message because incoming is consumed by this goroutine
+		// after this method returns.
+		//
+		// &Message{Command: cmdPong, Account: rollbackAccount, Text: rollbackText})
+		//
+		// For now we don't need this.
 
 		// Send oldest observed id to the tail loop for a potential rollback.
 		select {
-		case m.rollback <- rollbackId:
+		case m.rollback <- lowestId:
 		case <-m.tomb.Dying():
 			return
 		}
@@ -677,11 +704,6 @@ func (m *pluginManager) startPlugin(info *pluginInfo) (*pluginState, error) {
 		plugger: plugger,
 		plugin:  plugin,
 	}
-
-	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
-	if !state.info.LastId.Valid() || state.info.LastId < lastId {
-		state.info.LastId = lastId
-	}
 	return state, nil
 }
 
@@ -689,11 +711,7 @@ func (m *pluginManager) sendMessage(msg *Message) error {
 	if !m.tomb.Alive() {
 		panic("plugin attempted to send message after its Stop method returned")
 	}
-	// FIXME Rework that ID logic.
-	if msg.Id == "" {
-		msg.Id = bson.NewObjectId()
-	}
-	_, err := m.db.Exec("INSERT INTO outgoing ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+	_, err := m.db.Exec("INSERT INTO message ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs(Outgoing)...)
 	return err
 }
 
@@ -701,11 +719,7 @@ func (m *pluginManager) handleMessage(msg *Message) error {
 	if !m.tomb.Alive() {
 		panic("plugin attempted to enqueue incoming message after its Stop method returned")
 	}
-	// FIXME Rework that ID logic.
-	if msg.Id == "" {
-		msg.Id = bson.NewObjectId()
-	}
-	_, err := m.db.Exec("INSERT INTO incoming ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs()...)
+	_, err := m.db.Exec("INSERT INTO message ("+messageColumns+") VALUES ("+messagePlacers+")", msg.refs(Incoming)...)
 	return err
 }
 
@@ -727,8 +741,34 @@ func (m *pluginManager) ldapConn(name string) (ldap.Conn, error) {
 
 const zeroId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
+func latestMsgId(db *sql.DB) (int64, error) {
+	var id int64
+	row := db.QueryRow(`SELECT seq FROM sqlite_sequence WHERE name='message' LIMIT 1`)
+	err := row.Scan(&id)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, fmt.Errorf("cannot fetch latest message ID from database: %v", err)
+	}
+	if id == 0 {
+		id = -1 // Means no messages at all.
+	}
+	return id, nil
+}
+
+func rollbackMsgId(db *sql.DB) (int64, error) {
+	var id int64
+	row := db.QueryRow(`SELECT id FROM message WHERE time>=? ORDER BY id LIMIT 1`, time.Now().Add(-rollbackLimit))
+	err := row.Scan(&id)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, fmt.Errorf("cannot fetch rollback message ID from database: %v", err)
+	}
+	return id, nil
+}
+
 func (m *pluginManager) tail() error {
-	lastId := bson.NewObjectIdWithTime(time.Now().Add(-rollbackLimit))
+	lastId, err := rollbackMsgId(m.db)
+	if err != nil {
+		return err
+	}
 
 NextTail:
 	for m.tomb.Alive() {
@@ -744,13 +784,13 @@ NextTail:
 		default:
 		}
 
-		rows, err := m.db.Query("SELECT "+messageColumns+" FROM incoming WHERE id>? ORDER BY id", lastId)
+		rows, err := m.db.Query("SELECT "+messageColumns+" FROM message WHERE id>? AND lane=1 ORDER BY id", lastId)
 		if err != nil {
 			logf("Error selecting incoming messages: %v", err)
 		} else {
 			for rows.Next() {
 				var msg Message
-				err := rows.Scan(msg.refs()...)
+				err := rows.Scan(msg.refs(0)...)
 				if err != nil {
 					logf("Error parsing incoming messages: %v", err)
 				}

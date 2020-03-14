@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/tomb.v2"
 	"net"
 	"strconv"
@@ -32,13 +31,12 @@ type ircClient struct {
 	dying       <-chan struct{}
 	incoming    chan *Message
 	outgoing    chan *Message
-	lastId      bson.ObjectId
 }
 
 func (c *ircClient) AccountName() string     { return c.accountName }
 func (c *ircClient) Dying() <-chan struct{}  { return c.dying }
 func (c *ircClient) Outgoing() chan *Message { return c.outgoing }
-func (c *ircClient) LastId() bson.ObjectId   { return c.lastId }
+func (c *ircClient) LastId() int64           { return c.info.LastId }
 
 func startIrcClient(info *accountInfo, incoming chan *Message) accountClient {
 	c := &ircClient{
@@ -50,7 +48,6 @@ func startIrcClient(info *accountInfo, incoming chan *Message) accountClient {
 		incoming: incoming,
 		outgoing: make(chan *Message),
 	}
-	c.lastId = c.info.LastId
 	c.dying = c.tomb.Dying()
 	c.tomb.Go(c.run)
 	return c
@@ -254,6 +251,7 @@ func (c *ircClient) forward() error {
 
 	quitting := false
 	for {
+		logf("Forwarding channels: inRecv=%v outRecv=%v inSend=%v outSend=%v inMsg=%v outMsg=%v", inRecv, outRecv, inSend, outSend, inMsg, outMsg)
 		select {
 		case inMsg = <-inRecv:
 			skip, err := c.handleMessage(inMsg)
@@ -507,8 +505,8 @@ loop:
 			if msg.Command != cmdPong {
 				logf("[%s] Sending: %s", w.accountName, line)
 			}
-			if (msg.Command == cmdPrivMsg || msg.Command == cmdNotice || msg.Command == "") && msg.Id != "" {
-				send = []string{line, "\r\nPING :sent:", msg.Id.Hex(), "\r\n"}
+			if (msg.Command == cmdPrivMsg || msg.Command == cmdNotice || msg.Command == "") && msg.Id > 0 {
+				send = []string{line, "\r\nPING :sent:", strconv.FormatInt(msg.Id, 16), "\r\n"}
 				lastPing = time.Now()
 			} else {
 				send = []string{line, "\r\n"}
