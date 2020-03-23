@@ -1,13 +1,12 @@
 package help_test
 
 import (
+	"database/sql"
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mgo.v2/dbtest"
+	//"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
-	"gopkg.in/mup.v0/plugins/help"
 	"gopkg.in/mup.v0/schema"
 )
 
@@ -16,20 +15,15 @@ func Test(t *testing.T) { TestingT(t) }
 var _ = Suite(&HelpSuite{})
 
 type HelpSuite struct {
-	dbserver dbtest.DBServer
+	dbdir string
+	db    *sql.DB
 }
 
 func (s *HelpSuite) SetUpSuite(c *C) {
-	s.dbserver.SetPath(c.MkDir())
+	s.dbdir = c.MkDir()
 }
 
-func (s *HelpSuite) TearDownSuite(c *C) {
-	s.dbserver.Stop()
-}
-
-func (s *HelpSuite) TearDownTest(c *C) {
-	s.dbserver.Wipe()
-}
+type M map[string]interface{}
 
 type helpTest struct {
 	send    string
@@ -37,24 +31,21 @@ type helpTest struct {
 	sendAll []string
 	recvAll []string
 	cmds    schema.Commands
-	targets []bson.M
-	known   bool
-	config  bson.M
+	targets []mup.Address
+	config  M
 }
 
 var helpTests = []helpTest{{
+	send:    "help",
+	recvAll: []string{"PRIVMSG nick :No known commands available. Go load some plugins."},
+}, {
 	send: "help",
-	recv: "PRIVMSG nick :No known commands available. Go load some plugins.",
+	recv: `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
+	cmds: schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}, {Name: "cmd3", Hide: true}},
 }, {
-	send:  "help",
-	recv:  `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
-	known: true,
-	cmds:  schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}, {Name: "cmd3", Hide: true}},
-}, {
-	send:  "start",
-	recv:  `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
-	known: true,
-	cmds:  schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}, {Name: "cmd3", Hide: true}},
+	send: "start",
+	recv: `PRIVMSG nick :Run "help <cmdname>" for details on: cmd1, cmd2`,
+	cmds: schema.Commands{{Name: "cmd1"}, {Name: "cmd2"}, {Name: "cmd3", Hide: true}},
 }, {
 	send: "help cmdname",
 	recv: `PRIVMSG nick :Command "cmdname" not found.`,
@@ -67,10 +58,9 @@ var helpTests = []helpTest{{
 	recv: `PRIVMSG nick :cmdname — Does nothing.`,
 	cmds: schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
 }, {
-	send:  "help cmdname",
-	recv:  `PRIVMSG nick :cmdname — Does nothing.`,
-	cmds:  schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
-	known: true,
+	send: "help cmdname",
+	recv: `PRIVMSG nick :cmdname — Does nothing.`,
+	cmds: schema.Commands{{Name: "cmdname", Help: "Does nothing."}},
 }, {
 	send: "help cmdname",
 	recvAll: []string{
@@ -117,61 +107,71 @@ var helpTests = []helpTest{{
 }, {
 	send:   "foo",
 	recv:   `PRIVMSG nick :Command "foo" not found.`,
-	config: bson.M{"boring": true},
+	config: M{"boring": true},
 }, {
 	send:    "cmdname",
 	recv:    `PRIVMSG nick :Plugin "test" is not enabled here.`,
-	targets: []bson.M{{"account": "other"}},
+	targets: []mup.Address{{Account: "other"}},
 	cmds:    schema.Commands{{Name: "cmdname"}},
 }, {
-	send:  "cmdname",
-	recv:  `PRIVMSG nick :Plugin "test" is not running.`,
-	cmds:  schema.Commands{{Name: "cmdname"}},
-	known: true,
+	send: "cmdname",
+	recv: `PRIVMSG nick :Plugin "test" is not running.`,
+	cmds: schema.Commands{{Name: "cmdname"}},
 }, {
 	send:   "[#chan] mup: foo",
 	recv:   `PRIVMSG #chan :nick: Command "foo" not found.`,
-	config: bson.M{"boring": true},
+	config: M{"boring": true},
 }, {
 	send:    "[#chan] !foo",
 	recvAll: []string{},
-	config:  bson.M{"boring": true},
+	config:  M{"boring": true},
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {
 	for _, test := range helpTests {
+		c.Logf("Running test: %#v\n", test)
 		s.testHelp(c, &test)
 	}
 }
 
+var testPlugin = mup.PluginSpec{Name: "test"}
+
+func init() {
+	mup.RegisterPlugin(&testPlugin)
+}
+
 func (s *HelpSuite) testHelp(c *C, test *helpTest) {
-	defer s.dbserver.Wipe()
-
-	session := s.dbserver.Session()
-	defer session.Close()
-
-	db := session.DB("")
-	plugins := db.C("plugins")
-	known := db.C("plugins.known")
+	db, err := mup.OpenDB(c.MkDir())
+	c.Assert(err, IsNil)
+	defer db.Close()
 
 	tester := mup.NewPluginTester("help")
 	tester.SetDatabase(db)
+	tester.SetConfig(test.config)
 
-	if test.known {
-		err := known.Insert(bson.M{"_id": "test", "commands": test.cmds})
+	testPlugin.Commands = test.cmds
+	tester.AddSchema("test")
+
+	_, err = db.Exec("INSERT INTO account (name) VALUES ('test')")
+	c.Assert(err, IsNil)
+	_, err = db.Exec("INSERT INTO plugin (name) VALUES ('help')")
+	c.Assert(err, IsNil)
+	_, err = db.Exec("INSERT INTO target (plugin,account) VALUES ('help','test')")
+	c.Assert(err, IsNil)
+
+	if test.targets != nil {
+		_, err = db.Exec("INSERT INTO plugin (name) VALUES ('test')")
 		c.Assert(err, IsNil)
-	} else {
-		err := plugins.Insert(bson.M{"_id": "test", "commands": test.cmds, "targets": []bson.M{{"account": "test"}}})
-		c.Assert(err, IsNil)
-		if test.targets != nil {
-			err = plugins.UpdateId("test", bson.M{"$set": bson.M{"targets": test.targets}})
+		for _, t := range test.targets {
+			if t.Account != "" {
+				_, err = db.Exec("INSERT OR IGNORE INTO account (name) VALUES (?)", t.Account)
+				c.Assert(err, IsNil)
+			}
+			_, err = db.Exec("INSERT INTO target (plugin,account,channel,nick) VALUES ('test',?,?,?)", t.Account, t.Channel, t.Nick)
 			c.Assert(err, IsNil)
 		}
 	}
-	err := plugins.Insert(bson.M{"_id": "help", "commands": help.Plugin.Commands, "targets": []bson.M{{"account": "test"}}})
-	c.Assert(err, IsNil)
 
-	tester.SetConfig(test.config)
 	tester.Start()
 	if test.send != "" {
 		tester.Sendf(test.send)
@@ -184,6 +184,7 @@ func (s *HelpSuite) testHelp(c *C, test *helpTest) {
 	if test.recv != "" {
 		c.Assert(tester.Recv(), Equals, test.recv)
 	}
+
 	if test.recvAll != nil {
 		if len(test.recvAll) == 0 {
 			c.Assert(tester.RecvAll(), IsNil)

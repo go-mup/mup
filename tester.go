@@ -29,7 +29,7 @@ type PluginTester struct {
 func NewPluginTester(pluginName string) *PluginTester {
 	spec, ok := registeredPlugins[pluginKey(pluginName)]
 	if !ok {
-		panic(fmt.Sprintf("plugin not registered: %q", pluginKey(pluginName)))
+		panic(fmt.Sprintf("plugin %q not registered", pluginKey(pluginName)))
 	}
 	t := &PluginTester{}
 	t.cond.L = &t.mu
@@ -97,6 +97,8 @@ func (t *PluginTester) Start() error {
 	return err
 }
 
+// FIXME Rename to SetDB to conform to the database/sql terminology?
+
 // SetDatabase sets the database to offer the plugin being tested.
 func (t *PluginTester) SetDatabase(db *sql.DB) {
 	t.mu.Lock()
@@ -105,6 +107,33 @@ func (t *PluginTester) SetDatabase(db *sql.DB) {
 		panic("PluginTester.SetDatabase called after Start")
 	}
 	t.state.plugger.setDatabase(db)
+
+	t.mu.Unlock()
+	defer t.mu.Lock()
+	t.AddSchema(t.state.spec.Name)
+}
+
+// AddSchema adds the schema for the provided plugin to the database.
+func (t *PluginTester) AddSchema(pluginName string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state.plugin != nil {
+		panic("PluginTester.SetSchema called after Start")
+	}
+	spec, ok := registeredPlugins[pluginKey(pluginName)]
+	if !ok {
+		panic(fmt.Sprintf("PluginTester.SetSchema: plugin %q not registered", pluginKey(pluginName)))
+	}
+	db := t.state.plugger.DB()
+	tx, err := db.Begin()
+	if err == nil {
+		err = setSchema(tx, spec.Name, spec.Help, spec.Commands)
+	}
+	if err != nil {
+		tx.Rollback()
+		panic("Cannot change schema: " + err.Error())
+	}
+	tx.Commit()
 }
 
 // SetConfig changes the configuration of the plugin being tested.

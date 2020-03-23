@@ -9,7 +9,6 @@ import (
 
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
-	"sort"
 )
 
 var Plugin = mup.PluginSpec{
@@ -263,32 +262,25 @@ func (p *helpPlugin) pluginsWith(cmdname string) ([]pluginInfo, error) {
 }
 
 func (p *helpPlugin) cmdList() ([]string, error) {
-	//session, c := p.plugger.Collection("", 0)
-	//defer session.Close()
-	//plugins := c.Database.C("plugins.known")
-	var known []struct {
-		Commands []struct {
-			Name string
-			Hide bool
-		}
+	db := p.plugger.DB()
+
+	var result []string
+	rows, err := db.Query("SELECT DISTINCT(command) FROM command_schema WHERE hide=FALSE ORDER BY command")
+	if err != nil {
+		return nil, err
 	}
-	//err := plugins.Find(nil).All(&known)
-	//if err != nil {
-	//	return nil, err
-	//}
-	seen := make(map[string]bool)
-	for _, plugin := range known {
-		for _, cmd := range plugin.Commands {
-			if !cmd.Hide {
-				seen[cmd.Name] = true
-			}
+	defer rows.Close()
+	for rows.Next() {
+		var cmdname string
+		err = rows.Scan(&cmdname)
+		if err != nil {
+			return nil, err
 		}
-	}
-	result := make([]string, 0, len(seen))
-	for cmdname := range seen {
+		if cmdname == "help" {
+			continue
+		}
 		result = append(result, cmdname)
 	}
-	sort.Strings(result)
 	return result, nil
 }
 

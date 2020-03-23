@@ -276,6 +276,33 @@ func (m *pluginManager) die() {
 	m.tomb.Kill(errStop)
 }
 
+func setSchema(tx *sql.Tx, plugin, help string, cmds schema.Commands) error {
+	_, err := tx.Exec("DELETE FROM plugin_schema WHERE plugin=?", plugin)
+	if err != nil {
+		return fmt.Errorf("cannot delete old schema for %q plugin: %v", plugin, err)
+	}
+	_, err = tx.Exec("INSERT INTO plugin_schema (plugin,help) VALUES (?,?)", plugin, help)
+	if err != nil {
+		return fmt.Errorf("cannot add schema for %q plugin: %v", plugin, err)
+	}
+
+	for _, cmd := range cmds {
+		_, err := tx.Exec("INSERT INTO command_schema (plugin,command,help,hide) VALUES (?,?,?,?)",
+			plugin, cmd.Name, cmd.Help, cmd.Hide)
+		if err != nil {
+			return fmt.Errorf("cannot add schema for %q plugin, %q command: %v", plugin, cmd.Name, err)
+		}
+		for _, arg := range cmd.Args {
+			_, err := tx.Exec("INSERT INTO argument_schema (plugin,command,argument,hint,type,flag) VALUES (?,?,?,?,?,?)",
+				plugin, cmd.Name, arg.Name, arg.Hint, arg.Type, arg.Flag)
+			if err != nil {
+				return fmt.Errorf("cannot add schema for %q plugin, %q command, %q argument: %v", plugin, cmd.Name, arg.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
 func (m *pluginManager) updateSchema() {
 	tx, err := m.db.Begin()
 	if err != nil {
@@ -288,39 +315,16 @@ func (m *pluginManager) updateSchema() {
 		if !m.pluginOn(name) {
 			continue
 		}
-
-		_, err = tx.Exec("DELETE FROM plugin_schema WHERE plugin=?", name)
+		err = setSchema(tx, name, spec.Help, spec.Commands)
 		if err != nil {
-			logf("Cannot delete old schema for %q plugin: %v", name, err)
-			return
-		}
-		_, err = tx.Exec("INSERT INTO plugin_schema (plugin,help) VALUES (?,?)", name, spec.Help)
-		if err != nil {
-			logf("Cannot add schema for %q plugin: %v", name, err)
-			return
-		}
-
-		for _, cmd := range spec.Commands {
-			_, err := tx.Exec("INSERT INTO command_schema (plugin,command,help,hide) VALUES (?,?,?,?)",
-				name, cmd.Name, cmd.Help, cmd.Hide)
-			if err != nil {
-				logf("Cannot add schema for %q plugin, %q command: %v", name, cmd.Name, err)
-				return
-			}
-			for _, arg := range cmd.Args {
-				_, err := tx.Exec("INSERT INTO argument_schema (plugin,command,argument,hint,type,flag) VALUES (?,?,?,?,?,?)",
-					name, cmd.Name, arg.Name, arg.Hint, arg.Type, arg.Flag)
-				if err != nil {
-					logf("Cannot add schema for %q plugin, %q command, %q argument: %v", name, cmd.Name, arg.Name, err)
-					return
-				}
-			}
+			break
 		}
 	}
-
-	err = tx.Commit()
+	if err == nil {
+		err = tx.Commit()
+	}
 	if err != nil {
-		logf("Cannot update plugins schema: %v", err)
+		logf("Cannot update schema for plugins: %v", err)
 	}
 }
 
