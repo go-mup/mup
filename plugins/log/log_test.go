@@ -4,10 +4,8 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
-	_ "gopkg.in/mup.v0/plugins/log"
+	"gopkg.in/mup.v0/plugins/log"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -15,19 +13,16 @@ func Test(t *testing.T) { TestingT(t) }
 var _ = Suite(&HelpSuite{})
 
 type HelpSuite struct {
-	dbserver dbtest.DBServer
 }
 
-func (s *HelpSuite) SetUpSuite(c *C) {
-	s.dbserver.SetPath(c.MkDir())
-}
-
-func (s *HelpSuite) TearDownSuite(c *C) {
-	s.dbserver.Stop()
+func (s *HelpSuite) SetUpTest(c *C) {
+	mup.SetLogger(c)
+	mup.SetDebug(true)
 }
 
 func (s *HelpSuite) TearDownTest(c *C) {
-	s.dbserver.Wipe()
+	mup.SetLogger(nil)
+	mup.SetDebug(false)
 }
 
 type logTest struct {
@@ -46,9 +41,9 @@ var logTests = []logTest{{
 
 func (s *HelpSuite) TestLog(c *C) {
 	for _, test := range logTests {
-		session := s.dbserver.Session()
-		defer session.Close()
-		db := session.DB("")
+		db, err := mup.OpenDB(c.MkDir())
+		c.Assert(err, IsNil)
+		defer db.Close()
 
 		tester := mup.NewPluginTester("log")
 		tester.SetDatabase(db)
@@ -62,16 +57,8 @@ func (s *HelpSuite) TestLog(c *C) {
 		tester.Stop()
 
 		var msg mup.Message
-		var dbname = db.Name + "_bulk"
-		coll := session.DB(dbname).C("shared.log")
-		err := coll.Find(nil).One(&msg)
-		if err == mgo.ErrNotFound {
-			c.Fatalf(`Collection "shared.log" in database %q is empty.`, dbname)
-		}
+		err = db.QueryRow("SELECT " + log.MessageColumns + " FROM log").Scan(log.MessageRefs(&msg)...)
 		c.Assert(err, IsNil)
 		c.Assert(msg.String(), Equals, test.stored)
-
-		session.Close()
-		s.dbserver.Wipe()
 	}
 }
