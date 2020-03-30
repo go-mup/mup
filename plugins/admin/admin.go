@@ -2,15 +2,16 @@ package admin
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"time"
 
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
 
 	"golang.org/x/crypto/scrypt"
+
+	"github.com/mattn/go-sqlite3"
 )
 
 var Plugin = mup.PluginSpec{
@@ -63,15 +64,19 @@ const (
 	adminUser   userKind = 2
 )
 
+type userKey struct {
+	Account, Nick string
+}
+
 type adminPlugin struct {
 	plugger *mup.Plugger
-	logins  map[string]userKind
+	logins  map[userKey]userKind
 }
 
 func start(plugger *mup.Plugger) mup.Stopper {
 	return &adminPlugin{
 		plugger: plugger,
-		logins:  make(map[string]userKind),
+		logins:  make(map[userKey]userKind),
 	}
 }
 
@@ -81,8 +86,7 @@ func (p *adminPlugin) Stop() error {
 
 func (p *adminPlugin) HandleMessage(msg *mup.Message) {
 	if msg.Command == "QUIT" || msg.Command == "NICK" {
-		userId := msg.Account + " " + msg.Nick
-		delete(p.logins, userId)
+		delete(p.logins, userKey{msg.Account, msg.Nick})
 	}
 }
 
@@ -106,7 +110,6 @@ const (
 )
 
 type userInfo struct {
-	Id           string `bson:"_id"`
 	Account      string
 	Nick         string
 	PasswordHash string
@@ -116,17 +119,31 @@ type userInfo struct {
 	Admin        bool      `bson:",omitempty"`
 }
 
+const userColumns = "account,nick,password_hash,password_salt,attempt_start,attempt_count,admin"
+const userPlacers = "?,?,?,?,?,?,?"
+
+func (u *userInfo) refs() []interface{} {
+	return []interface{}{&u.Account, &u.Nick, &u.PasswordHash, &u.PasswordSalt, &u.AttemptStart, &u.AttemptCount, &u.Admin}
+}
+
+func (u *userInfo) key() userKey {
+	return userKey{u.Account, u.Nick}
+}
+
 func (p *adminPlugin) register(cmd *mup.Command) {
 	var args struct{ Password string }
 	cmd.Args(&args)
 
-	session, c := p.plugger.Collection("", 0)
-	defer session.Close()
-
-	users := session.DB(c.Database.Name).C("users")
+	tx, err := p.plugger.DB().Begin()
+	if err != nil {
+		p.plugger.Logf("Cannot begin database transaction: %v", err)
+		p.plugger.Sendf(cmd, "Oops: cannot begin database transaction: %v", err)
+		return
+	}
+	defer tx.Rollback()
 
 	saltBytes := make([]byte, 8)
-	_, err := rand.Read(saltBytes)
+	_, err = rand.Read(saltBytes)
 	if err != nil {
 		p.plugger.Logf("Cannot obtain random bytes from system: %v", err)
 		p.plugger.Sendf(cmd, "Oops: cannot obtain random bytes from system: %v", err)
@@ -139,7 +156,9 @@ func (p *adminPlugin) register(cmd *mup.Command) {
 		return
 	}
 
-	count, err := users.Count()
+	row := tx.QueryRow("SELECT COUNT(*) FROM user")
+	var count int64
+	err = row.Scan(&count)
 	if err != nil {
 		p.plugger.Logf("Cannot obtain number of registered users: %v", err)
 		p.plugger.Sendf(cmd, "Oops: cannot obtain number of registered users: %v", err)
@@ -147,21 +166,24 @@ func (p *adminPlugin) register(cmd *mup.Command) {
 	}
 
 	user := &userInfo{
-		Id:           cmd.Account + " " + cmd.Nick,
 		Account:      cmd.Account,
 		Nick:         cmd.Nick,
 		PasswordHash: hash,
 		PasswordSalt: salt,
 		Admin:        count == 0,
 	}
-	err = users.Insert(&user)
-	if mgo.IsDup(err) {
+
+	_, err = tx.Exec("INSERT INTO user ("+userColumns+") VALUES ("+userPlacers+")", user.refs()...)
+	if e, ok := err.(sqlite3.Error); ok && e.Code == 19 && e.ExtendedCode == 1555 {
 		p.plugger.Logf("Nick %q at account %s attempted to register again.", cmd.Nick, cmd.Account)
 		p.plugger.Sendf(cmd, "Nick previously registered.")
 		return
 	}
+	if err == nil {
+		err = tx.Commit()
+	}
 	if err != nil {
-		p.plugger.Logf("Cannot insert user: %v", err)
+		p.plugger.Logf("Cannot insert registering user: %#v", err)
 		p.plugger.Sendf(cmd, "Oops: there was an error while registering your details.")
 		return
 	}
@@ -176,15 +198,11 @@ func (p *adminPlugin) login(cmd *mup.Command) {
 	var args struct{ Password string }
 	cmd.Args(&args)
 
-	session, c := p.plugger.Collection("", 0)
-	defer session.Close()
-
-	users := session.DB(c.Database.Name).C("users")
-	userId := cmd.Account + " " + cmd.Nick
+	db := p.plugger.DB()
 
 	var user userInfo
-	err := users.FindId(userId).One(&user)
-	if err == mgo.ErrNotFound {
+	err := db.QueryRow("SELECT "+userColumns+" FROM user WHERE account=? AND nick=?", cmd.Account, cmd.Nick).Scan(user.refs()...)
+	if err == sql.ErrNoRows {
 		p.plugger.Sendf(cmd, "Nope.")
 		return
 	}
@@ -212,7 +230,8 @@ func (p *adminPlugin) login(cmd *mup.Command) {
 		return
 	}
 	if !equal {
-		err := users.UpdateId(userId, bson.D{{"$set", bson.D{{"attemptstart", user.AttemptStart}, {"attemptcount", user.AttemptCount}}}})
+		_, err = db.Exec("UPDATE user SET attempt_start=?,attempt_count=? WHERE account=? AND nick=?",
+			user.AttemptStart, user.AttemptCount, user.Account, user.Nick)
 		if err != nil {
 			p.plugger.Logf("Cannot update login attempt for nick %q at %s: %v", cmd.Nick, cmd.Account, err)
 			p.plugger.Sendf(cmd, "Oops: there was an error while recording your login attempt.")
@@ -223,9 +242,9 @@ func (p *adminPlugin) login(cmd *mup.Command) {
 	}
 	p.plugger.Sendf(cmd, "Okay.")
 	if user.Admin {
-		p.logins[userId] = adminUser
+		p.logins[user.key()] = adminUser
 	} else {
-		p.logins[userId] = normalUser
+		p.logins[user.key()] = normalUser
 	}
 }
 
@@ -244,8 +263,7 @@ func (p *adminPlugin) scryptHashCompare(cmd *mup.Command, password, salt string,
 }
 
 func (p *adminPlugin) checkLogin(cmd *mup.Command, want userKind) bool {
-	userId := cmd.Account + " " + cmd.Nick
-	kind := p.logins[userId]
+	kind := p.logins[userKey{cmd.Account, cmd.Nick}]
 	if kind == unknownUser {
 		p.plugger.Sendf(cmd, "Must login for that.")
 		return false

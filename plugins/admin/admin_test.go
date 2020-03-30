@@ -1,12 +1,13 @@
 package admin_test
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/dbtest"
+	//"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/plugins/admin"
 )
@@ -16,15 +17,12 @@ func Test(t *testing.T) { TestingT(t) }
 var _ = Suite(&AdminSuite{})
 
 type AdminSuite struct {
-	dbserver dbtest.DBServer
+	dbdir string
+	db    *sql.DB
 }
 
 func (s *AdminSuite) SetUpSuite(c *C) {
-	s.dbserver.SetPath(c.MkDir())
-}
-
-func (s *AdminSuite) TearDownSuite(c *C) {
-	s.dbserver.Stop()
+	s.dbdir = c.MkDir()
 }
 
 func (s *AdminSuite) SetUpTest(c *C) {
@@ -33,7 +31,6 @@ func (s *AdminSuite) SetUpTest(c *C) {
 }
 
 func (s *AdminSuite) TearDownTest(c *C) {
-	s.dbserver.Wipe()
 	mup.SetLogger(nil)
 	mup.SetDebug(false)
 }
@@ -230,10 +227,9 @@ var adminTests = []adminTest{
 // Data for "thesecret"
 var testSalt = "salt"
 var testHash = "04e36fcd7a7b2677f41005670058a56fcb751a05fea3a531c68f83c5f9c3ac80"
-var testUser = userInfo{Id: "test nick", Account: "test", Nick: "nick", Admin: true, PasswordHash: testHash, PasswordSalt: testSalt}
+var testUser = userInfo{Account: "test", Nick: "nick", Admin: true, PasswordHash: testHash, PasswordSalt: testSalt}
 
 type userInfo struct {
-	Id                string `bson:"_id"`
 	Account           string
 	Nick              string
 	Admin             bool
@@ -256,32 +252,35 @@ func (s *AdminSuite) TestAdmin(c *C) {
 }
 
 func (s *AdminSuite) testAdmin(c *C, test *adminTest) {
-	defer s.dbserver.Wipe()
-
-	session := s.dbserver.Session()
-	defer session.Close()
-
-	db := session.DB("")
-	users := db.C("users")
+	db, err := mup.OpenDB(c.MkDir())
+	c.Assert(err, IsNil)
+	defer db.Close()
 
 	tester := mup.NewPluginTester("admin")
 	tester.SetDatabase(db)
 
+	accounts := map[string]bool{"test": true}
+	for _, user := range test.users {
+		accounts[user.Account] = true
+	}
+	for account := range accounts {
+		_, err = db.Exec("INSERT INTO account (name) VALUES (?)", account)
+		c.Assert(err, IsNil)
+	}
+
 	now := time.Now()
+	if test.login && len(test.users) == 0 {
+		test.users = append(test.users, testUser)
+	}
 	for _, user := range test.users {
 		user.AttemptStart = now.Add(user.AttemptStartDelta)
-		if user.Id == "" {
-			user.Id = user.Account + " " + user.Nick
-		}
 		if user.PasswordHash == "" {
 			user.PasswordHash = testHash
 			user.PasswordSalt = testSalt
 		}
-		err := users.Insert(user)
-		c.Assert(err, IsNil)
-	}
-	if test.login && len(test.users) == 0 {
-		err := users.Insert(testUser)
+
+		_, err := db.Exec("INSERT INTO user (account,nick,password_hash,password_salt,attempt_start,attempt_count,admin) VALUES (?,?,?,?,?,?,?)",
+			user.Account, user.Nick, user.PasswordHash, user.PasswordSalt, user.AttemptStart, user.AttemptCount, user.Admin)
 		c.Assert(err, IsNil)
 	}
 
