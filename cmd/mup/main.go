@@ -6,16 +6,16 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
+	"syscall"
 
 	"gopkg.in/mup.v0"
 	_ "gopkg.in/mup.v0/plugins"
-
-	"gopkg.in/mgo.v2"
-	"strings"
-	"syscall"
 )
 
-var db = flag.String("db", "localhost/mup", "MongoDB database URL including database name to use.")
+const defaultDir = "~/.config/mup"
+
+var dir = flag.String("dir", defaultDir, "Configuration and data directory.")
 var accounts = flag.String("accounts", "*", "Configured account names to connect to, comma-separated. Defaults to all.")
 var noaccounts = flag.Bool("no-accounts", false, "Do not connect to accounts in this instance.")
 var plugins = flag.String("plugins", "*", "Configured plugin names to run, comma-separated. Defaults to all.")
@@ -73,18 +73,17 @@ func run() error {
 		config.Plugins = strings.Split(*plugins, ",")
 	}
 
-	envdb := os.Getenv("MUPDB")
-	if *db == "localhost/mup" && envdb != "" {
-		*db = envdb
+	envdir := os.Getenv("MUPDIR")
+	if *dir == defaultDir && envdir != "" {
+		*dir = envdir
 	}
 
-	logger.Printf("Connecting to MongoDB: %s", *db)
-	session, err := mgo.Dial(*db)
+	db, err := mup.OpenDB(*dir)
 	if err != nil {
-		return fmt.Errorf("cannot connect to database %s: %v", *db, err)
+		return fmt.Errorf("cannot open %q: %v", *dir, err)
 	}
 
-	config.Database = session.DB("")
+	config.DB = db
 
 	server, err := mup.Start(&config)
 	if err != nil {
