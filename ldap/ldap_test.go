@@ -48,7 +48,7 @@ func (s *S) TestSearch(c *C) {
 			c.Assert(result.Value("cn"), Equals, "Nikola Tesla")
 			c.Assert(result.Value("mail"), Equals, "tesla@ldap.forumsys.com")
 			c.Assert(result.Value("objectClass"), Equals, "inetOrgPerson")
-			c.Assert(result.Values("objectClass"), DeepEquals, []string{"inetOrgPerson", "organizationalPerson", "person", "top"})
+			c.Assert(result.Values("objectClass"), DeepEquals, []string{"inetOrgPerson", "organizationalPerson", "person", "top", "posixAccount"})
 			c.Assert(result.Attrs, HasLen, 3)
 		default:
 			c.Fatalf("Unexpected result: %#v", result)
