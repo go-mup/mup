@@ -3,17 +3,15 @@ package mup_test
 import (
 	"net/http"
 	"net/http/httptest"
-	"testing"
-
-	. "gopkg.in/check.v1"
-
-	"gopkg.in/mup.v0"
-	_ "gopkg.in/mup.v0/plugins/wolframalpha"
-
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mup.v0/ldap"
 	"net/url"
 	"strings"
+	"testing"
+
+	"gopkg.in/mup.v0"
+	"gopkg.in/mup.v0/ldap"
+	_ "gopkg.in/mup.v0/plugins/wolframalpha"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -29,8 +27,8 @@ type inferTest struct {
 	recvAll []string
 	result  string
 	status  int
-	config  bson.M
-	targets []bson.M
+	config  mup.Map
+	targets []mup.Target
 	form    url.Values
 	ldap    ldap.Conn
 }
@@ -40,7 +38,7 @@ var inferTests = []inferTest{{
 	send:   "infer the query",
 	recv:   "PRIVMSG nick :the result.",
 	result: "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
-	config: bson.M{
+	config: mup.Map{
 		"appid": "theid",
 	},
 	form: url.Values{
@@ -205,7 +203,7 @@ var inferTests = []inferTest{{
 	recvAll: []string{"PRIVMSG nick :the result.", "PRIVMSG nick :the result."},
 	result:  "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
 	ldap:    ldapConnFor("nick", "c", "Country", "st", "State", "l", "City"),
-	config: bson.M{
+	config: mup.Map{
 		"ldap": "test",
 	},
 	form: url.Values{
@@ -218,7 +216,7 @@ var inferTests = []inferTest{{
 	recvAll: []string{"PRIVMSG nick :the result."},
 	result:  "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
 	ldap:    ldapConnFor("nick", "st", "State", "l", "City"),
-	config: bson.M{
+	config: mup.Map{
 		"ldap": "test",
 	},
 	form: url.Values{
@@ -231,7 +229,7 @@ var inferTests = []inferTest{{
 	recvAll: []string{"PRIVMSG nick :the result."},
 	result:  "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
 	ldap:    ldapConnFor("nick", "st", "State"),
-	config: bson.M{
+	config: mup.Map{
 		"ldap": "test",
 	},
 	form: url.Values{
@@ -245,7 +243,7 @@ var inferTests = []inferTest{{
 	recv:   "PRIVMSG nick :the result.",
 	result: "<queryresult success='true'><pod><subpod><plaintext>the result</plaintext></subpod></pod></queryresult>",
 	ldap:   ldapConnFor("nick", "other", "irrelevant"),
-	config: bson.M{
+	config: mup.Map{
 		"ldap": "test",
 	},
 	form: url.Values{
@@ -257,7 +255,7 @@ var inferTests = []inferTest{{
 	// Bad LDAP connection name
 	send: "infer the query",
 	recv: "PRIVMSG nick :Plugin configuration error: LDAP connection \"unknown\" not found.",
-	config: bson.M{
+	config: mup.Map{
 		"ldap": "unknown",
 	},
 }}
@@ -282,7 +280,7 @@ func (s *S) TestInfer(c *C) {
 		}
 		server.Start()
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		test.config["endpoint"] = server.URL()
 

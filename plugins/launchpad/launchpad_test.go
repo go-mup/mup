@@ -2,19 +2,19 @@ package launchpad_test
 
 import (
 	"fmt"
-	"testing"
-
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mup.v0"
-	_ "gopkg.in/mup.v0/plugins/launchpad"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
+
+	"gopkg.in/mup.v0"
+	_ "gopkg.in/mup.v0/plugins/launchpad"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -27,12 +27,12 @@ type lpTest struct {
 	plugin   string
 	send     []string
 	recv     []string
-	config   bson.M
-	targets  []bson.M
+	config   mup.Map
+	targets  []mup.Target
 	bugsText [][]int
 	bugsForm url.Values
 	status   int
-	headers  map[string]bson.M
+	headers  map[string]mup.Map
 }
 
 var lpTests = []lpTest{
@@ -69,53 +69,53 @@ var lpTests = []lpTest{
 	}, {
 		// Overhearing is disabled by default.
 		plugin:  "lpbugdata",
-		targets: []bson.M{{"account": ""}},
+		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] foo bug #111"},
 		recv:    []string(nil),
 	}, {
 		// With overhearing enabled third-party messages are observed.
 		plugin:  "lpbugdata",
-		config:  bson.M{"overhear": true},
-		targets: []bson.M{{"account": ""}},
+		config:  mup.Map{"overhear": true},
+		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] foo bug #111"},
 		recv:    []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		// When overhearing, do not report errors.
 		plugin:  "lpbugdata",
-		config:  bson.M{"overhear": true},
-		targets: []bson.M{{"account": ""}},
+		config:  mup.Map{"overhear": true},
+		targets: []mup.Target{{Account: ""}},
 		status:  500,
 		send:    []string{"[#chan] foo bug #111"},
 		recv:    []string(nil),
 	}, {
 		// Overhearing may be enabled on the target configuration.
 		plugin: "lpbugdata",
-		targets: []bson.M{
-			{"account": "", "config": bson.M{"overhear": true}},
+		targets: []mup.Target{
+			{Account: "", Config: `{"overhear": true}`},
 		},
 		send: []string{"[#chan] foo bug #111"},
 		recv: []string{"PRIVMSG #chan :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
 	}, {
 		// First matching target wins.
 		plugin: "lpbugdata",
-		targets: []bson.M{
-			{"channel": "#chan", "config": bson.M{"overhear": false}},
-			{"account": "", "config": bson.M{"overhear": true}},
+		targets: []mup.Target{
+			{Channel: "#chan", Config: `{"overhear": false}`},
+			{Account: "", Config: `{"overhear": true}`},
 		},
 		send: []string{"[#chan] foo bug #111"},
 		recv: []string(nil),
 	}, {
 		// Polling of bug changes.
 		plugin: "lpbugwatch",
-		config: bson.M{
+		config: mup.Map{
 			"project":   "some-project",
 			"polldelay": "50ms",
 			"prefixnew": "Bug #%v is new",
 			"prefixold": "Bug #%v is old",
 			"options":   "foo=bar",
 		},
-		targets: []bson.M{
-			{"account": "test", "channel": "#chan"},
+		targets: []mup.Target{
+			{Account: "test", Channel: "#chan"},
 		},
 		bugsText: [][]int{{111, 333, 404, 444, 555}, {111, 222, 444, 666}},
 		bugsForm: url.Values{
@@ -130,15 +130,15 @@ var lpTests = []lpTest{
 	}, {
 		// Polling of bug changes with too many bugs to show at once.
 		plugin: "lpbugwatch",
-		config: bson.M{
+		config: mup.Map{
 			"project":   "some-project",
 			"polldelay": "50ms",
 			"prefixnew": "Bug #%v is new",
 			"prefixold": "Bug #%v is old",
 			"options":   "foo=bar",
 		},
-		targets: []bson.M{
-			{"account": "test", "channel": "#chan"},
+		targets: []mup.Target{
+			{Account: "test", Channel: "#chan"},
 		},
 		bugsText: [][]int{{111, 222, 333, 444, 555}, {333, 666, 777, 888, 999}},
 		bugsForm: url.Values{
@@ -151,12 +151,12 @@ var lpTests = []lpTest{
 	}, {
 		// Polling of merge changes.
 		plugin: "lpmergewatch",
-		config: bson.M{
+		config: mup.Map{
 			"project":   "some-project",
 			"polldelay": "50ms",
 		},
-		targets: []bson.M{
-			{"account": "test", "channel": "#chan"},
+		targets: []mup.Target{
+			{Account: "test", Channel: "#chan"},
 		},
 		recv: []string{
 			"PRIVMSG #chan :Merge proposal changed [needs review]: Branch description. <https://launchpad.net/~user/+merge/111>",
@@ -167,13 +167,13 @@ var lpTests = []lpTest{
 	}, {
 		// OAuth authorization header.
 		plugin: "lpbugdata",
-		config: bson.M{
+		config: mup.Map{
 			"oauthaccesstoken": "atok",
 			"oauthsecrettoken": "stok",
 		},
 		send: []string{"bug 111"},
 		recv: []string{"PRIVMSG nick :Bug #111: Title of 111 <https://launchpad.net/bugs/111>"},
-		headers: map[string]bson.M{
+		headers: map[string]mup.Map{
 			"/bugs/111": {
 				"Authorization": `` +
 					`OAuth realm="https://api.launchpad.net",` +
@@ -188,7 +188,7 @@ var lpTests = []lpTest{
 	}, {
 		// Auth cookie header.
 		plugin: "lpbugwatch",
-		config: bson.M{
+		config: mup.Map{
 			"project":   "some-project",
 			"polldelay": "50ms",
 			"prefixnew": "Bug #%v is new",
@@ -197,12 +197,12 @@ var lpTests = []lpTest{
 			"oauthaccesstoken": "atok",
 			"oauthsecrettoken": "stok",
 		},
-		targets: []bson.M{
-			{"account": "test", "channel": "#chan"},
+		targets: []mup.Target{
+			{Account: "test", Channel: "#chan"},
 		},
 		bugsText: [][]int{{111}, {111, 222}},
 		recv:     []string{"PRIVMSG #chan :Bug #222 is new: Title of 222 <https://launchpad.net/bugs/222>"},
-		headers: map[string]bson.M{
+		headers: map[string]mup.Map{
 			"/bugs/222": {
 				"Cookie": "lp=lpcookie",
 				"Authorization": `` +
@@ -257,7 +257,7 @@ func (s *S) TestLaunchpad(c *C) {
 		}
 		server.Start()
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		test.config["endpoint"] = server.URL()
 		test.config["buglistendpoint"] = server.URL()
@@ -292,12 +292,12 @@ func (s *S) TestJustShown(c *C) {
 	server := lpServer{}
 	server.Start()
 	tester := mup.NewPluginTester("lpbugdata")
-	tester.SetConfig(bson.M{
+	tester.SetConfig(mup.Map{
 		"endpoint":         server.URL(),
 		"overhear":         true,
 		"justshowntimeout": "200ms",
 	})
-	tester.SetTargets([]bson.M{{"account": ""}})
+	tester.SetTargets([]mup.Target{{Account: ""}})
 	tester.Start()
 	tester.Sendf("[#chan1] foo bug 111")
 	tester.Sendf("[#chan2] foo bug 111")

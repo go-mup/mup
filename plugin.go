@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
@@ -53,7 +52,7 @@ type Command struct {
 
 	name   string
 	schema *schema.Command
-	args   bson.Raw
+	args   json.RawMessage
 }
 
 // Name returns the command name.
@@ -67,9 +66,13 @@ func (c *Command) Schema() *schema.Command {
 }
 
 // Args unmarshals into result the command arguments parsed.
-// The unmarshaling is performed by the bson package.
-func (c *Command) Args(result interface{}) {
-	c.args.Unmarshal(result)
+// The unmarshaling is performed by the json package.
+func (c *Command) Args(result interface{}) error {
+	err := json.Unmarshal(c.args, result)
+	if err != nil {
+		return fmt.Errorf("cannot parse command %q arguments: %v", c.name, err)
+	}
+	return nil
 }
 
 var registeredPlugins = make(map[string]*PluginSpec)
@@ -89,72 +92,17 @@ func RegisterPlugin(spec *PluginSpec) {
 type pluginInfo struct {
 	Name   string
 	LastId int64
-	Config bson.Raw
-	State  bson.Raw
+	Config []byte
+	State  []byte
 
-	jsonConfig []byte
-	jsonState  []byte
-
-	Targets []targetInfo
+	Targets []Target
 }
 
 const pluginColumns = "name,last_id,config,state"
 const pluginPlacers = "?,?,?,?"
 
 func (pi *pluginInfo) refs() []interface{} {
-	pi.jsonConfig = bson2json(pi.Config)
-	pi.jsonState = bson2json(pi.State)
-	return []interface{}{&pi.Name, &pi.LastId, &pi.jsonConfig, &pi.jsonState}
-}
-
-type targetInfo struct {
-	Plugin  string
-	Account string
-	Channel string
-	Nick    string
-	Config  bson.Raw
-
-	jsonConfig []byte
-}
-
-const targetColumns = "plugin,account,channel,nick,config"
-const targetPlacers = "?,?,?,?,?"
-
-func (ti *targetInfo) refs() []interface{} {
-	ti.jsonConfig = bson2json(ti.Config)
-	return []interface{}{&ti.Plugin, &ti.Account, &ti.Channel, &ti.Nick, &ti.jsonConfig}
-}
-
-// FIXME Drop bson fields and all of that logic.
-func bson2json(b bson.Raw) []byte {
-	if b.Kind == 0 {
-		return nil
-	}
-	var m map[string]interface{}
-	err := b.Unmarshal(&m)
-	if err != nil {
-		panic(err)
-	}
-	data, err := json.Marshal(m)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-func json2bson(j []byte) bson.Raw {
-	if len(j) == 0 {
-		return bson.Raw{}
-	}
-	var m map[string]interface{}
-	err := json.Unmarshal(j, &m)
-	if err != nil {
-		panic(err)
-	}
-	data, err := bson.Marshal(m)
-	if err != nil {
-		panic(err)
-	}
-	return bson.Raw{0x03, data}
+	return []interface{}{&pi.Name, &pi.LastId, &pi.Config, &pi.State}
 }
 
 type pluginState struct {
@@ -177,7 +125,6 @@ func (li *ldapInfo) refs() []interface{} {
 }
 
 type ldapState struct {
-	raw  bson.Raw
 	info ldapInfo
 	conn *ldap.ManagedConn
 }
@@ -355,7 +302,7 @@ func (m *pluginManager) loop() error {
 			}
 			cmdName := schema.CommandName(msg.BotText)
 			for name, state := range m.plugins {
-				if state.info.LastId >= msg.Id || state.plugger.Target(msg) == nil {
+				if state.info.LastId >= msg.Id || state.plugger.Target(msg).Account == "" {
 					continue
 				}
 				state.info.LastId = msg.Id
@@ -483,15 +430,14 @@ func (m *pluginManager) refreshLdaps() {
 }
 
 func pluginChanged(a, b *pluginInfo) bool {
-	if !bytes.Equal(a.Config.Data, b.Config.Data) {
+	if !bytes.Equal(a.Config, b.Config) {
 		return true
 	}
 	if len(a.Targets) != len(b.Targets) {
 		return true
 	}
 	for i := range a.Targets {
-		t, u := a.Targets[i], b.Targets[i]
-		if t.Plugin != u.Plugin || t.Account != u.Account || t.Channel != u.Channel || t.Nick != u.Nick || !bytes.Equal(t.Config.Data, u.Config.Data) {
+		if a.Targets[i] != b.Targets[i] {
 			return true
 		}
 	}
@@ -530,7 +476,7 @@ func (m *pluginManager) refreshPlugins() {
 	defer tx.Rollback()
 
 	var infos []pluginInfo
-	var tinfos = make(map[string][]targetInfo)
+	var targets = make(map[string][]Target)
 
 	rows, err := tx.Query("SELECT " + pluginColumns + " FROM plugin")
 	if err != nil {
@@ -545,8 +491,6 @@ func (m *pluginManager) refreshPlugins() {
 			logf("Cannot parse database plugin information: %v", err)
 			return
 		}
-		info.Config = json2bson(info.jsonConfig)
-		info.State = json2bson(info.jsonState)
 		infos = append(infos, info)
 	}
 	if rows.Err() != nil {
@@ -561,14 +505,13 @@ func (m *pluginManager) refreshPlugins() {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var tinfo targetInfo
-		err = rows.Scan(tinfo.refs()...)
+		var t Target
+		err = rows.Scan(t.refs()...)
 		if err != nil {
 			logf("Cannot parse database target information: %v", err)
 			return
 		}
-		tinfo.Config = json2bson(tinfo.jsonConfig)
-		tinfos[tinfo.Plugin] = append(tinfos[tinfo.Plugin], tinfo)
+		targets[t.Plugin] = append(targets[t.Plugin], t)
 	}
 	if rows.Err() != nil {
 		logf("Cannot fetch target information from database: %v", rows.Err())
@@ -577,7 +520,7 @@ func (m *pluginManager) refreshPlugins() {
 
 	for i := range infos {
 		info := &infos[i]
-		info.Targets = tinfos[info.Name]
+		info.Targets = targets[info.Name]
 	}
 
 	// Start new plugins, and stop/restart updated ones.
@@ -613,12 +556,6 @@ func (m *pluginManager) refreshPlugins() {
 			logf("Plugin %q failed to start: %v", info.Name, err)
 			continue
 		}
-
-		// FIXME Port command support to SQLite.
-		//err = plugins.UpdateId(info.Name, bson.D{{"$set", bson.D{{"commands", state.spec.Commands}}}})
-		//if err != nil {
-		//	logf("Cannot update commands schema for plugin %q: %v", info.Name, err)
-		//}
 
 		// If the plugin has never seen any messages, start from the tip. Otherwise
 		// only allow the plugin to go as far back as the rollbackLimit.
@@ -742,8 +679,6 @@ func (m *pluginManager) ldapConn(name string) (ldap.Conn, error) {
 	}
 	return nil, fmt.Errorf("LDAP connection %q not found", name)
 }
-
-const zeroId = bson.ObjectId("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 
 func latestMsgId(db *sql.DB) (int64, error) {
 	var id int64
@@ -883,13 +818,13 @@ type DurationString struct {
 	time.Duration
 }
 
-func (d DurationString) GetBSON() (interface{}, error) {
-	return d.String(), nil
+func (d DurationString) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.String())
 }
 
-func (d *DurationString) SetBSON(raw bson.Raw) error {
+func (d *DurationString) UnmarshalJSON(raw []byte) error {
 	var s string
-	err := raw.Unmarshal(&s)
+	err := json.Unmarshal(raw, &s)
 	if err != nil || s == "" {
 		d.Duration = 0
 		return err

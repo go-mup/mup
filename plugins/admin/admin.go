@@ -114,9 +114,9 @@ type userInfo struct {
 	Nick         string
 	PasswordHash string
 	PasswordSalt string
-	AttemptStart time.Time `bson:",omitempty"`
-	AttemptCount int       `bson:",omitempty"`
-	Admin        bool      `bson:",omitempty"`
+	AttemptStart time.Time
+	AttemptCount int
+	Admin        bool
 }
 
 const userColumns = "account,nick,password_hash,password_salt,attempt_start,attempt_count,admin"

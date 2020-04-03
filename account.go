@@ -301,8 +301,6 @@ func (am *accountManager) handleRefresh() {
 		}
 
 		if client, ok := am.clients[info.Name]; !ok {
-			logf("refresh/before: info.LastId is %d", info.LastId)
-
 			// A zero ID means this is the first time a client for this account is
 			// ever run, so don't try to process anything that was previously in the
 			// queue. An update to the database is also done because from now on this
@@ -322,8 +320,6 @@ func (am *accountManager) handleRefresh() {
 				}
 				commit = true
 			}
-
-			logf("refresh/after: info.LastId is %d", info.LastId)
 
 			switch info.Kind {
 			case "irc", "":
@@ -353,8 +349,6 @@ func (am *accountManager) handleRefresh() {
 
 func (am *accountManager) tail(client accountClient) error {
 	lastId := client.LastId()
-
-	logf("tail: client.LastId is %d", lastId)
 
 	for am.tomb.Alive() && client.Alive() {
 

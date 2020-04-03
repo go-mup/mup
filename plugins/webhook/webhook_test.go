@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	_ "gopkg.in/mup.v0/plugins/webhook"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -31,57 +31,57 @@ func (s *WebHookSuite) TearDownSuite(c *C) {
 type webhookTest struct {
 	payload string
 	message string
-	config  bson.M
-	targets []bson.M
+	config  mup.Map
+	targets []mup.Target
 }
 
 var webhookTests = []webhookTest{{
 	// Missing target.
 	payload: `{"token": "secret", "user_name": "nick", "text": "Hello"}`,
-	config:  bson.M{"tokens": []string{"secret"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
 	message: ``,
 }, {
 	// Bad secret.
 	payload: `{"token": "bad", "user_name": "nick", "text": "Hello"}`,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "test"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "test"}},
 	message: ``,
 }, {
 	// All good.
 	payload: `{"token": "secret", "user_name": "nick", "text": "Hello"}`,
 	message: `:nick!~user@webhook PRIVMSG mup :Hello`,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "test"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "test"}},
 }, {
 	// In a channel.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "#chan", "text": "Hello"}`,
 	message: `:nick!~user@webhook PRIVMSG #chan :Hello`,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "test"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "test"}},
 }, {
 	// In a channel, without # in name.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "chan", "text": "Hello"}`,
 	message: `:nick!~user@webhook PRIVMSG #chan :Hello`,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "test"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "test"}},
 }, {
 	// Different account.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "#chan", "text": "Hello"}`,
 	message: `[@other] :nick!~user@webhook PRIVMSG #chan :Hello`,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "other"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "other"}},
 }, {
 	// From a bot.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "chan", "text": "Hello", "bot": true}`,
 	message: ``,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "test"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "test"}},
 }, {
 	// From a bot with a document.
 	payload: `{"token": "secret", "user_name": "nick", "channel_name": "chan", "text": "Hello", "bot": {"i": "foobar"}}`,
 	message: ``,
-	config:  bson.M{"tokens": []string{"secret"}},
-	targets: []bson.M{{"account": "test"}},
+	config:  mup.Map{"tokens": []string{"secret"}},
+	targets: []mup.Target{{Account: "test"}},
 }}
 
 func (s *WebHookSuite) TestIn(c *C) {
@@ -92,7 +92,7 @@ func (s *WebHookSuite) TestIn(c *C) {
 		c.Logf("Testing payload #%d: %s", i, test.payload)
 		tester := mup.NewPluginTester("webhook")
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		test.config["addr"] = ":10645"
 		tester.SetConfig(test.config)

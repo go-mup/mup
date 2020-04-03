@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 )
 
@@ -78,7 +77,7 @@ func (s *TesterSuite) TestSendfRaw(c *C) {
 }
 
 func (s *TesterSuite) TestUnknownPlugin(c *C) {
-	c.Assert(func() { mup.NewPluginTester("unknown").Start() }, PanicMatches, `plugin not registered: "unknown"`)
+	c.Assert(func() { mup.NewPluginTester("unknown").Start() }, PanicMatches, `plugin "unknown" not registered`)
 }
 
 func (s *TesterSuite) TestPlugger(c *C) {
@@ -97,7 +96,7 @@ func (s *TesterSuite) TestPluginLabel(c *C) {
 
 func (s *TesterSuite) TestConfig(c *C) {
 	tester := mup.NewPluginTester("echoA")
-	tester.SetConfig(bson.M{"prefix": "[prefix] "})
+	tester.SetConfig(mup.Map{"prefix": "[prefix] "})
 	tester.Start()
 	tester.Sendf("echoAcmd repeat")
 	tester.Stop()
@@ -106,7 +105,7 @@ func (s *TesterSuite) TestConfig(c *C) {
 
 func (s *TesterSuite) TestTargets(c *C) {
 	tester := mup.NewPluginTester("echoA")
-	tester.SetTargets([]bson.M{{"account": "one", "channel": "#one"}})
+	tester.SetTargets([]mup.Target{{Account: "one", Channel: "#one"}})
 	targets := tester.Plugger().Targets()
 	c.Assert(targets, HasLen, 1)
 	c.Assert(targets[0].Address(), Equals, mup.Address{Account: "one", Channel: "#one"})
@@ -126,7 +125,7 @@ func (s *TesterSuite) TestSendRecvAll(c *C) {
 
 func (s *TesterSuite) TestRecvOtherAccount(c *C) {
 	tester := mup.NewPluginTester("echoA")
-	tester.SetConfig(bson.M{"prefix": "[prefix] "})
+	tester.SetConfig(mup.Map{"prefix": "[prefix] "})
 	tester.Start()
 	tester.Plugger().Send(&mup.Message{Account: "other", Channel: "#chan", Text: "text"})
 	tester.Stop()
@@ -135,10 +134,10 @@ func (s *TesterSuite) TestRecvOtherAccount(c *C) {
 
 func (s *TesterSuite) TestHandleRecvIncoming(c *C) {
 	tester := mup.NewPluginTester("echoA")
-	tester.SetTargets([]bson.M{
-		{"account": "test"},
-		{"account": "one", "channel": "#one"},
-		{"account": "two", "channel": "#two"},
+	tester.SetTargets([]mup.Target{
+		{Account: "test"},
+		{Account: "one", Channel: "#one"},
+		{Account: "two", Channel: "#two"},
 	})
 	tester.Start()
 	p := tester.Plugger()

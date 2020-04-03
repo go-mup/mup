@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
 )
@@ -28,7 +27,7 @@ type pluginTest struct {
 	send   string
 	recv   string
 	log    string
-	config interface{}
+	config map[string]interface{}
 }
 
 var pluginTests = []pluginTest{
@@ -50,7 +49,7 @@ var pluginTests = []pluginTest{
 	}, {
 		send:   "echoAcmd repeat",
 		recv:   "PRIVMSG nick :[cmd] [prefix] repeat",
-		config: bson.M{"prefix": "[prefix] "},
+		config: map[string]interface{}{"prefix": "[prefix] "},
 	}, {
 		send: "[#chan] mup: echoAcmd repeat",
 		recv: "PRIVMSG #chan :nick: [cmd] repeat",
@@ -66,7 +65,7 @@ var pluginTests = []pluginTest{
 	}, {
 		send:   "echoAmsg repeat",
 		recv:   "PRIVMSG nick :[msg] [prefix] repeat",
-		config: bson.M{"prefix": "[prefix] "},
+		config: map[string]interface{}{"prefix": "[prefix] "},
 	}, {
 		send: "[#chan] mup: echoAmsg repeat",
 		recv: "PRIVMSG #chan :nick: [msg] repeat",
@@ -86,7 +85,7 @@ var pluginTests = []pluginTest{
 	{
 		send:   "echoAcmd repeat",
 		recv:   "PRIVMSG nick :[cmd:echoAcmd] repeat",
-		config: bson.M{"showcmdname": true},
+		config: map[string]interface{}{"showcmdname": true},
 	},
 }
 
@@ -141,7 +140,10 @@ type testPlugin struct {
 
 func pluginStart(plugger *mup.Plugger) mup.Stopper {
 	p := &testPlugin{plugger: plugger}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		panic(err)
+	}
 	return p
 }
 

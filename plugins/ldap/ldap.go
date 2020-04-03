@@ -57,7 +57,10 @@ func start(plugger *mup.Plugger) mup.Stopper {
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
 	}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	p.tomb.Go(p.loop)
 	return p
 }

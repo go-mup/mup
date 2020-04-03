@@ -100,7 +100,10 @@ func start(plugger *mup.Plugger) mup.Stopper {
 		commands: make(chan *mup.Command, 5),
 		smses:    make(chan *smsMessage),
 	}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}

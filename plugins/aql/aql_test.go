@@ -4,19 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
 	"testing"
-
-	. "gopkg.in/check.v1"
+	"time"
 
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	_ "gopkg.in/mup.v0/plugins/aql"
 
-	"gopkg.in/mgo.v2/bson"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -29,8 +27,8 @@ type smsTest struct {
 	send         []string
 	recv         []string
 	fail         bool
-	config       bson.M
-	targets      []bson.M
+	config       mup.Map
+	targets      []mup.Target
 	messages     []aqlMessage
 	endpointForm url.Values
 	retrieveForm url.Values
@@ -40,7 +38,7 @@ type smsTest struct {
 var smsTests = []smsTest{{
 	send:   []string{"sms noldap Hey there"},
 	recv:   []string{`PRIVMSG nick :Plugin configuration error: LDAP connection "unknown" not found.`},
-	config: bson.M{"ldap": "unknown"},
+	config: mup.Map{"ldap": "unknown"},
 }, {
 	send: []string{"sms notfound Hey there"},
 	recv: []string{"PRIVMSG nick :Cannot find anyone with that IRC nick in the directory. :-("},
@@ -53,7 +51,7 @@ var smsTests = []smsTest{{
 }, {
 	send: []string{"[#chan] mup: sms tesla Hey there"},
 	recv: []string{"PRIVMSG #chan :nick: SMS is on the way!"},
-	config: bson.M{
+	config: mup.Map{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
 	},
@@ -67,7 +65,7 @@ var smsTests = []smsTest{{
 }, {
 	send: []string{"sms tésla Hey there"},
 	recv: []string{"PRIVMSG nick :SMS is on the way!"},
-	config: bson.M{
+	config: mup.Map{
 		"aqluser": "myuser",
 		"aqlpass": "mypass",
 	},
@@ -87,14 +85,14 @@ var smsTests = []smsTest{{
 		"[@three] PRIVMSG #chan :[SMS] <tesla> B",
 		"[@three] PRIVMSG #chan :Answer with: !sms tesla <your message>",
 	},
-	config: bson.M{
+	config: mup.Map{
 		"aqlkeyword": "yo",
 		"polldelay":  "100ms",
 	},
-	targets: []bson.M{
-		{"account": "one", "nick": "nick"},
-		{"account": "two", "channel": "#chan"},
-		{"account": "three"},
+	targets: []mup.Target{
+		{Account: "one", Nick: "nick"},
+		{Account: "two", Channel: "#chan"},
+		{Account: "three"},
 	},
 	messages: []aqlMessage{
 		{Key: 12, Message: "nick A", Sender: "+99"},
@@ -127,7 +125,7 @@ func (s *S) TestSMS(c *C) {
 		server.Start()
 
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		if test.config["ldap"] == nil {
 			test.config["ldap"] = "test"

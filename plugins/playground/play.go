@@ -66,7 +66,10 @@ func start(plugger *mup.Plugger) mup.Stopper {
 		plugger:  plugger,
 		commands: make(chan *mup.Command, 5),
 	}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	if p.config.Endpoint == "" {
 		p.config.Endpoint = defaultEndpoint
 	}
@@ -118,8 +121,8 @@ type formatResult struct {
 func (p *playPlugin) handle(cmd *mup.Command) {
 	var args struct {
 		Code   string
-		Print  bool "p"
-		Quoted bool "q"
+		Print  bool `json:"p"`
+		Quoted bool `json:"q"`
 	}
 	cmd.Args(&args)
 

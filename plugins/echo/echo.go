@@ -34,7 +34,10 @@ type echoPlugin struct {
 
 func start(plugger *mup.Plugger) mup.Stopper {
 	p := &echoPlugin{plugger: plugger}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	return p
 }
 

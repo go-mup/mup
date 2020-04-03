@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -29,10 +29,10 @@ func (s *PBotSuite) TearDownSuite(c *C) {
 
 func (s *PBotSuite) TestPublishBot(c *C) {
 	tester := mup.NewPluginTester("publishbot")
-	tester.SetConfig(bson.M{"addr": ":10423"})
-	tester.SetTargets([]bson.M{
-		{"account": "one", "channel": "#one", "config": bson.M{"accept": []string{"pass:#one"}}},
-		{"account": "two", "channel": "#two", "config": bson.M{"accept": []string{"pass:#one", "pass:#two"}}},
+	tester.SetConfig(mup.Map{"addr": ":10423"})
+	tester.SetTargets([]mup.Target{
+		{Account: "one", Channel: "#one", Config: `{"accept": ["pass:#one"]}`},
+		{Account: "two", Channel: "#two", Config: `{"accept": ["pass:#one", "pass:#two"]}`},
 	})
 	tester.Start()
 	time.Sleep(500 * time.Millisecond)

@@ -2,11 +2,11 @@ package mup
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 	"strings"
@@ -136,8 +136,11 @@ func (t *PluginTester) AddSchema(pluginName string) {
 	tx.Commit()
 }
 
+// Map is a generic map alias to improve code writing and reading.
+type Map = map[string]interface{}
+
 // SetConfig changes the configuration of the plugin being tested.
-func (t *PluginTester) SetConfig(value interface{}) {
+func (t *PluginTester) SetConfig(value map[string]interface{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
@@ -155,20 +158,13 @@ func (t *PluginTester) SetConfig(value interface{}) {
 // from delivering messages to the plugin, though, as it doesn't
 // make sense to feed the plugin with test messages that it cannot
 // observe.
-func (t *PluginTester) SetTargets(value interface{}) {
+func (t *PluginTester) SetTargets(targets []Target) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
 		panic("PluginTester.SetTargets called after Start")
 	}
-	// FIXME Needs a better API than this.
-	raw := marshalRaw(value)
-	var tinfos []targetInfo
-	err := raw.Unmarshal(&tinfos)
-	if err != nil {
-		panic("PluginTester.SetTargets cannot handle the targets format: " + err.Error())
-	}
-	t.state.plugger.setTargets(tinfos)
+	t.state.plugger.setTargets(targets)
 }
 
 // SetLDAP makes the provided LDAP connection available to the plugin.
@@ -178,20 +174,15 @@ func (t *PluginTester) SetLDAP(name string, conn ldap.Conn) {
 	t.mu.Unlock()
 }
 
-func marshalRaw(value interface{}) bson.Raw {
+func marshalRaw(value interface{}) json.RawMessage {
 	if value == nil {
 		return emptyDoc
 	}
-	data, err := bson.Marshal(bson.D{{"value", value}})
+	data, err := json.Marshal(value)
 	if err != nil {
 		panic("cannot marshal provided value: " + err.Error())
 	}
-	var raw struct{ Value bson.Raw }
-	err = bson.Unmarshal(data, &raw)
-	if err != nil {
-		panic("cannot unmarshal provided value: " + err.Error())
-	}
-	return raw.Value
+	return json.RawMessage(data)
 }
 
 // Stop stops the tester and the plugin being tested.

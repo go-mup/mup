@@ -2,11 +2,11 @@ package mup
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0/ldap"
 )
 
@@ -16,53 +16,72 @@ type Plugger struct {
 	send    func(msg *Message) error
 	handle  func(msg *Message) error
 	ldap    func(name string) (ldap.Conn, error)
-	config  bson.Raw
-	targets []PluginTarget
+	config  json.RawMessage
+	targets []Target
 	db      *sql.DB
 }
 
-// PluginTarget defines an Account, Channel, and/or Nick that the
-// plugin will observe messages from, and may choose to broadcast
+// Target defines an Account, Channel, and/or Nick that the given
+// Plugin will observe messages from, and may choose to broadcast
 // messages to. Empty fields are ignored when deciding whether a
 // message matches the plugin target.
 //
-// A PluginTarget may also define per-target configuration options.
-type PluginTarget struct {
-	address Address
-	config  bson.Raw
+// A Target may also include configuration options that when
+// understood by the plugin will only be considered for this
+// particular target.
+type Target struct {
+	Plugin  string
+	Account string
+	Channel string
+	Nick    string
+	Config  string // JSON document
+}
+
+const targetColumns = "plugin,account,channel,nick,config"
+const targetPlacers = "?,?,?,?,?"
+
+func (t *Target) refs() []interface{} {
+	return []interface{}{&t.Plugin, &t.Account, &t.Channel, &t.Nick, &t.Config}
 }
 
 // Address returns the address for the plugin target.
-func (t *PluginTarget) Address() Address {
-	return t.address
+func (t Target) Address() Address {
+	return Address{Account: t.Account, Channel: t.Channel, Nick: t.Nick}
 }
 
-// Config unmarshals into result the plugin target configuration using the bson package.
-func (t *PluginTarget) Config(result interface{}) {
-	t.config.Unmarshal(result)
+// UnmarshalConfig unmarshals into result the plugin target configuration using the json package.
+func (t Target) UnmarshalConfig(result interface{}) error {
+	err := json.Unmarshal([]byte(t.Config), result)
+	if err != nil {
+		return fmt.Errorf("cannot parse config for %s: %v", t, err)
+	}
+	return nil
 }
 
 // CanSend returns whether the plugin target may have messages sent to it.
 // For that, it must have an Account set, and at least one of Channel and Nick.
-func (t *PluginTarget) CanSend() bool {
-	return t.address.Account != "" && (t.address.Nick != "" || t.address.Channel != "")
+func (t Target) CanSend() bool {
+	return t.Account != "" && (t.Nick != "" || t.Channel != "")
 }
 
 // String returns a string representation of the plugin target suitable for log messages.
-func (t *PluginTarget) String() string {
-	if t.address.Nick != "" {
-		if t.address.Channel == "" {
-			return fmt.Sprintf("account %q, nick %q", t.address.Account, t.address.Nick)
+func (t Target) String() string {
+	// The plugin name is not included in the result because it is the prefix
+	// of every message logged by a plugin via the plugger, which is the
+	// fundamental way in which targets are handled.
+	if t.Nick != "" {
+		if t.Channel == "" {
+			return fmt.Sprintf("account %q, nick %q", t.Account, t.Nick)
 		} else {
-			return fmt.Sprintf("account %q, channel %q, nick %q", t.address.Account, t.address.Channel, t.address.Nick)
+			return fmt.Sprintf("account %q, channel %q, nick %q", t.Account, t.Channel, t.Nick)
 		}
-	} else if t.address.Channel != "" {
-		return fmt.Sprintf("account %q, channel %q", t.address.Account, t.address.Channel)
+	} else if t.Channel != "" {
+		return fmt.Sprintf("account %q, channel %q", t.Account, t.Channel)
 	}
-	return fmt.Sprintf("account %q", t.address.Account)
+	return fmt.Sprintf("account %q", t.Account)
 }
 
-var emptyDoc = bson.Raw{3, []byte("\x05\x00\x00\x00\x00")}
+var emptyDoc = json.RawMessage("{}")
 
 func newPlugger(name string, send, handle func(msg *Message) error, ldap func(name string) (ldap.Conn, error)) *Plugger {
 	return &Plugger{
@@ -70,6 +89,7 @@ func newPlugger(name string, send, handle func(msg *Message) error, ldap func(na
 		send:   send,
 		handle: handle,
 		ldap:   ldap,
+		config: emptyDoc,
 	}
 }
 
@@ -77,19 +97,24 @@ func (p *Plugger) setDatabase(db *sql.DB) {
 	p.db = db
 }
 
-func (p *Plugger) setConfig(config bson.Raw) {
-	if config.Kind == 0 {
+func (p *Plugger) setConfig(config json.RawMessage) {
+	if len(config) == 0 || string(config) == "null" {
 		p.config = emptyDoc
 	} else {
 		p.config = config
 	}
 }
 
-func (p *Plugger) setTargets(targets []targetInfo) {
-	p.targets = make([]PluginTarget, len(targets))
-	for i, t := range targets {
-		p.targets[i] = PluginTarget{Address{Account: t.Account, Channel: t.Channel, Nick: t.Nick}, t.Config}
+func (p *Plugger) setTargets(targets []Target) {
+	for i := range targets {
+		t := &targets[i]
+		if t.Plugin == "" {
+			t.Plugin = p.name
+		} else if t.Plugin != p.name {
+			panic(fmt.Sprintf("Plugger for %q got Target for wrong plugin %q: %s", p.name, t.Plugin, t))
+		}
 	}
+	p.targets = targets
 }
 
 // Name returns the plugin name including the label, if any ("name/label").
@@ -107,16 +132,18 @@ func (p *Plugger) Debugf(format string, args ...interface{}) {
 	debugf("["+p.name+"] "+format, args...)
 }
 
-// Config unmarshals into result the plugin configuration using the bson package.
-func (p *Plugger) Config(result interface{}) {
-	p.config.Unmarshal(result)
+// UnmarshalConfig unmarshals into result the plugin configuration using the json package.
+func (p *Plugger) UnmarshalConfig(result interface{}) error {
+	// The plugin name is not included in the message because it is the prefix
+	// of every message logged by a plugin via the plugger.
+	err := json.Unmarshal(p.config, result)
+	if err != nil {
+		return fmt.Errorf("cannot parse plugin config: %v", err)
+	}
+	return err
 }
 
-// FIXME Explain what the schema namespace is below.
-
 // DB returns a reference to the underlying database.
-//
-// Plugins using the database must respect the plugin schema namespace.
 func (p *Plugger) DB() *sql.DB {
 	return p.db
 }
@@ -126,9 +153,9 @@ func (p *Plugger) Handle(msg *Message) error {
 	copy := *msg
 	for _, target := range p.Targets() {
 		if msg.Account == "" {
-			copy.Account = target.address.Account
+			copy.Account = target.Account
 		}
-		if target.address.Account == "" || !target.address.Contains(copy.Address()) {
+		if target.Account == "" || !target.Address().Contains(copy.Address()) {
 			continue
 		}
 		if err := p.handle(&copy); err != nil {
@@ -140,21 +167,21 @@ func (p *Plugger) Handle(msg *Message) error {
 }
 
 // Targets returns all targets enabled for the plugin.
-func (p *Plugger) Targets() []PluginTarget {
+func (p *Plugger) Targets() []Target {
 	return p.targets
 }
 
 // Target returns the plugin target that matches the provided message.
 // All messages provided to the plugin for handling are guaranteed
 // to have a matching target.
-func (p *Plugger) Target(msg *Message) *PluginTarget {
+func (p *Plugger) Target(msg *Message) Target {
 	addr := msg.Address()
 	for i := range p.targets {
-		if p.targets[i].address.Contains(addr) {
-			return &p.targets[i]
+		if p.targets[i].Address().Contains(addr) {
+			return p.targets[i]
 		}
 	}
-	return nil
+	return Target{}
 }
 
 // LDAP returns the LDAP connection with the given name from the pool.
@@ -229,10 +256,10 @@ func (p *Plugger) Broadcast(msg *Message) error {
 			continue
 		}
 		copy := *msg
-		copy.Account = t.address.Account
-		copy.Channel = t.address.Channel
-		copy.Nick = t.address.Nick
-		copy.Text = replyText(t.address, copy.Text)
+		copy.Account = t.Account
+		copy.Channel = t.Channel
+		copy.Nick = t.Nick
+		copy.Text = replyText(t.Address(), copy.Text)
 		err := p.Send(&copy)
 		if err != nil && first == nil {
 			first = err

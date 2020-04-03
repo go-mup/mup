@@ -7,7 +7,6 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 )
@@ -47,7 +46,7 @@ func (s *PluggerSuite) TearDownTest(c *C) {
 	s.dbdir = c.MkDir()
 }
 
-func (s *PluggerSuite) plugger(db *sql.DB, config, targets interface{}) *mup.Plugger {
+func (s *PluggerSuite) plugger(db *sql.DB, config map[string]interface{}, targets []mup.Target) *mup.Plugger {
 	s.sent = nil
 	s.msgs = nil
 	s.ldap = make(map[string]ldap.Conn)
@@ -96,10 +95,10 @@ func (s *PluggerSuite) TestDB(c *C) {
 }
 
 func (s *PluggerSuite) TestHandle(c *C) {
-	p := s.plugger(nil, nil, []bson.M{
-		{"account": "one", "channel": "#chan"},
-		{"account": "two", "nick": "nick"},
-		{"account": ""},
+	p := s.plugger(nil, nil, []mup.Target{
+		{Account: "one", Channel: "#chan"},
+		{Account: "two", Nick: "nick"},
+		{Account: ""},
 	})
 
 	err := p.Handle(mup.ParseIncoming("one", "mup", "!", ":nick!~user@host PRIVMSG #other :text"))
@@ -194,21 +193,22 @@ func (s *PluggerSuite) TestChannelfChannel(c *C) {
 	c.Assert(s.sent, DeepEquals, []string{"[@origin] PRIVMSG #channel :<reply>"})
 }
 
-func (s *PluggerSuite) TestConfig(c *C) {
-	p := s.plugger(nil, bson.M{"key": "value"}, nil)
+func (s *PluggerSuite) TestUnmarshalConfig(c *C) {
+	p := s.plugger(nil, mup.Map{"key": "value"}, nil)
 	var config struct{ Key string }
-	p.Config(&config)
+	err := p.UnmarshalConfig(&config)
+	c.Assert(err, IsNil)
 	c.Assert(config.Key, Equals, "value")
 }
 
 func (s *PluggerSuite) TestTargets(c *C) {
-	p := s.plugger(nil, nil, []bson.M{
-		{"account": "one", "channel": "#chan"},
-		{"account": "two", "nick": "nick"},
-		{"account": "three", "channel": "#other", "nick": "nick"},
-		{"account": "four"},
-		{"channel": "#other"},
-		{"account": ""},
+	p := s.plugger(nil, nil, []mup.Target{
+		{Account: "one", Channel: "#chan"},
+		{Account: "two", Nick: "nick"},
+		{Account: "three", Channel: "#other", Nick: "nick"},
+		{Account: "four"},
+		{Channel: "#other"},
+		{Account: ""},
 	})
 	targets := p.Targets()
 	c.Assert(targets[0].Address(), Equals, mup.Address{Account: "one", Channel: "#chan"})
@@ -219,15 +219,15 @@ func (s *PluggerSuite) TestTargets(c *C) {
 	c.Assert(targets[5].Address(), Equals, mup.Address{})
 	c.Assert(targets, HasLen, 6)
 
-	c.Assert(p.Target(&mup.Message{Account: "one", Channel: "#chan"}), Equals, &targets[0])
-	c.Assert(p.Target(&mup.Message{Account: "two", Nick: "nick"}), Equals, &targets[1])
-	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other", Nick: "nick"}), Equals, &targets[2])
-	c.Assert(p.Target(&mup.Message{Account: "four", Nick: "nick"}), Equals, &targets[3])
-	c.Assert(p.Target(&mup.Message{Account: "four", Channel: "#chan"}), Equals, &targets[3])
-	c.Assert(p.Target(&mup.Message{Account: "one", Nick: "nick"}), Equals, &targets[5])
-	c.Assert(p.Target(&mup.Message{Account: "two", Channel: "#chan"}), Equals, &targets[5])
-	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other"}), Equals, &targets[4])
-	c.Assert(p.Target(&mup.Message{Account: "three", Nick: "nick"}), Equals, &targets[5])
+	c.Assert(p.Target(&mup.Message{Account: "one", Channel: "#chan"}), Equals, targets[0])
+	c.Assert(p.Target(&mup.Message{Account: "two", Nick: "nick"}), Equals, targets[1])
+	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other", Nick: "nick"}), Equals, targets[2])
+	c.Assert(p.Target(&mup.Message{Account: "four", Nick: "nick"}), Equals, targets[3])
+	c.Assert(p.Target(&mup.Message{Account: "four", Channel: "#chan"}), Equals, targets[3])
+	c.Assert(p.Target(&mup.Message{Account: "one", Nick: "nick"}), Equals, targets[5])
+	c.Assert(p.Target(&mup.Message{Account: "two", Channel: "#chan"}), Equals, targets[5])
+	c.Assert(p.Target(&mup.Message{Account: "three", Channel: "#other"}), Equals, targets[4])
+	c.Assert(p.Target(&mup.Message{Account: "three", Nick: "nick"}), Equals, targets[5])
 
 	c.Assert(targets[0].CanSend(), Equals, true)
 	c.Assert(targets[1].CanSend(), Equals, true)
@@ -238,11 +238,11 @@ func (s *PluggerSuite) TestTargets(c *C) {
 }
 
 func (s *PluggerSuite) TestBroadcastf(c *C) {
-	p := s.plugger(nil, nil, []bson.M{
-		{"account": "one", "channel": "#chan"},
-		{"account": "two", "nick": "nick"},
-		{"account": "two", "channel": "#chan", "nick": "nick"},
-		{"account": "two", "channel": "@user:123", "nick": "nick"},
+	p := s.plugger(nil, nil, []mup.Target{
+		{Account: "one", Channel: "#chan"},
+		{Account: "two", Nick: "nick"},
+		{Account: "two", Channel: "#chan", Nick: "nick"},
+		{Account: "two", Channel: "@user:123", Nick: "nick"},
 	})
 	p.Broadcastf("<%s>", "text")
 	c.Assert(s.sent, DeepEquals, []string{
@@ -254,7 +254,10 @@ func (s *PluggerSuite) TestBroadcastf(c *C) {
 }
 
 func (s *PluggerSuite) TestBroadcast(c *C) {
-	p := s.plugger(nil, nil, []bson.M{{"account": "one", "channel": "#chan"}, {"account": "two", "nick": "nick"}})
+	p := s.plugger(nil, nil, []mup.Target{
+		{Account: "one", Channel: "#chan"},
+		{Account: "two", Nick: "nick"},
+	})
 	p.Broadcast(&mup.Message{Command: "PRIVMSG", Text: "<text>"})
 	c.Assert(s.sent, DeepEquals, []string{"[@one] PRIVMSG #chan :<text>", "[@two] PRIVMSG nick :<text>"})
 	s.sent = nil

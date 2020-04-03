@@ -47,7 +47,10 @@ func start(plugger *mup.Plugger) mup.Stopper {
 		plugger: plugger,
 		rand:    rand.New(rand.NewSource(42)),
 	}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	return p
 }
 

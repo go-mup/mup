@@ -2,19 +2,19 @@ package github_test
 
 import (
 	"fmt"
-	"testing"
-
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mup.v0"
-	_ "gopkg.in/mup.v0/plugins/launchpad"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
+
+	"gopkg.in/mup.v0"
+	_ "gopkg.in/mup.v0/plugins/launchpad"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -27,12 +27,12 @@ type ghTest struct {
 	plugin   string
 	send     []string
 	recv     []string
-	config   bson.M
-	targets  []bson.M
+	config   mup.Map
+	targets  []mup.Target
 	bugsText [][]int
 	bugsForm url.Values
 	status   int
-	headers  map[string]bson.M
+	headers  map[string]mup.Map
 }
 
 var lpTests = []ghTest{
@@ -69,7 +69,7 @@ var lpTests = []ghTest{
 	}, {
 		// Project configured to org.
 		plugin: "ghissuedata",
-		config: bson.M{"project": "org"},
+		config: mup.Map{"project": "org"},
 		send:   []string{"issue repo#1", "issue other/repo#2"},
 		recv: []string{
 			"PRIVMSG nick :Issue repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
@@ -78,7 +78,7 @@ var lpTests = []ghTest{
 	}, {
 		// Project configured to repo.
 		plugin: "ghissuedata",
-		config: bson.M{"project": "org/repo"},
+		config: mup.Map{"project": "org/repo"},
 		send:   []string{"issue #1", "issue other#2", "issue other/repo#3"},
 		recv: []string{
 			"PRIVMSG nick :Issue #1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
@@ -88,46 +88,46 @@ var lpTests = []ghTest{
 	}, {
 		// Overhearing is disabled by default.
 		plugin:  "ghissuedata",
-		targets: []bson.M{{"account": ""}},
+		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] #111"},
 		recv:    []string(nil),
 	}, {
 		// With overhearing enabled third-party messages are observed.
 		plugin:  "ghissuedata",
-		config:  bson.M{"overhear": true},
-		targets: []bson.M{{"account": ""}},
+		config:  mup.Map{"overhear": true},
+		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] org/repo#1"},
 		recv:    []string{"PRIVMSG #chan :Issue org/repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>"},
 	}, {
 		// When overhearing, do not report errors.
 		plugin:  "ghissuedata",
-		config:  bson.M{"overhear": true},
-		targets: []bson.M{{"account": ""}},
+		config:  mup.Map{"overhear": true},
+		targets: []mup.Target{{Account: ""}},
 		status:  500,
 		send:    []string{"[#chan] org/repo#123"},
 		recv:    []string(nil),
 	}, {
 		// Overhearing may be enabled on the target configuration.
 		plugin: "ghissuedata",
-		targets: []bson.M{
-			{"account": "", "config": bson.M{"overhear": true}},
+		targets: []mup.Target{
+			{Account: "", Config: `{"overhear": true}`},
 		},
 		send: []string{"[#chan] org/repo#1"},
 		recv: []string{"PRIVMSG #chan :Issue org/repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>"},
 	}, {
 		// First matching target wins.
 		plugin: "ghissuedata",
-		targets: []bson.M{
-			{"channel": "#chan", "config": bson.M{"overhear": false}},
-			{"account": "", "config": bson.M{"overhear": true}},
+		targets: []mup.Target{
+			{Channel: "#chan", Config: `{"overhear": false}`},
+			{Account: "", Config: `{"overhear": true}`},
 		},
 		send: []string{"[#chan] org/repo#1"},
 		recv: []string(nil),
 	}, {
 		// Overhearing with project configured to org.
 		plugin:  "ghissuedata",
-		config:  bson.M{"overhear": true, "project": "org"},
-		targets: []bson.M{{"account": ""}},
+		config:  mup.Map{"overhear": true, "project": "org"},
+		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] repo#1", "[#chan] other/repo#2"},
 		recv: []string{
 			"PRIVMSG #chan :Issue repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
@@ -136,8 +136,8 @@ var lpTests = []ghTest{
 	}, {
 		// Overhearing with project configured to repo.
 		plugin:  "ghissuedata",
-		config:  bson.M{"overhear": true, "project": "org/repo"},
-		targets: []bson.M{{"account": ""}},
+		config:  mup.Map{"overhear": true, "project": "org/repo"},
+		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] issue #1", "[#chan] issue other#2", "[#chan] issue other/repo#3"},
 		recv: []string{
 			"PRIVMSG #chan :Issue #1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
@@ -166,7 +166,7 @@ func (s *S) TestGitHub(c *C) {
 		}
 		server.Start()
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		test.config["endpoint"] = server.URL()
 		tester := mup.NewPluginTester(test.plugin)

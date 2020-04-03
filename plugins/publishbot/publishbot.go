@@ -30,7 +30,7 @@ type pbotPlugin struct {
 	mu       sync.Mutex
 	tomb     tomb.Tomb
 	plugger  *mup.Plugger
-	accept   map[string][]*mup.PluginTarget
+	accept   map[string][]mup.Target
 	listener net.Listener
 	config   struct {
 		Addr string
@@ -42,9 +42,12 @@ const defaultAddr = ":10234"
 func start(plugger *mup.Plugger) mup.Stopper {
 	p := &pbotPlugin{
 		plugger: plugger,
-		accept:  make(map[string][]*mup.PluginTarget),
+		accept:  make(map[string][]mup.Target),
 	}
-	p.plugger.Config(&p.config)
+	err := p.plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	if p.config.Addr == "" {
 		p.config.Addr = defaultAddr
 	}
@@ -53,8 +56,12 @@ func start(plugger *mup.Plugger) mup.Stopper {
 		Accept []string
 	}
 	for i := range targets {
-		t := &targets[i]
-		t.Config(&config)
+		t := targets[i]
+		err := t.UnmarshalConfig(&config)
+		if err != nil {
+			plugger.Logf("%v", err)
+			continue
+		}
 		for _, prefix := range config.Accept {
 			p.accept[prefix] = append(p.accept[prefix], t)
 		}

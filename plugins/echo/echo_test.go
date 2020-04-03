@@ -3,10 +3,10 @@ package echo_test
 import (
 	"testing"
 
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	_ "gopkg.in/mup.v0/plugins/echo"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -18,7 +18,7 @@ type EchoSuite struct{}
 type echoTest struct {
 	send   string
 	recv   string
-	config interface{}
+	config mup.Map
 }
 
 var echoTests = []echoTest{{
@@ -30,7 +30,7 @@ var echoTests = []echoTest{{
 }, {
 	send:   "echo repeat",
 	recv:   "PRIVMSG nick :[prefix]repeat",
-	config: bson.M{"prefix": "[prefix]"},
+	config: mup.Map{"prefix": "[prefix]"},
 }, {
 	send: "[#chan] mup: echo repeat",
 	recv: "PRIVMSG #chan :nick: repeat",

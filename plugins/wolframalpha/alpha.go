@@ -71,7 +71,10 @@ func start(plugger *mup.Plugger) mup.Stopper {
 		newLoc:   make(map[string]locEntry),
 		oldLoc:   make(map[string]locEntry),
 	}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	if p.config.Endpoint == "" {
 		p.config.Endpoint = defaultEndpoint
 	}

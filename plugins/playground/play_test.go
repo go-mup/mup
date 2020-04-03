@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	_ "gopkg.in/mup.v0/plugins/playground"
-	"strings"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -22,7 +22,7 @@ var _ = Suite(&S{})
 type S struct{}
 
 type runTest struct {
-	config      bson.M
+	config      mup.Map
 	send        string
 	recv        string
 	output      string
@@ -147,7 +147,7 @@ func (s *S) TestRun(c *C) {
 			if output == "" {
 				output = "result"
 			}
-			m := bson.M{"Events": []bson.M{{"Message": output}}}
+			m := mup.Map{"Events": []mup.Map{{"Message": output}}}
 			data, err := json.Marshal(m)
 			if err != nil {
 				c.Fatal(err)
@@ -156,7 +156,7 @@ func (s *S) TestRun(c *C) {
 		}
 		server.Start()
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		test.config["endpoint"] = server.URL()
 

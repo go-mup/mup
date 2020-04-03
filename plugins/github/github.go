@@ -91,7 +91,7 @@ type ghPlugin struct {
 		PollDelay        mup.DurationString
 	}
 
-	overhear map[*mup.PluginTarget]bool
+	overhear map[mup.Address]bool
 
 	justShownList [30]justShownIssue
 	justShownNext int
@@ -133,10 +133,13 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 		mode:     mode,
 		plugger:  plugger,
 		messages: make(chan *ghMessage, 10),
-		overhear: make(map[*mup.PluginTarget]bool),
+		overhear: make(map[mup.Address]bool),
 		rand:     rand.New(rand.NewSource(time.Now().Unix())),
 	}
-	plugger.Config(&p.config)
+	err := plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	if p.config.PollDelay.Duration == 0 {
 		p.config.PollDelay.Duration = defaultPollDelay
 	}
@@ -167,9 +170,12 @@ func startPlugin(mode pluginMode, plugger *mup.Plugger) mup.Stopper {
 		for i := range targets {
 			var tconfig struct{ Overhear bool }
 			target := &targets[i]
-			target.Config(&tconfig)
+			err := target.UnmarshalConfig(&tconfig)
+			if err != nil {
+				plugger.Logf("%v", err)
+			}
 			if p.config.Overhear || tconfig.Overhear {
-				p.overhear[target] = true
+				p.overhear[target.Address()] = true
 			}
 		}
 	}
@@ -198,7 +204,7 @@ type ghMessage struct {
 }
 
 func (p *ghPlugin) HandleMessage(msg *mup.Message) {
-	if p.mode != issueData || msg.BotText != "" || !p.overhear[p.plugger.Target(msg)] {
+	if p.mode != issueData || msg.BotText != "" || !p.overhear[p.plugger.Target(msg).Address()] {
 		return
 	}
 	issues := p.parseIssueChat(msg.Text)

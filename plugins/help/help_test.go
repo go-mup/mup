@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"testing"
 
-	. "gopkg.in/check.v1"
-	//"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/schema"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -23,8 +23,6 @@ func (s *HelpSuite) SetUpSuite(c *C) {
 	s.dbdir = c.MkDir()
 }
 
-type M map[string]interface{}
-
 type helpTest struct {
 	send    string
 	recv    string
@@ -32,7 +30,7 @@ type helpTest struct {
 	recvAll []string
 	cmds    schema.Commands
 	targets []mup.Address
-	config  M
+	config  mup.Map
 }
 
 var helpTests = []helpTest{{
@@ -107,7 +105,7 @@ var helpTests = []helpTest{{
 }, {
 	send:   "foo",
 	recv:   `PRIVMSG nick :Command "foo" not found.`,
-	config: M{"boring": true},
+	config: mup.Map{"boring": true},
 }, {
 	send:    "cmdname",
 	recv:    `PRIVMSG nick :Plugin "test" is not enabled here.`,
@@ -120,11 +118,11 @@ var helpTests = []helpTest{{
 }, {
 	send:   "[#chan] mup: foo",
 	recv:   `PRIVMSG #chan :nick: Command "foo" not found.`,
-	config: M{"boring": true},
+	config: mup.Map{"boring": true},
 }, {
 	send:    "[#chan] !foo",
 	recvAll: []string{},
-	config:  M{"boring": true},
+	config:  mup.Map{"boring": true},
 }}
 
 func (s *HelpSuite) TestHelp(c *C) {

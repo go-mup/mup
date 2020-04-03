@@ -7,7 +7,6 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	//"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/plugins/admin"
 )

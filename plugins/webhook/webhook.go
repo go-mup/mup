@@ -54,7 +54,10 @@ func start(plugger *mup.Plugger) mup.Stopper {
 	p := &webhookPlugin{
 		plugger: plugger,
 	}
-	p.plugger.Config(&p.config)
+	err := p.plugger.UnmarshalConfig(&p.config)
+	if err != nil {
+		plugger.Logf("%v", err)
+	}
 	if p.config.Nick == "" {
 		p.config.Nick = "mup"
 	}

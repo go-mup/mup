@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2/bson"
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	_ "gopkg.in/mup.v0/plugins/ldap"
+
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -22,7 +22,7 @@ type LDAPSuite struct{}
 var ldapTests = []struct {
 	send   []string
 	recv   []string
-	config bson.M
+	config mup.Map
 }{
 	{
 		send: []string{"poke notfound"},
@@ -30,7 +30,7 @@ var ldapTests = []struct {
 	}, {
 		send:   []string{"poke noldap"},
 		recv:   []string{`PRIVMSG nick :Plugin configuration error: LDAP connection "unknown" not found.`},
-		config: bson.M{"ldap": "unknown"},
+		config: mup.Map{"ldap": "unknown"},
 	}, {
 		send: []string{"poke tesla"},
 		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
@@ -129,7 +129,7 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 		c.Logf("Starting test %d with messages: %v", i, test.send)
 		tester := mup.NewPluginTester("ldap")
 		if test.config == nil {
-			test.config = bson.M{}
+			test.config = mup.Map{}
 		}
 		if test.config["ldap"] == nil {
 			test.config["ldap"] = "test"
@@ -145,7 +145,7 @@ func (s *LDAPSuite) TestLDAP(c *C) {
 
 func (s *LDAPSuite) TestTimeFormat(c *C) {
 	tester := mup.NewPluginTester("ldap")
-	tester.SetConfig(bson.M{"ldap": "test"})
+	tester.SetConfig(mup.Map{"ldap": "test"})
 	tester.SetLDAP("test", ldapConn{})
 	tester.Start()
 	tester.Sendf("poke jnash")

@@ -251,7 +251,6 @@ func (c *ircClient) forward() error {
 
 	quitting := false
 	for {
-		logf("Forwarding channels: inRecv=%v outRecv=%v inSend=%v outSend=%v inMsg=%v outMsg=%v", inRecv, outRecv, inSend, outSend, inMsg, outMsg)
 		select {
 		case inMsg = <-inRecv:
 			skip, err := c.handleMessage(inMsg)
