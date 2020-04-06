@@ -3,13 +3,14 @@ package mup
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"sync"
+	"time"
 
 	"gopkg.in/mup.v0"
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
-	"time"
 )
 
 var Plugin = mup.PluginSpec{
@@ -130,13 +131,17 @@ func ldapLocalTime(v string) string {
 	return there.Format("15h04") + v
 }
 
+var phoneRegexp = regexp.MustCompile(`^\+?[0-9-]{2,}$`)
+
 func (p *ldapPlugin) handle(conn ldap.Conn, cmd *mup.Command) {
 	var args struct{ Query string }
 	cmd.Args(&args)
 	query := ldap.EscapeFilter(args.Query)
-	search := ldap.Search{
-		Filter: fmt.Sprintf("(|(mozillaNickname=%s)(cn=*%s*))", query, query),
-		Attrs:  ldapAttributes,
+	search := ldap.Search{Attrs: ldapAttributes}
+	if phoneRegexp.MatchString(args.Query) {
+		search.Filter = fmt.Sprintf("(|(telephoneNumber=*%s*)(mobile=*%s*)(homePhone=*%s*)(voidPhone=*%s*)(skypePhone=*%s*))", query, query, query, query, query)
+	} else {
+		search.Filter = fmt.Sprintf("(|(mozillaNickname=%s)(cn=*%s*))", query, query)
 	}
 	result, err := conn.Search(&search)
 	if err != nil {

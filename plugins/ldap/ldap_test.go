@@ -49,6 +49,9 @@ var ldapTests = []struct {
 	}, {
 		send: []string{"poke riémann"},
 		recv: []string{"PRIVMSG nick :riemann is Bernhard Riemann <riemann@example.com>"},
+	}, {
+		send: []string{"poke +11"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 	},
 }
 
@@ -101,6 +104,8 @@ var ldapResults = map[string][]ldap.Result{
 	"(|(mozillaNickname=e)(cn=*e*))":                       ldapEntries,
 	`(|(mozillaNickname=ri\c3\a9mann)(cn=*ri\c3\a9mann*))`: {ldapEntries[3]},
 	"(|(mozillaNickname=jnash)(cn=*jnash*))":               {johnNash},
+
+	"(|(telephoneNumber=*+11*)(mobile=*+11*)(homePhone=*+11*)(voidPhone=*+11*)(skypePhone=*+11*))": {ldapEntries[0]},
 }
 
 type ldapConn struct{}
