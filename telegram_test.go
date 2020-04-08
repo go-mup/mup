@@ -122,7 +122,7 @@ var incomingTests = []struct {
 		Text:    "Hello mup!",
 		BotText: "Hello mup!",
 		Bang:    "/",
-		AsNick:  "mupbot",
+		AsNick:  "joe",
 	},
 }, {
 	`{
@@ -144,7 +144,7 @@ var incomingTests = []struct {
 		Channel: "#Group_Chat:-78",
 		Text:    "Hello there!",
 		Bang:    "/",
-		AsNick:  "mupbot",
+		AsNick:  "joe",
 	},
 }}
 
@@ -358,7 +358,7 @@ func (s *tgServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 	case "getMe":
-		fmt.Fprintf(w, `{"ok": true, "result": {"username": "mupbot"}}`)
+		fmt.Fprintf(w, `{"ok": true, "result": {"username": "joebot"}}`)
 
 	default:
 		fmt.Fprintf(w, `{"ok": false, "error_code": 404, "description": "unexpected test request for %s method"}`, method)

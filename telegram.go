@@ -426,7 +426,7 @@ func (r *tgReader) updateNick() error {
 	if err = result.err(); err != nil {
 		return err
 	}
-	r.activeNick = result.Result.Username
+	r.activeNick = strings.TrimSuffix(result.Result.Username, "bot")
 	logf("[%s] Using retrieved Telegram bot nick: %s", r.accountName, r.activeNick)
 	return nil
 }
