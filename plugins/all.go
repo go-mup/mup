@@ -10,6 +10,7 @@ import (
 	_ "gopkg.in/mup.v0/plugins/launchpad"
 	_ "gopkg.in/mup.v0/plugins/ldap"
 	_ "gopkg.in/mup.v0/plugins/log"
+	_ "gopkg.in/mup.v0/plugins/phonenick"
 	_ "gopkg.in/mup.v0/plugins/playground"
 	_ "gopkg.in/mup.v0/plugins/publishbot"
 	_ "gopkg.in/mup.v0/plugins/webhook"
