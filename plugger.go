@@ -197,16 +197,31 @@ func (p *Plugger) LDAP(name string) (ldap.Conn, error) {
 func (p *Plugger) Sendf(to Addressable, format string, args ...interface{}) error {
 	text := fmt.Sprintf(format, args...)
 	a := to.Address()
-	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: replyText(a, text)}
+	msg := &Message{Account: a.Account, Channel: a.Channel, Nick: a.Nick, Text: p.replyText(a, text)}
 	return p.Send(msg)
 }
 
-func replyText(a Address, text string) string {
-	if a.Channel != "" && a.Channel[0] != '@' && a.Nick != "" {
-		if a.Host == "telegram" || a.Host == "webhook" {
-			text = "@" + a.Nick + " " + text
-		} else {
-			text = a.Nick + ": " + text
+func (p *Plugger) replyText(a Address, text string) string {
+	if a.Nick != "" {
+		if p.db != nil {
+			var moniker string
+			row := p.db.QueryRow("SELECT name FROM moniker "+
+				" WHERE account=? AND nick=? AND name!='' AND (channel='' OR channel=?)"+
+				" ORDER BY channel DESC",
+				a.Account, a.Nick, a.Channel)
+			err := row.Scan(&moniker)
+			if err == nil {
+				a.Nick = moniker
+			} else if err != sql.ErrNoRows {
+				p.Logf("Cannot check for moniker on reply: %v", err)
+			}
+		}
+		if a.Channel != "" && a.Channel[0] != '@' {
+			if a.Host == "telegram" || a.Host == "webhook" {
+				text = "@" + a.Nick + " " + text
+			} else {
+				text = a.Nick + ": " + text
+			}
 		}
 	}
 	return text
@@ -259,7 +274,7 @@ func (p *Plugger) Broadcast(msg *Message) error {
 		copy.Account = t.Account
 		copy.Channel = t.Channel
 		copy.Nick = t.Nick
-		copy.Text = replyText(t.Address(), copy.Text)
+		copy.Text = p.replyText(t.Address(), copy.Text)
 		err := p.Send(&copy)
 		if err != nil && first == nil {
 			first = err

@@ -265,6 +265,39 @@ func (s *PluggerSuite) TestBroadcast(c *C) {
 	c.Assert(s.sent, DeepEquals, []string{"[@one] TEST some params", "[@two] TEST some params"})
 }
 
+func (s *PluggerSuite) TestMoniker(c *C) {
+	execSQL(c, s.db,
+		`INSERT INTO account (name) VALUES ('one')`,
+		`INSERT INTO moniker (account,channel,nick,name) VALUES ('one','','nick','moniker')`,
+		`INSERT INTO moniker (account,channel,nick,name) VALUES ('one','#channel2','nick','moniker2')`,
+	)
+
+	p := s.plugger(s.db, nil, nil)
+	msg := mup.ParseIncoming("one", "mup", "!", ":nick!~user@host PRIVMSG #channel :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+	msg = mup.ParseIncoming("one", "mup", "!", ":nick!~user@host PRIVMSG #channel2 :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+
+	msg = mup.ParseIncoming("two", "mup", "!", ":nick!~user@host PRIVMSG #channel :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+	msg = mup.ParseIncoming("two", "mup", "!", ":nick!~user@host PRIVMSG #channel2 :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+
+	msg = mup.ParseIncoming("one", "mup", "!", ":nick2!~user@host PRIVMSG #channel :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+	msg = mup.ParseIncoming("one", "mup", "!", ":nick2!~user@host PRIVMSG #channel2 :mup: query")
+	p.Sendf(msg, "<%s>", "reply")
+
+	c.Assert(s.sent, DeepEquals, []string{
+		"[@one] PRIVMSG #channel :moniker: <reply>",
+		"[@one] PRIVMSG #channel2 :moniker2: <reply>",
+		"[@two] PRIVMSG #channel :nick: <reply>",
+		"[@two] PRIVMSG #channel2 :nick: <reply>",
+		"[@one] PRIVMSG #channel :nick2: <reply>",
+		"[@one] PRIVMSG #channel2 :nick2: <reply>",
+	})
+}
+
 func (s *PluggerSuite) TestLDAP(c *C) {
 	p := s.plugger(nil, nil, nil)
 	conn := &ldapConn{}
