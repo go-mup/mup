@@ -187,6 +187,12 @@ func marshalRaw(value interface{}) json.RawMessage {
 
 // Stop stops the tester and the plugin being tested.
 func (t *PluginTester) Stop() error {
+	t.mu.Lock()
+	stopped := t.stopped
+	t.mu.Unlock()
+	if stopped {
+		return nil
+	}
 	err := t.state.plugin.Stop()
 	t.mu.Lock()
 	t.stopped = true

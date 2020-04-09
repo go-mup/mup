@@ -155,6 +155,9 @@ func (s *TesterSuite) TestStop(c *C) {
 	tester.Start()
 	tester.Stop()
 	c.Assert(c.GetTestLog(), Matches, "(?s).*testPlugin.Stop called.*")
+
+	// Shouldn't explode, so we can defer it.
+	tester.Stop()
 }
 
 func (s *TesterSuite) TestSetLDAP(c *C) {
