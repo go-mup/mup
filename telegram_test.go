@@ -47,7 +47,7 @@ func (s *TelegramSuite) SetUpTest(c *C) {
 		Refresh: -1, // Manual refreshing for testing.
 	}
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO account (name,kind,host,password,nick) VALUES ('one','telegram','`+s.tgserver.Host()+`','<apikey>','ignored')`,
 	)
 
@@ -98,7 +98,7 @@ func (s *TelegramSuite) RecvMessage(c *C, chat_id int, text string) {
 	c.Assert(msg.text, Equals, text)
 }
 
-var incomingTests = []struct {
+var telegramIncomingTests = []struct {
 	update  string
 	message mup.Message
 }{{
@@ -150,7 +150,7 @@ var incomingTests = []struct {
 
 func (s *TelegramSuite) TestIncoming(c *C) {
 	var lastId int64
-	for _, test := range incomingTests {
+	for _, test := range telegramIncomingTests {
 		before := time.Now().Add(-2 * time.Second)
 		s.SendUpdates(c, test.update)
 
@@ -196,7 +196,7 @@ func (s *TelegramSuite) TestOutgoing(c *C) {
 	// Ensure messages are only inserted after plugin has been loaded.
 	s.server.RefreshAccounts()
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','@nick:56','nick','Implicit PRIVMSG.')`,
 		`INSERT INTO message (lane,account,channel,nick,text,command) VALUES (2,'one','@nick:56','nick','Explicit PRIVMSG.','PRIVMSG')`,
 		`INSERT INTO message (lane,account,channel,nick,text,command) VALUES (2,'one','@nick:56','nick','Explicit NOTICE.','NOTICE')`,
@@ -214,7 +214,7 @@ func (s *TelegramSuite) TestOutgoing(c *C) {
 
 	s.tgserver.FailSend()
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO message (lane,account,channel,nick,text) VALUES (2,'one','@nick:56','nick','Hello again!')`,
 	)
 

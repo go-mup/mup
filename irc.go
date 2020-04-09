@@ -318,11 +318,11 @@ func changedChannel(msg *Message) string {
 }
 
 func (c *ircClient) identify() error {
-	if c.info.Identify == "" {
+	if c.info.Identity == "" {
 		return nil
 	}
 	logf("[%s] Identifying as %q to nickserv.", c.accountName, c.info.Nick)
-	return c.ircW.Sendf("PRIVMSG nickserv :IDENTIFY %s %s", c.info.Nick, c.info.Identify)
+	return c.ircW.Sendf("PRIVMSG nickserv :IDENTIFY %s %s", c.info.Nick, c.info.Identity)
 }
 
 func (c *ircClient) handleMessage(msg *Message) (skip bool, err error) {
@@ -391,7 +391,7 @@ Outer2:
 		}
 		joins = append(joins, ci.Name)
 	}
-	activeIdentify := c.info.Identify
+	activeIdentity := c.info.Identity
 	c.info = *info
 	if len(joins) > 0 {
 		// TODO Handle channel keys.
@@ -406,7 +406,7 @@ Outer2:
 			return err
 		}
 	}
-	if activeIdentify != c.info.Identify {
+	if activeIdentity != c.info.Identity {
 		err := c.identify()
 		if err != nil {
 			return err
@@ -416,8 +416,8 @@ Outer2:
 		now := time.Now()
 		if c.nextNickChange.Before(now) {
 			c.nextNickChange = now.Add(nickChangeDelay)
-			if c.info.Identify != "" {
-				err := c.ircW.Sendf("PRIVMSG nickserv :GHOST %s %s", c.info.Nick, c.info.Identify)
+			if c.info.Identity != "" {
+				err := c.ircW.Sendf("PRIVMSG nickserv :GHOST %s %s", c.info.Nick, c.info.Identity)
 				if err != nil {
 					return err
 				}

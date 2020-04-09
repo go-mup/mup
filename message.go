@@ -206,7 +206,8 @@ func (m *Message) String() string {
 }
 
 func isChannel(name string) bool {
-	// @ is a mup extension to handle the chat id concept from Telegram.
+	// Channels prefixed with @ are used to handle one-to-one conversations in
+	// systems that have a different concept for user identities and user nicks.
 	return name != "" && (name[0] == '#' || name[0] == '&' || name[0] == '@') && !strings.ContainsAny(name, " ,\x07")
 }
 

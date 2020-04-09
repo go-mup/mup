@@ -168,7 +168,7 @@ func (s *ServerSuite) TestNickChange(c *C) {
 func (s *ServerSuite) TestIdentify(c *C) {
 	s.StopServer(c)
 
-	_, err := s.db.Exec("UPDATE account SET identify='nickpass' WHERE name='one'")
+	_, err := s.db.Exec("UPDATE account SET identity='nickpass' WHERE name='one'")
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
@@ -179,7 +179,7 @@ func (s *ServerSuite) TestIdentify(c *C) {
 	s.server.RefreshAccounts()
 	s.Roundtrip(c)
 
-	_, err = s.db.Exec("UPDATE account SET identify='other' WHERE name='one'")
+	_, err = s.db.Exec("UPDATE account SET identity='other' WHERE name='one'")
 	c.Assert(err, IsNil)
 
 	s.server.RefreshAccounts()
@@ -190,7 +190,7 @@ func (s *ServerSuite) TestIdentify(c *C) {
 func (s *ServerSuite) TestIdentifyNickInUse(c *C) {
 	s.StopServer(c)
 
-	_, err := s.db.Exec("UPDATE account SET identify='nickpass' WHERE name='one'")
+	_, err := s.db.Exec("UPDATE account SET identity='nickpass' WHERE name='one'")
 	c.Assert(err, IsNil)
 
 	s.RestartServer(c)
@@ -342,7 +342,7 @@ func (s *ServerSuite) TestIncoming(c *C) {
 	})
 }
 
-func exec(c *C, db *sql.DB, stmts ...string) {
+func execSQL(c *C, db *sql.DB, stmts ...string) {
 	tx, err := db.Begin()
 	c.Assert(err, IsNil)
 	defer tx.Rollback()
@@ -357,7 +357,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	// Stop default server to test the behavior of outgoing messages on start up.
 	s.StopServer(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		"INSERT INTO channel (account,name) VALUES ('one','#test')",
 		"INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','someone','Implicit PRIVMSG.','')",
 		"INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','someone','Explicit PRIVMSG.','PRIVMSG')",
@@ -380,10 +380,10 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 	s.Roundtrip(c)
 
 	// This must be ignored. Different account.
-	exec(c, s.db, "INSERT INTO message (lane,account,nick,text) VALUES (2,'two','someone','Ignore me.')")
+	execSQL(c, s.db, "INSERT INTO message (lane,account,nick,text) VALUES (2,'two','someone','Ignore me.')")
 
 	// Send another message with the server running.
-	exec(c, s.db, "INSERT INTO message (lane,account,nick,text) VALUES (2,'one','someone','Hello again!')")
+	execSQL(c, s.db, "INSERT INTO message (lane,account,nick,text) VALUES (2,'one','someone','Hello again!')")
 
 	// Do not use the s.ReadLine helper as the message won't be confirmed.
 	c.Assert(s.lserver.ReadLine(), Equals, "PRIVMSG someone :Hello again!")
@@ -401,7 +401,7 @@ func (s *ServerSuite) TestOutgoing(c *C) {
 func (s *ServerSuite) TestPlugin(c *C) {
 	s.StopServer(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
 		`INSERT INTO target (plugin,account) VALUES ('echoA','one')`,
 	)
@@ -427,7 +427,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 	s.ReadLine(c, "PRIVMSG nick :[cmd] A.A2")
 	s.ReadLine(c, "PRIVMSG nick :[msg] A.A2")
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name,config) VALUES ('echoB','{"prefix": "B."}')`,
 		`INSERT INTO target (plugin,account) VALUES ('echoB','one')`,
 	)
@@ -466,7 +466,7 @@ func (s *ServerSuite) TestPlugin(c *C) {
 func (s *ServerSuite) TestPluginTarget(c *C) {
 	s.SendWelcome(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
 		`INSERT INTO plugin (name,config) VALUES ('echoB','{"prefix": "B."}')`,
 		`INSERT INTO plugin (name,config) VALUES ('echoC','{"prefix": "C."}')`,
@@ -492,7 +492,7 @@ func (s *ServerSuite) TestPluginTarget(c *C) {
 func (s *ServerSuite) TestPluginUpdates(c *C) {
 	s.SendWelcome(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name,config) VALUES ('echoA','{"prefix": "A."}')`,
 		`INSERT INTO plugin (name,config) VALUES ('echoB','{"prefix": "B."}')`,
 		`INSERT INTO plugin (name,config) VALUES ('echoC','{"prefix": "C."}')`,
@@ -505,7 +505,7 @@ func (s *ServerSuite) TestPluginUpdates(c *C) {
 	s.server.RefreshPlugins()
 	s.Roundtrip(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`DELETE FROM plugin WHERE name='echoA'`,
 		`UPDATE plugin SET config='{"prefix": "D2."}' WHERE name='echoD'`,
 		`UPDATE target SET channel='none' WHERE plugin='echoC'`,
@@ -587,7 +587,7 @@ func (s *ServerSuite) TestLDAP(c *C) {
 		ldap.TestDial = nil
 	}()
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO ldap (name,url,base_dn,bind_dn,bind_pass) VALUES ('test1','the-url1','the-basedn','the-binddn','the-bindpass')`,
 		`INSERT INTO ldap (name,url) VALUES ('test2','the-url2')`,
 		`INSERT INTO plugin (name) VALUES ('testldap')`,
@@ -603,7 +603,7 @@ func (s *ServerSuite) TestLDAP(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testldap test2")
 	s.ReadLine(c, "PRIVMSG nick :LDAP works fine.")
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO ldap (name,url) VALUES ('test3','the-url3')`,
 		`UPDATE ldap SET url='the-url4' WHERE name='test1'`,
 		`DELETE FROM ldap WHERE name='test2'`,
@@ -668,7 +668,7 @@ func (p *testDBPlugin) HandleCommand(cmd *mup.Command) {
 func (s *ServerSuite) TestDatabase(c *C) {
 	s.SendWelcome(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name) VALUES ('testdb')`,
 		`INSERT INTO target (plugin,account) VALUES ('testdb','one')`,
 	)
@@ -682,7 +682,7 @@ func (s *ServerSuite) TestDatabase(c *C) {
 func (s *ServerSuite) TestHelp(c *C) {
 	s.SendWelcome(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name) VALUES ('help')`,
 		`INSERT INTO target (plugin,account) VALUES ('help','one')`,
 	)
@@ -694,7 +694,7 @@ func (s *ServerSuite) TestHelp(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :testdb")
 	s.ReadLine(c, `PRIVMSG nick :Plugin "testdb" is not running.`)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name) VALUES ('testdb')`,
 		`INSERT INTO account (name) VALUES ('other')`,
 		`INSERT INTO target (plugin,account) VALUES ('testdb','other')`,
@@ -719,7 +719,7 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(on, Equals, true)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO plugin (name,config) VALUES ('help', '{"boring": true}')`,
 		`INSERT INTO plugin (name) VALUES ('testdb')`,
 		`INSERT INTO target (plugin,account) VALUES ('help','one')`,
@@ -759,7 +759,7 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 func (s *ServerSuite) TestAccountSelection(c *C) {
 	s.StopServer(c)
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO account (name,host,password) VALUES  ('two','`+s.Addr.String()+`','password')`,
 		`INSERT INTO plugin (name,config) VALUES ('echoA/one', '{"prefix": "one:"}')`,
 		`INSERT INTO plugin (name,config) VALUES ('echoA/two', '{"prefix": "two:"}')`,

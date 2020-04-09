@@ -45,7 +45,7 @@ func (s *WebHookSuite) SetUpTest(c *C) {
 		Refresh: -1, // Manual refreshing for testing.
 	}
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO account (name,kind,endpoint) VALUES ('one','webhook','http://`+s.whserver.Host()+`/some/endpoint')`,
 	)
 
@@ -91,7 +91,7 @@ func (s *WebHookSuite) TestOutgoing(c *C) {
 	// Ensure messages are only inserted after plugin has been loaded.
 	s.server.RefreshAccounts()
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO message (lane,account,nick,text) VALUES (2,'one','nick','Implicit PRIVMSG.')`,
 		`INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','nick','Explicit PRIVMSG.','PRIVMSG')`,
 		`INSERT INTO message (lane,account,nick,text,command) VALUES (2,'one','nick','Explicit NOTICE.','NOTICE')`,
@@ -105,7 +105,7 @@ func (s *WebHookSuite) TestOutgoing(c *C) {
 
 	s.whserver.FailSend()
 
-	exec(c, s.db,
+	execSQL(c, s.db,
 		`INSERT INTO message (lane,account,nick,text) VALUES (2,'one','nick','Hello again!')`,
 	)
 

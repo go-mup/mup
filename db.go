@@ -124,7 +124,7 @@ func schemaPatch1_0(tx *sql.Tx) error {
 			"tls BOOLEAN NOT NULL DEFAULT FALSE," +
 			"tls_insecure BOOLEAN NOT NULL DEFAULT FALSE," +
 			"nick TEXT NOT NULL DEFAULT ''," +
-			"identify TEXT NOT NULL DEFAULT ''," +
+			"identity TEXT NOT NULL DEFAULT ''," +
 			"password TEXT NOT NULL DEFAULT ''," +
 			"last_id INTEGER NOT NULL DEFAULT 0)",
 		"CREATE TABLE channel (" +

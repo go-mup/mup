@@ -37,18 +37,18 @@ type accountInfo struct {
 	TLS         bool
 	TLSInsecure bool
 	Nick        string
-	Identify    string
+	Identity    string
 	Password    string
 	LastId      int64
 
 	Channels []channelInfo
 }
 
-const accountColumns = "name,kind,endpoint,host,tls,tls_insecure,nick,identify,password,last_id"
+const accountColumns = "name,kind,endpoint,host,tls,tls_insecure,nick,identity,password,last_id"
 const accountPlacers = "?,?,?,?,?,?,?,?,?,?"
 
 func (ai *accountInfo) refs() []interface{} {
-	return []interface{}{&ai.Name, &ai.Kind, &ai.Endpoint, &ai.Host, &ai.TLS, &ai.TLSInsecure, &ai.Nick, &ai.Identify, &ai.Password, &ai.LastId}
+	return []interface{}{&ai.Name, &ai.Kind, &ai.Endpoint, &ai.Host, &ai.TLS, &ai.TLSInsecure, &ai.Nick, &ai.Identity, &ai.Password, &ai.LastId}
 }
 
 // NetworkTimeout's value is used as a timeout in a number of network-related activities.
@@ -326,6 +326,8 @@ func (am *accountManager) handleRefresh() {
 				client = startIrcClient(info, am.incoming)
 			case "telegram":
 				client = startTgClient(info, am.incoming)
+			case "signal":
+				client = startSignalClient(info, am.incoming)
 			case "webhook":
 				client = startWebHookClient(info, am.incoming)
 			default:
