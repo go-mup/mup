@@ -155,7 +155,7 @@ func (s *ServerSuite) TestNickChange(c *C) {
 		s.Roundtrip(c)
 		time.Sleep(50 * time.Millisecond)
 
-		row := s.db.QueryRow("SELECT text,as_nick FROM message WHERE lane=1 ORDER BY id DESC")
+		row := s.db.QueryRow("SELECT text,asnick FROM message WHERE lane=1 ORDER BY id DESC")
 		var text, nick string
 		c.Assert(row.Scan(&text, &nick), IsNil)
 		c.Assert(text, Equals, "Hello mup!")
@@ -311,7 +311,7 @@ func (s *ServerSuite) TestIncoming(c *C) {
 
 	var msg mup.Message
 
-	rows, err := s.db.Query("SELECT nonce,time,account,nick,user,host,command,text,bot_text,bang,as_nick FROM message WHERE lane=1 ORDER BY id")
+	rows, err := s.db.Query("SELECT nonce,time,account,nick,user,host,command,text,bottext,bang,asnick FROM message WHERE lane=1 ORDER BY id")
 	c.Assert(err, IsNil)
 	defer rows.Close()
 	c.Assert(rows.Next(), Equals, true)
@@ -588,7 +588,7 @@ func (s *ServerSuite) TestLDAP(c *C) {
 	}()
 
 	execSQL(c, s.db,
-		`INSERT INTO ldap (name,url,base_dn,bind_dn,bind_pass) VALUES ('test1','the-url1','the-basedn','the-binddn','the-bindpass')`,
+		`INSERT INTO ldap (name,url,basedn,binddn,bindpass) VALUES ('test1','the-url1','the-basedn','the-binddn','the-bindpass')`,
 		`INSERT INTO ldap (name,url) VALUES ('test2','the-url2')`,
 		`INSERT INTO plugin (name) VALUES ('testldap')`,
 		`INSERT INTO target (plugin,account) VALUES ('testldap','one')`,
@@ -709,7 +709,7 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 	s.StopServer(c)
 
 	// Must exist for the following logic to be meaningful.
-	row := s.db.QueryRow("SELECT COUNT(*) FROM plugin_schema WHERE plugin='testdb'")
+	row := s.db.QueryRow("SELECT COUNT(*) FROM pluginschema WHERE plugin='testdb'")
 	var n int
 	c.Assert(row.Scan(&n), IsNil)
 	c.Assert(n, Equals, 1)
@@ -724,7 +724,7 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 		`INSERT INTO plugin (name) VALUES ('testdb')`,
 		`INSERT INTO target (plugin,account) VALUES ('help','one')`,
 		`INSERT INTO target (plugin,account) VALUES ('testdb','one')`,
-		`DELETE FROM plugin_schema`,
+		`DELETE FROM pluginschema`,
 	)
 
 	s.config.Plugins = []string{"help"}
@@ -735,7 +735,7 @@ func (s *ServerSuite) TestPluginSelection(c *C) {
 	s.SendLine(c, ":nick!~user@host PRIVMSG mup :help help")
 	s.ReadLine(c, "PRIVMSG nick :help [<cmdname>] — Displays available commands or details for a specific command.")
 
-	rows, err := s.db.Query("SELECT plugin FROM plugin_schema")
+	rows, err := s.db.Query("SELECT plugin FROM pluginschema")
 	c.Assert(err, IsNil)
 	defer rows.Close()
 	var names []string

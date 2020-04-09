@@ -60,30 +60,39 @@ func updateSchema(db *sql.DB) error {
 	}
 	var major, minor int
 	if rows.Next() {
-		rows, err = tx.Query("SELECT (SELECT value FROM option WHERE name='schema_major'), (SELECT value FROM option WHERE name='schema_minor')")
+		rows, err = tx.Query("SELECT (SELECT value FROM option WHERE name='schemamajor'), (SELECT value FROM option WHERE name='schemaminor')")
 		if err != nil {
 			return err
 		}
 		if !rows.Next() || rows.Scan(&major, &minor) != nil {
-			return fmt.Errorf("mup database lacks schema_major and schema_minor")
+			return fmt.Errorf("mup database lacks schemamajor and schemaminor")
+		}
+	}
+	if major == currentMajor && minor == currentMinor {
+		return nil
+	}
+
+	for major != currentMajor || minor != currentMinor {
+		patched := false
+		for _, patch := range schemaPatches {
+			if patch.originMajor != major || patch.originMinor != minor {
+				continue
+			}
+			err := patch.apply(tx)
+			if err != nil {
+				return fmt.Errorf("cannot update database schema version from %d.%d to %d.%d: %v",
+					major, minor, patch.targetMajor, patch.targetMinor, err)
+			}
+			major, minor = patch.targetMajor, patch.targetMinor
+			patched = true
+		}
+		if !patched {
+			return fmt.Errorf("cannot update database schema version from %d.%d to %d.%d: no patch available",
+				major, minor, currentMajor, currentMinor)
 		}
 	}
 
-	for _, patch := range schemaPatches {
-		if patch.major < major || patch.major == major && patch.minor <= minor {
-			continue
-		}
-		if patch.major > major+1 || patch.major == major+1 && patch.minor > 0 {
-			return fmt.Errorf("cannot update database schema version from %d.%d to %d.%d", major, minor, patch.major, patch.minor)
-		}
-		err := patch.apply(tx)
-		if err != nil {
-			return fmt.Errorf("cannot update database schema version from %d.%d to %d.%d: %v", major, minor, patch.major, patch.minor, err)
-		}
-		major, minor = patch.major, patch.minor
-	}
-
-	_, err = tx.Exec("UPDATE option SET value=? WHERE name='schema_major'; UPDATE option SET value=? WHERE name='schema_minor'", major, minor)
+	_, err = tx.Exec("UPDATE option SET value=? WHERE name='schemamajor'; UPDATE option SET value=? WHERE name='schemaminor'", major, minor)
 	if err != nil {
 		return err
 	}
@@ -91,17 +100,17 @@ func updateSchema(db *sql.DB) error {
 	return tx.Commit()
 }
 
-// FIXME Invert the patch logic so that the latest one is the current schema.
-
 var schemaPatches = []struct {
-	major int
-	minor int
-	apply func(*sql.Tx) error
+	originMajor, originMinor int
+	targetMajor, targetMinor int
+	apply                    func(*sql.Tx) error
 }{
-	{1, 0, schemaPatch1_0},
+	{0, 0, 1, 0, schemaCurrent},
 }
 
-func schemaPatch1_0(tx *sql.Tx) error {
+const currentMajor, currentMinor = 1, 0
+
+func schemaCurrent(tx *sql.Tx) error {
 	// As a general rule for table schemas below, the behavior of inserting a row
 	// with default values must have the same effect as inserting a zero Go value.
 	// That means, for example, that the default for all text rows is "", as that's
@@ -112,23 +121,21 @@ func schemaPatch1_0(tx *sql.Tx) error {
 		"PRAGMA auto_vacuum=INCREMENTAL",
 		"BEGIN",
 		"CREATE TABLE option (name TEXT NOT NULL, value)",
-		"INSERT INTO option VALUES ('schema_major', NULL)",
-		"INSERT INTO option VALUES ('schema_minor', NULL)",
+		"INSERT INTO option VALUES ('schemamajor',NULL)",
+		"INSERT INTO option VALUES ('schemaminor',NULL)",
 		"CREATE TABLE account (" +
-			// FIXME Add a space before every column name.
-			// FIXME Remove all underlines from column names.
 			"name TEXT NOT NULL PRIMARY KEY," +
 			"kind TEXT NOT NULL DEFAULT ''," +
 			"endpoint TEXT NOT NULL DEFAULT ''," +
 			"host TEXT NOT NULL DEFAULT ''," +
 			"tls BOOLEAN NOT NULL DEFAULT FALSE," +
-			"tls_insecure BOOLEAN NOT NULL DEFAULT FALSE," +
+			"tlsinsecure BOOLEAN NOT NULL DEFAULT FALSE," +
 			"nick TEXT NOT NULL DEFAULT ''," +
 			"identity TEXT NOT NULL DEFAULT ''," +
 			"password TEXT NOT NULL DEFAULT ''," +
-			"last_id INTEGER NOT NULL DEFAULT 0)",
+			"lastid INTEGER NOT NULL DEFAULT 0)",
 		"CREATE TABLE channel (" +
-			"account TEXT NOT NULL REFERENCES account(name) ON UPDATE CASCADE ON DELETE CASCADE," +
+			"account TEXT NOT NULL REFERENCES account (name) ON UPDATE CASCADE ON DELETE CASCADE," +
 			"name TEXT NOT NULL DEFAULT ''," +
 			"key TEXT NOT NULL DEFAULT ''," +
 			"PRIMARY KEY (account,name))",
@@ -145,9 +152,9 @@ func schemaPatch1_0(tx *sql.Tx) error {
 			"command TEXT NOT NULL DEFAULT ''," +
 			"params TEXT NOT NULL DEFAULT ''," +
 			"text TEXT NOT NULL DEFAULT ''," +
-			"bot_text TEXT NOT NULL DEFAULT ''," +
+			"bottext TEXT NOT NULL DEFAULT ''," +
 			"bang TEXT NOT NULL DEFAULT ''," +
-			"as_nick TEXT NOT NULL DEFAULT ''," +
+			"asnick TEXT NOT NULL DEFAULT ''," +
 			"UNIQUE (nonce,lane))",
 		"CREATE TABLE log (" +
 			"id INTEGER PRIMARY KEY DEFAULT 0," +
@@ -162,23 +169,23 @@ func schemaPatch1_0(tx *sql.Tx) error {
 			"command TEXT NOT NULL DEFAULT ''," +
 			"params TEXT NOT NULL DEFAULT ''," +
 			"text TEXT NOT NULL DEFAULT ''," +
-			"bot_text TEXT NOT NULL DEFAULT ''," +
+			"bottext TEXT NOT NULL DEFAULT ''," +
 			"bang TEXT NOT NULL DEFAULT ''," +
-			"as_nick TEXT NOT NULL DEFAULT ''," +
+			"asnick TEXT NOT NULL DEFAULT ''," +
 			"UNIQUE (nonce,lane))",
 		"CREATE TABLE plugin (" +
 			"name TEXT NOT NULL PRIMARY KEY," +
-			"last_id INTEGER NOT NULL DEFAULT 0," +
+			"lastid INTEGER NOT NULL DEFAULT 0," +
 			"config TEXT NOT NULL DEFAULT ''," +
 			"state TEXT NOT NULL DEFAULT '')",
 		"CREATE TABLE target (" +
-			"plugin TEXT NOT NULL REFERENCES plugin(name) ON UPDATE CASCADE ON DELETE CASCADE," +
-			"account TEXT NOT NULL REFERENCES account(name) ON UPDATE CASCADE ON DELETE CASCADE," +
+			"plugin TEXT NOT NULL REFERENCES plugin (name) ON UPDATE CASCADE ON DELETE CASCADE," +
+			"account TEXT NOT NULL REFERENCES account (name) ON UPDATE CASCADE ON DELETE CASCADE," +
 			"channel TEXT NOT NULL DEFAULT ''," +
 			"nick TEXT NOT NULL DEFAULT ''," +
 			"config TEXT NOT NULL DEFAULT '')",
 		"CREATE TABLE moniker (" +
-			"account TEXT NOT NULL REFERENCES account(name) ON UPDATE CASCADE ON DELETE CASCADE," +
+			"account TEXT NOT NULL REFERENCES account (name) ON UPDATE CASCADE ON DELETE CASCADE," +
 			"channel TEXT NOT NULL DEFAULT ''," +
 			"nick TEXT NOT NULL DEFAULT ''," +
 			"name TEXT NOT NULL DEFAULT ''," +
@@ -186,34 +193,34 @@ func schemaPatch1_0(tx *sql.Tx) error {
 		"CREATE TABLE ldap (" +
 			"name TEXT NOT NULL PRIMARY KEY," +
 			"url TEXT NOT NULL DEFAULT ''," +
-			"base_dn TEXT NOT NULL DEFAULT ''," +
-			"bind_dn TEXT NOT NULL DEFAULT ''," +
-			"bind_pass TEXT NOT NULL DEFAULT '')",
-		"CREATE TABLE plugin_schema (" +
+			"basedn TEXT NOT NULL DEFAULT ''," +
+			"binddn TEXT NOT NULL DEFAULT ''," +
+			"bindpass TEXT NOT NULL DEFAULT '')",
+		"CREATE TABLE pluginschema (" +
 			"plugin TEXT NOT NULL PRIMARY KEY," +
 			"help TEXT NOT NULL DEFAULT '')",
-		"CREATE TABLE command_schema (" +
-			"plugin TEXT NOT NULL REFERENCES plugin_schema(plugin) ON UPDATE CASCADE ON DELETE CASCADE," +
+		"CREATE TABLE commandschema (" +
+			"plugin TEXT NOT NULL REFERENCES pluginschema (plugin) ON UPDATE CASCADE ON DELETE CASCADE," +
 			"command TEXT NOT NULL," +
 			"help TEXT NOT NULL DEFAULT ''," +
 			"hide BOOLEAN NOT NULL DEFAULT false," +
 			"PRIMARY KEY (plugin,command))",
-		"CREATE TABLE argument_schema (" +
+		"CREATE TABLE argumentschema (" +
 			"plugin TEXT NOT NULL," +
 			"command TEXT NOT NULL," +
 			"argument TEXT NOT NULL," +
 			"hint TEXT NOT NULL DEFAULT ''," +
 			"type TEXT NOT NULL DEFAULT ''," +
 			"flag INTEGER NOT NULL DEFAULT 0," +
-			"FOREIGN KEY (plugin,command) REFERENCES command_schema(plugin,command) ON UPDATE CASCADE ON DELETE CASCADE," +
+			"FOREIGN KEY (plugin,command) REFERENCES commandschema (plugin,command) ON UPDATE CASCADE ON DELETE CASCADE," +
 			"PRIMARY KEY (plugin,command,argument))",
 		"CREATE TABLE user (" +
-			"account TEXT NOT NULL REFERENCES account(name) ON UPDATE CASCADE ON DELETE CASCADE," +
+			"account TEXT NOT NULL REFERENCES account (name) ON UPDATE CASCADE ON DELETE CASCADE," +
 			"nick TEXT NOT NULL," +
-			"password_hash TEXT NOT NULL DEFAULT ''," +
-			"password_salt TEXT NOT NULL DEFAULT ''," +
-			"attempt_start DATETIME NOT NULL DEFAULT 0," +
-			"attempt_count INTEGER NOT NULL DEFAULT 0," +
+			"passwordhash TEXT NOT NULL DEFAULT ''," +
+			"passwordsalt TEXT NOT NULL DEFAULT ''," +
+			"attemptstart DATETIME NOT NULL DEFAULT 0," +
+			"attemptcount INTEGER NOT NULL DEFAULT 0," +
 			"admin BOOLEAN NOT NULL DEFAULT FALSE," +
 			"PRIMARY KEY (account,nick))",
 	}

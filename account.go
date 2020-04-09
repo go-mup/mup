@@ -44,7 +44,7 @@ type accountInfo struct {
 	Channels []channelInfo
 }
 
-const accountColumns = "name,kind,endpoint,host,tls,tls_insecure,nick,identity,password,last_id"
+const accountColumns = "name,kind,endpoint,host,tls,tlsinsecure,nick,identity,password,lastid"
 const accountPlacers = "?,?,?,?,?,?,?,?,?,?"
 
 func (ai *accountInfo) refs() []interface{} {
@@ -185,7 +185,7 @@ func (am *accountManager) handleIncoming(msg *Message) {
 				return
 			}
 
-			_, err = am.db.Exec("UPDATE account SET last_id=? WHERE name=?", lastId, msg.Account)
+			_, err = am.db.Exec("UPDATE account SET lastid=? WHERE name=?", lastId, msg.Account)
 			if err != nil {
 				logf("Cannot update account with last sent message id: %v", err)
 				am.tomb.Kill(err)
@@ -307,7 +307,7 @@ func (am *accountManager) handleRefresh() {
 			// account will have run, so the skipping procedure should not repeat.
 			if info.LastId == 0 {
 				info.LastId = latestId
-				_, err = tx.Exec("UPDATE account SET last_id=? WHERE name=?", info.LastId, info.Name)
+				_, err = tx.Exec("UPDATE account SET lastid=? WHERE name=?", info.LastId, info.Name)
 				if err != nil {
 					logf("Cannot update last ID for account %q: %#v", info.Name, err)
 					var v int

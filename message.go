@@ -73,7 +73,7 @@ type Message struct {
 	paramsJoined string
 }
 
-const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bot_text,bang,as_nick"
+const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bottext,bang,asnick"
 
 var messagePlacers = placers(messageColumns)
 

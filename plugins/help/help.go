@@ -202,7 +202,7 @@ func (p *helpPlugin) pluginsWith(cmdname string) ([]pluginInfo, error) {
 	defer tx.Rollback()
 
 	var infos []pluginInfo
-	crows, err := tx.Query("SELECT plugin,command,help,hide FROM command_schema WHERE command=?", cmdname)
+	crows, err := tx.Query("SELECT plugin,command,help,hide FROM commandschema WHERE command=?", cmdname)
 	for err == nil && crows.Next() {
 		var info pluginInfo
 
@@ -214,7 +214,7 @@ func (p *helpPlugin) pluginsWith(cmdname string) ([]pluginInfo, error) {
 
 		// Fetch the argument schema for the command.
 		var arows *sql.Rows
-		arows, err = tx.Query("SELECT argument,hint,type,flag FROM argument_schema WHERE plugin=? AND command=?", info.Name, cmdname)
+		arows, err = tx.Query("SELECT argument,hint,type,flag FROM argumentschema WHERE plugin=? AND command=?", info.Name, cmdname)
 		for err == nil && arows.Next() {
 			var arg schema.Arg
 			err = arows.Scan(&arg.Name, &arg.Hint, &arg.Type, &arg.Flag)
@@ -268,7 +268,7 @@ func (p *helpPlugin) cmdList() ([]string, error) {
 	db := p.plugger.DB()
 
 	var result []string
-	rows, err := db.Query("SELECT DISTINCT(command) FROM command_schema WHERE hide=FALSE ORDER BY command")
+	rows, err := db.Query("SELECT DISTINCT(command) FROM commandschema WHERE hide=FALSE ORDER BY command")
 	if err != nil {
 		return nil, err
 	}

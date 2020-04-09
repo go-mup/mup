@@ -98,7 +98,7 @@ type pluginInfo struct {
 	Targets []Target
 }
 
-const pluginColumns = "name,last_id,config,state"
+const pluginColumns = "name,lastid,config,state"
 const pluginPlacers = "?,?,?,?"
 
 func (pi *pluginInfo) refs() []interface{} {
@@ -117,7 +117,7 @@ type ldapInfo struct {
 	Config ldap.Config
 }
 
-const ldapColumns = "name,url,base_dn,bind_dn,bind_pass"
+const ldapColumns = "name,url,basedn,binddn,bindpass"
 const ldapPlacers = "?,?,?,?,?"
 
 func (li *ldapInfo) refs() []interface{} {
@@ -224,23 +224,23 @@ func (m *pluginManager) die() {
 }
 
 func setSchema(tx *sql.Tx, plugin, help string, cmds schema.Commands) error {
-	_, err := tx.Exec("DELETE FROM plugin_schema WHERE plugin=?", plugin)
+	_, err := tx.Exec("DELETE FROM pluginschema WHERE plugin=?", plugin)
 	if err != nil {
 		return fmt.Errorf("cannot delete old schema for %q plugin: %v", plugin, err)
 	}
-	_, err = tx.Exec("INSERT INTO plugin_schema (plugin,help) VALUES (?,?)", plugin, help)
+	_, err = tx.Exec("INSERT INTO pluginschema (plugin,help) VALUES (?,?)", plugin, help)
 	if err != nil {
 		return fmt.Errorf("cannot add schema for %q plugin: %v", plugin, err)
 	}
 
 	for _, cmd := range cmds {
-		_, err := tx.Exec("INSERT INTO command_schema (plugin,command,help,hide) VALUES (?,?,?,?)",
+		_, err := tx.Exec("INSERT INTO commandschema (plugin,command,help,hide) VALUES (?,?,?,?)",
 			plugin, cmd.Name, cmd.Help, cmd.Hide)
 		if err != nil {
 			return fmt.Errorf("cannot add schema for %q plugin, %q command: %v", plugin, cmd.Name, err)
 		}
 		for _, arg := range cmd.Args {
-			_, err := tx.Exec("INSERT INTO argument_schema (plugin,command,argument,hint,type,flag) VALUES (?,?,?,?,?,?)",
+			_, err := tx.Exec("INSERT INTO argumentschema (plugin,command,argument,hint,type,flag) VALUES (?,?,?,?,?,?)",
 				plugin, cmd.Name, arg.Name, arg.Hint, arg.Type, arg.Flag)
 			if err != nil {
 				return fmt.Errorf("cannot add schema for %q plugin, %q command, %q argument: %v", plugin, cmd.Name, arg.Name, err)
@@ -307,7 +307,7 @@ func (m *pluginManager) loop() error {
 				}
 				state.info.LastId = msg.Id
 				state.handle(msg, cmdName)
-				_, err := m.db.Exec("UPDATE plugin SET last_id=? WHERE name=?", msg.Id, name)
+				_, err := m.db.Exec("UPDATE plugin SET lastid=? WHERE name=?", msg.Id, name)
 				if err != nil {
 					logf("Cannot update plugin with last sent message id: %v", err)
 					// TODO How to recover properly from this?

@@ -157,7 +157,7 @@ func (s *TelegramSuite) TestIncoming(c *C) {
 		var msg mup.Message
 		var err error
 		for i := 0; i < 10; i++ {
-			row := s.db.QueryRow("SELECT id,lane,account,nick,user,host,command,channel,text,bot_text,bang,as_nick,time FROM message ORDER BY id DESC")
+			row := s.db.QueryRow("SELECT id,lane,account,nick,user,host,command,channel,text,bottext,bang,asnick,time FROM message ORDER BY id DESC")
 			err = row.Scan(&msg.Id, &msg.Lane, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command,
 				&msg.Channel, &msg.Text, &msg.BotText, &msg.Bang, &msg.AsNick, &msg.Time)
 			if err == nil && msg.Id != lastId {

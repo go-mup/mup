@@ -40,7 +40,7 @@ func (p *logPlugin) HandleOutgoing(msg *mup.Message) {
 }
 
 // TODO These were copied from message.go. We need a reasonable way of not duplicating that.
-const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bot_text,bang,as_nick"
+const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bottext,bang,asnick"
 const messagePlacers = "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?"
 
 func messageRefs(m *mup.Message) []interface{} {

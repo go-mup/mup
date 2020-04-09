@@ -315,7 +315,7 @@ func (s *SignalSuite) TestIncoming(c *C) {
 
 		var msg mup.Message
 		for i := 0; i < 100; i++ {
-			fields := "id,lane,account,nick,user,host,command,channel,text,bot_text,bang,as_nick,time"
+			fields := "id,lane,account,nick,user,host,command,channel,text,bottext,bang,asnick,time"
 			row := s.db.QueryRow("SELECT "+fields+" FROM message WHERE command=? ORDER BY id DESC", test.message.Command)
 			err = row.Scan(
 				&msg.Id, &msg.Lane, &msg.Account, &msg.Nick, &msg.User, &msg.Host, &msg.Command,
@@ -368,7 +368,7 @@ func (s *SignalSuite) TestIncomingSequence(c *C) {
 	}
 
 	var rows *sql.Rows
-	rows, err = s.db.Query("SELECT id,lane,account,nick,user,host,command,channel,text,bot_text,bang,as_nick,time FROM message ORDER BY id")
+	rows, err = s.db.Query("SELECT id,lane,account,nick,user,host,command,channel,text,bottext,bang,asnick,time FROM message ORDER BY id")
 	c.Assert(err, IsNil)
 	defer rows.Close()
 

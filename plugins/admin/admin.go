@@ -119,7 +119,7 @@ type userInfo struct {
 	Admin        bool
 }
 
-const userColumns = "account,nick,password_hash,password_salt,attempt_start,attempt_count,admin"
+const userColumns = "account,nick,passwordhash,passwordsalt,attemptstart,attemptcount,admin"
 const userPlacers = "?,?,?,?,?,?,?"
 
 func (u *userInfo) refs() []interface{} {
@@ -230,7 +230,7 @@ func (p *adminPlugin) login(cmd *mup.Command) {
 		return
 	}
 	if !equal {
-		_, err = db.Exec("UPDATE user SET attempt_start=?,attempt_count=? WHERE account=? AND nick=?",
+		_, err = db.Exec("UPDATE user SET attemptstart=?,attemptcount=? WHERE account=? AND nick=?",
 			user.AttemptStart, user.AttemptCount, user.Account, user.Nick)
 		if err != nil {
 			p.plugger.Logf("Cannot update login attempt for nick %q at %s: %v", cmd.Nick, cmd.Account, err)

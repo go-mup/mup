@@ -278,7 +278,7 @@ func (s *AdminSuite) testAdmin(c *C, test *adminTest) {
 			user.PasswordSalt = testSalt
 		}
 
-		_, err := db.Exec("INSERT INTO user (account,nick,password_hash,password_salt,attempt_start,attempt_count,admin) VALUES (?,?,?,?,?,?,?)",
+		_, err := db.Exec("INSERT INTO user (account,nick,passwordhash,passwordsalt,attemptstart,attemptcount,admin) VALUES (?,?,?,?,?,?,?)",
 			user.Account, user.Nick, user.PasswordHash, user.PasswordSalt, user.AttemptStart, user.AttemptCount, user.Admin)
 		c.Assert(err, IsNil)
 	}
