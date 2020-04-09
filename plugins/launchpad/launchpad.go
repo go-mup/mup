@@ -410,6 +410,8 @@ func (p *lpPlugin) authHeader() string {
 		p.config.OAuthAccessToken, "&"+p.config.OAuthSecretToken, nonce, timestamp)
 }
 
+const redactedTag = "tag:launchpad.net:2008:redacted"
+
 var errNotFound = fmt.Errorf("resource not found")
 
 func (p *lpPlugin) request(url string, result interface{}) error {
@@ -748,9 +750,17 @@ func (p *lpPlugin) showContrib(to mup.Addressable, text string) {
 				if mship.TeamLink == "https://api.launchpad.net/1.0/~contributor-agreement-canonical" && mship.Status == "Approved" {
 					var email lpEmail
 					var emails lpEmailList
-					var errs = make(chan error)
-					go func() { errs <- p.request(person.EmailLink, &email) }()
-					go func() { errs <- p.request(person.EmailsLink, &emails) }()
+					var errs = make(chan error, 2)
+					if person.EmailLink == redactedTag {
+						errs <- nil
+					} else {
+						go func() { errs <- p.request(person.EmailLink, &email) }()
+					}
+					if person.EmailsLink == redactedTag {
+						errs <- nil
+					} else {
+						go func() { errs <- p.request(person.EmailsLink, &emails) }()
+					}
 					if err := firstErr(<-errs, <-errs); err != nil {
 						p.plugger.Sendf(to, "Cannot retrieve email information of ~%s from Launchpad: %v", person.Username, err)
 					}
@@ -798,7 +808,7 @@ func (p *lpPlugin) showContrib(to mup.Addressable, text string) {
 
 func (p *lpPlugin) formatContrib(buf *bytes.Buffer, contrib lpPerson) string {
 	buf.Truncate(0)
-	fmt.Fprintf(buf, " — %s <https://launchpad.net/~%s>", contrib.Name, contrib.Username)
+	fmt.Fprintf(buf, " - %s <https://launchpad.net/~%s>", contrib.Name, contrib.Username)
 	for _, email := range contrib.Emails {
 		buf.WriteString(" <")
 		buf.WriteString(email)

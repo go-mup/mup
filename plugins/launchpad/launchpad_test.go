@@ -231,9 +231,10 @@ var lpTests = []lpTest{
 		plugin: "lpcontrib",
 		send:   []string{"contrib some user"},
 		recv: []string{
-			"PRIVMSG nick :2 matching contributors signed the agreement:",
-			"PRIVMSG nick : — Amuser Jeff <https://launchpad.net/~muser> <muser@prefemail.com> <muser@email.com> <muser@example.com>",
-			"PRIVMSG nick : — Awesome Joe <https://launchpad.net/~wsome>",
+			"PRIVMSG nick :3 matching contributors signed the agreement:",
+			"PRIVMSG nick : - Amuser Jeff <https://launchpad.net/~muser> <muser@prefemail.com> <muser@email.com> <muser@example.com>",
+			"PRIVMSG nick : - Awesome Joe <https://launchpad.net/~wsome>",
+			"PRIVMSG nick : - Redacted Preferred <https://launchpad.net/~redpref> <redpref@email.com> <redpref@example.com>",
 		},
 	},
 }
@@ -492,10 +493,17 @@ func (s *lpServer) servePeople(w http.ResponseWriter, req *http.Request) {
 		`{"name": "muser", "display_name": "Amuser Jeff", "memberships_details_collection_link": "%s/people/~muser/membership",
 			"confirmed_email_addresses_collection_link": "%s/people/~muser/emails",
 			"preferred_email_address_link": "%s/people/~muser/email"}`,
+		`{"name": "redpref", "display_name": "Redacted Preferred", "memberships_details_collection_link": "%s/people/~redpref/membership",
+			"confirmed_email_addresses_collection_link": "%s/people/~redpref/emails",
+			"preferred_email_address_link": "tag:launchpad.net:2008:redacted"}`,
 	}
 	for i := range entries {
 		url := s.URL()
-		entries[i] = fmt.Sprintf(entries[i], url, url, url)
+		var urls []interface{}
+		for j := 0; j < strings.Count(entries[i], "%s"); j++ {
+			urls = append(urls, url)
+		}
+		entries[i] = fmt.Sprintf(entries[i], urls...)
 	}
 	fmt.Fprintf(w, `{"entries": [%s], "total_size": %d, "start": 0}`, strings.Join(entries, ","), len(entries))
 }
