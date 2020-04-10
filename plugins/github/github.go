@@ -417,11 +417,14 @@ func (p *ghPlugin) request(url string, result interface{}) error {
 		return errNotFound
 	}
 	if err == nil && resp.StatusCode != 200 {
-		resp.Body.Close()
 		err = fmt.Errorf("%s", resp.Status)
 	}
 	if err != nil {
-		data, _ := ioutil.ReadAll(resp.Body)
+		var data []byte
+		if resp != nil && resp.Body != nil {
+			data, _ = ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+		}
 		if len(data) > 0 {
 			p.plugger.Logf("Cannot perform GitHub request: %v\nGitHub response: %s", err, data)
 		} else {
