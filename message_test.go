@@ -25,13 +25,25 @@ var parseIncomingTests = []parseTest{
 		"CMD some params",
 		mup.Message{
 			Command: "CMD",
-			Params:  []string{"some", "params"},
+			Param0:  "some",
+			Param1:  "params",
 		},
 	}, {
 		"CMD some params :Some text",
 		mup.Message{
 			Command: "CMD",
-			Params:  []string{"some", "params"},
+			Param0:  "some",
+			Param1:  "params",
+			Text:    "Some text",
+		},
+	}, {
+		"CMD p0 p1 p2 p3 p4 p5 :Some text",
+		mup.Message{
+			Command: "CMD",
+			Param0:  "p0",
+			Param1:  "p1",
+			Param2:  "p2",
+			Param3:  "p3 p4 p5",
 			Text:    "Some text",
 		},
 	}, {
@@ -52,7 +64,7 @@ var parseIncomingTests = []parseTest{
 		"CMD some:param :Some text",
 		mup.Message{
 			Command: "CMD",
-			Params:  []string{"some:param"},
+			Param0:  "some:param",
 			Text:    "Some text",
 		},
 	}, {
@@ -344,7 +356,7 @@ var stringTests = []struct {
 		mup.Message{Command: "PRIVMSG", Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
-		mup.Message{Command: "PRIVMSG", Params: []string{"ignored"}, Text: "Text", AsNick: "mup"},
+		mup.Message{Command: "PRIVMSG", Param0: "ignored", Text: "Text", AsNick: "mup"},
 		"PRIVMSG mup :Text",
 	}, {
 		mup.Message{Command: "CMD", Nick: "nick", User: "user", Host: "host"},
@@ -365,10 +377,13 @@ var stringTests = []struct {
 		mup.Message{Command: "PING", Text: "text"},
 		"PING :text",
 	}, {
-		mup.Message{Command: "CMD", Params: []string{"some", "params"}, Text: "some text"},
+		mup.Message{Command: "CMD", Param0: "some", Param1: "params", Text: "some text"},
 		"CMD some params :some text",
 	}, {
-		mup.Message{Command: "A\rB\n", Params: []string{"\rC\nD"}, Text: "E\rF\nG\x00"},
+		mup.Message{Command: "CMD", Param0: "p0", Param1: "p1", Param2: "p2", Param3: "p3 p4 p5", Text: "Some text"},
+		"CMD p0 p1 p2 p3 p4 p5 :Some text",
+	}, {
+		mup.Message{Command: "A\rB\n", Param0: "\rC\nD", Text: "E\rF\nG\x00"},
 		"A_B_ _C_D :E_F_G_",
 	}, {
 		mup.Message{Command: "PRIVMSG", Channel: "\rC\nD", Text: "E\rF\nG\x00"},

@@ -53,7 +53,11 @@ type Message struct {
 	Command string
 
 	// Raw parameters when not a PRIVMSG or NOTICE, and excluding Text.
-	Params []string
+	// All exceeding parameters on IRC go together with Param3.
+	Param0 string
+	Param1 string
+	Param2 string
+	Param3 string
 
 	// The trailing message text for all relevant commands.
 	Text string
@@ -69,19 +73,13 @@ type Message struct {
 
 	// The bot nick that was in place when the message was received.
 	AsNick string
-
-	paramsJoined string
 }
 
-const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bottext,bang,asnick"
+const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,param0,param1,param2,param3,text,bottext,bang,asnick"
 
 var messagePlacers = placers(messageColumns)
 
 func (m *Message) refs(lane LaneType) []interface{} {
-	// FIXME Drop paramsJoined.
-	if len(m.Params) > 0 {
-		m.paramsJoined = strings.Join(m.Params, " ")
-	}
 	var idRef, laneRef interface{}
 	if lane == 0 {
 		// Selecting.
@@ -96,15 +94,11 @@ func (m *Message) refs(lane LaneType) []interface{} {
 			m.Nonce = hex.EncodeToString(buf[:])
 		}
 	}
-	return []interface{}{idRef, &m.Nonce, laneRef, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
+	return []interface{}{idRef, &m.Nonce, laneRef, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.Param0, &m.Param1, &m.Param2, &m.Param3, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
 }
 
 func (m *Message) refsNoId() []interface{} {
-	// FIXME Drop paramsJoined.
-	if len(m.Params) > 0 {
-		m.paramsJoined = strings.Join(m.Params, " ")
-	}
-	return []interface{}{nil, &m.Nonce, &m.Lane, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
+	return []interface{}{nil, &m.Nonce, &m.Lane, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.Param0, &m.Param1, &m.Param2, &m.Param3, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
 }
 
 // Address holds the fully qualified address of an incoming or outgoing message.
@@ -184,10 +178,12 @@ func (m *Message) String() string {
 		}
 		line = append(line, ' ')
 		line = append(line, target...)
-	} else if len(m.Params) > 0 {
-		for _, param := range m.Params {
-			line = append(line, ' ')
-			line = append(line, param...)
+	} else {
+		for _, param := range []string{m.Param0, m.Param1, m.Param2, m.Param3} {
+			if param != "" {
+				line = append(line, ' ')
+				line = append(line, param...)
+			}
 		}
 	}
 	if m.Text != "" {
@@ -332,7 +328,9 @@ func parse(account, asnick, bang, line string) *Message {
 			}
 		}
 	} else {
-		// Params, Text
+		// ParamN, Text
+		p := 0
+		params := []*string{&m.Param0, &m.Param1, &m.Param2, &m.Param3}
 		for i < l {
 			if line[i] == ':' {
 				m.Text = line[i+1:]
@@ -342,7 +340,12 @@ func parse(account, asnick, bang, line string) *Message {
 			for i < l && line[i] != ' ' {
 				i++
 			}
-			m.Params = append(m.Params, line[mark:i])
+			if p < 4 {
+				*params[p] = line[mark:i]
+			} else {
+				m.Param3 += " " + line[mark:i]
+			}
+			p++
 			for i < l && line[i] == ' ' {
 				i++
 			}

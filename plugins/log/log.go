@@ -2,7 +2,6 @@ package log
 
 import (
 	"gopkg.in/mup.v0"
-	"strings"
 )
 
 var Plugin = mup.PluginSpec{
@@ -40,14 +39,9 @@ func (p *logPlugin) HandleOutgoing(msg *mup.Message) {
 }
 
 // TODO These were copied from message.go. We need a reasonable way of not duplicating that.
-const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,params,text,bottext,bang,asnick"
-const messagePlacers = "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?"
+const messageColumns = "id,nonce,lane,time,account,channel,nick,user,host,command,param0,param1,param2,param3,text,bottext,bang,asnick"
+const messagePlacers = "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?"
 
 func messageRefs(m *mup.Message) []interface{} {
-	// FIXME Drop paramsJoined.
-	var paramsJoined string
-	if len(m.Params) > 0 {
-		paramsJoined = strings.Join(m.Params, " ")
-	}
-	return []interface{}{&m.Id, &m.Nonce, &m.Lane, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &paramsJoined, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
+	return []interface{}{&m.Id, &m.Nonce, &m.Lane, &m.Time, &m.Account, &m.Channel, &m.Nick, &m.User, &m.Host, &m.Command, &m.Param0, &m.Param1, &m.Param2, &m.Param3, &m.Text, &m.BotText, &m.Bang, &m.AsNick}
 }

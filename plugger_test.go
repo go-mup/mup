@@ -152,7 +152,7 @@ func (s *PluggerSuite) TestSendfUserChannel(c *C) {
 
 func (s *PluggerSuite) TestSend(c *C) {
 	p := s.plugger(nil, nil, nil)
-	msg := &mup.Message{Account: "myaccount", Command: "TEST", Params: []string{"some", "params"}}
+	msg := &mup.Message{Account: "myaccount", Command: "TEST", Param0: "some", Param1: "params"}
 	before := time.Now()
 	p.Send(msg)
 	after := time.Now()
@@ -261,7 +261,7 @@ func (s *PluggerSuite) TestBroadcast(c *C) {
 	p.Broadcast(&mup.Message{Command: "PRIVMSG", Text: "<text>"})
 	c.Assert(s.sent, DeepEquals, []string{"[@one] PRIVMSG #chan :<text>", "[@two] PRIVMSG nick :<text>"})
 	s.sent = nil
-	p.Broadcast(&mup.Message{Command: "TEST", Params: []string{"some", "params"}})
+	p.Broadcast(&mup.Message{Command: "TEST", Param0: "some", Param1: "params"})
 	c.Assert(s.sent, DeepEquals, []string{"[@one] TEST some params", "[@two] TEST some params"})
 }
 

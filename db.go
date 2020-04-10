@@ -100,6 +100,8 @@ func updateSchema(db *sql.DB) error {
 	return tx.Commit()
 }
 
+const currentMajor, currentMinor = 1, 0
+
 var schemaPatches = []struct {
 	originMajor, originMinor int
 	targetMajor, targetMinor int
@@ -108,7 +110,14 @@ var schemaPatches = []struct {
 	{0, 0, 1, 0, schemaCurrent},
 }
 
-const currentMajor, currentMinor = 1, 0
+func execAll(tx *sql.Tx, stmts []string) error {
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func schemaCurrent(tx *sql.Tx) error {
 	// As a general rule for table schemas below, the behavior of inserting a row
@@ -150,7 +159,10 @@ func schemaCurrent(tx *sql.Tx) error {
 			"user TEXT NOT NULL DEFAULT ''," +
 			"host TEXT NOT NULL DEFAULT ''," +
 			"command TEXT NOT NULL DEFAULT ''," +
-			"params TEXT NOT NULL DEFAULT ''," +
+			"param0 TEXT NOT NULL DEFAULT ''," +
+			"param1 TEXT NOT NULL DEFAULT ''," +
+			"param2 TEXT NOT NULL DEFAULT ''," +
+			"param3 TEXT NOT NULL DEFAULT ''," +
 			"text TEXT NOT NULL DEFAULT ''," +
 			"bottext TEXT NOT NULL DEFAULT ''," +
 			"bang TEXT NOT NULL DEFAULT ''," +
@@ -167,7 +179,10 @@ func schemaCurrent(tx *sql.Tx) error {
 			"user TEXT NOT NULL DEFAULT ''," +
 			"host TEXT NOT NULL DEFAULT ''," +
 			"command TEXT NOT NULL DEFAULT ''," +
-			"params TEXT NOT NULL DEFAULT ''," +
+			"param0 TEXT NOT NULL DEFAULT ''," +
+			"param1 TEXT NOT NULL DEFAULT ''," +
+			"param2 TEXT NOT NULL DEFAULT ''," +
+			"param3 TEXT NOT NULL DEFAULT ''," +
 			"text TEXT NOT NULL DEFAULT ''," +
 			"bottext TEXT NOT NULL DEFAULT ''," +
 			"bang TEXT NOT NULL DEFAULT ''," +
@@ -224,10 +239,5 @@ func schemaCurrent(tx *sql.Tx) error {
 			"admin BOOLEAN NOT NULL DEFAULT FALSE," +
 			"PRIMARY KEY (account,nick))",
 	}
-	for _, stmt := range stmts {
-		if _, err := tx.Exec(stmt); err != nil {
-			return err
-		}
-	}
-	return nil
+	return execAll(tx, stmts)
 }

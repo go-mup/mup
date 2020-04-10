@@ -61,7 +61,7 @@ func (c *ircClient) Stop() error {
 	// Try to disconnect gracefully.
 	timeout := time.After(NetworkTimeout)
 	select {
-	case c.outgoing <- &Message{Command: cmdQuit, Params: []string{":brb"}}:
+	case c.outgoing <- &Message{Command: cmdQuit, Text: "brb"}:
 		select {
 		case <-c.dying:
 		case <-timeout:
@@ -308,8 +308,8 @@ func (c *ircClient) forward() error {
 }
 
 func changedChannel(msg *Message) string {
-	if len(msg.Params) > 0 {
-		return strings.ToLower(msg.Params[0])
+	if msg.Param0 != "" {
+		return strings.ToLower(msg.Param0)
 	}
 	if len(msg.Text) > 0 {
 		return strings.ToLower(msg.Text)
@@ -604,8 +604,8 @@ func (r *ircReader) loop() error {
 		switch msg.Command {
 		case cmdNick:
 			if r.activeNick == "" || r.activeNick == msg.Nick {
-				if len(msg.Params) > 0 {
-					r.activeNick = msg.Params[0]
+				if msg.Param0 != "" {
+					r.activeNick = msg.Param0
 				} else if msg.Text != "" {
 					r.activeNick = msg.Text
 				}
@@ -613,8 +613,8 @@ func (r *ircReader) loop() error {
 				logf("[%s] Nick %q accepted by server.", r.accountName, r.activeNick)
 			}
 		case cmdWelcome:
-			if len(msg.Params) > 0 {
-				r.activeNick = msg.Params[0]
+			if msg.Param0 != "" {
+				r.activeNick = msg.Param0
 				msg.AsNick = r.activeNick
 				logf("[%s] Nick %q accepted by server.", r.accountName, r.activeNick)
 			}

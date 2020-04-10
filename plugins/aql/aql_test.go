@@ -15,6 +15,7 @@ import (
 	_ "gopkg.in/mup.v0/plugins/aql"
 
 	. "gopkg.in/check.v1"
+	"sort"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -262,7 +263,9 @@ func (s *aqlServer) serveRetrieve(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *aqlServer) serveDelete(w http.ResponseWriter, req *http.Request) {
-	for _, keyStr := range strings.Split(req.FormValue("keys"), ",") {
+	keys := strings.Split(req.FormValue("keys"), ",")
+	sort.Strings(keys)
+	for _, keyStr := range keys {
 		key, err := strconv.Atoi(keyStr)
 		if err != nil {
 			panic("cannot convert deleted key to int in proxy: " + keyStr)
