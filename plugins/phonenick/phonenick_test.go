@@ -36,7 +36,7 @@ func (s *S) SetUpTest(c *C) {
 	c.Assert(err, IsNil)
 
 	s.tester = mup.NewPluginTester("phonenick")
-	s.tester.SetDatabase(s.db)
+	s.tester.SetDB(s.db)
 	s.tester.SetConfig(mup.Map{"ldap": "test"})
 	s.tester.SetLDAP("test", s.ldap)
 }

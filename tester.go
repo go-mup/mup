@@ -97,14 +97,12 @@ func (t *PluginTester) Start() error {
 	return err
 }
 
-// FIXME Rename to SetDB to conform to the database/sql terminology?
-
-// SetDatabase sets the database to offer the plugin being tested.
-func (t *PluginTester) SetDatabase(db *sql.DB) {
+// SetDB sets the database to offer the plugin being tested.
+func (t *PluginTester) SetDB(db *sql.DB) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state.plugin != nil {
-		panic("PluginTester.SetDatabase called after Start")
+		panic("PluginTester.SetDB called after Start")
 	}
 	t.state.plugger.setDatabase(db)
 

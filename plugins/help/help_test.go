@@ -144,7 +144,7 @@ func (s *HelpSuite) testHelp(c *C, test *helpTest) {
 	defer db.Close()
 
 	tester := mup.NewPluginTester("help")
-	tester.SetDatabase(db)
+	tester.SetDB(db)
 	tester.SetConfig(test.config)
 
 	testPlugin.Commands = test.cmds

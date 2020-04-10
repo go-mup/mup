@@ -256,7 +256,7 @@ func (s *AdminSuite) testAdmin(c *C, test *adminTest) {
 	defer db.Close()
 
 	tester := mup.NewPluginTester("admin")
-	tester.SetDatabase(db)
+	tester.SetDB(db)
 
 	accounts := map[string]bool{"test": true}
 	for _, user := range test.users {

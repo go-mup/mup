@@ -46,7 +46,7 @@ func (s *HelpSuite) TestLog(c *C) {
 		defer db.Close()
 
 		tester := mup.NewPluginTester("log")
-		tester.SetDatabase(db)
+		tester.SetDB(db)
 		tester.Start()
 		if test.send != "" {
 			tester.Sendf(test.send)
