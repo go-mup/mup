@@ -472,8 +472,10 @@ func (r *signalReader) loop() error {
 				source = "system"
 			}
 
+			sync := false
 			message := envelope.DataMessage
 			if message.Timestamp == 0 && envelope.SyncMessage.SentMessage.Timestamp > 0 {
+				sync = true
 				message = envelope.SyncMessage.SentMessage
 			}
 
@@ -481,7 +483,9 @@ func (r *signalReader) loop() error {
 			group := message.GroupInfo.GroupID
 
 			var channel string
-			if group != "" {
+			if sync {
+				channel = "#" + r.identity
+			} else if group != "" {
 				channel = "#" + group
 			} else {
 				channel = "@" + source

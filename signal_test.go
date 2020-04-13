@@ -268,9 +268,8 @@ var signalIncomingTests = []struct {
 		User:    "~user",
 		Host:    "signal",
 		Command: "PRIVMSG",
-		Channel: "@+12345", // TODO Should that be the destination? Makes testing harder, might be more correct.
+		Channel: "#+55555", // TODO Should that be the destination? Makes testing harder, might be more correct.
 		Text:    "Hello sync!",
-		BotText: "Hello sync!",
 		Bang:    "/",
 		AsNick:  "mup",
 		Time:    time.Date(2020, 4, 8, 21, 58, 14, 999e6, time.UTC),
