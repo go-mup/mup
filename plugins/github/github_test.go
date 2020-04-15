@@ -57,14 +57,14 @@ var lpTests = []ghTest{
 		// The trivial case.
 		plugin: "ghissuedata",
 		send:   []string{"issue org/repo#123"},
-		recv:   []string{"PRIVMSG nick :Issue org/repo#123: Title of 123 <label1> <label2> <Created by joe> <https://github.com/org/repo/issue/123>"},
+		recv:   []string{"PRIVMSG nick :Issue org/repo#123: Title of 123 <label1> <label2> <Created by joe> <https://github.com/org/repo/issues/123>"},
 	}, {
 		// Multiple issues in a single command. Repetitions are dropped.
 		plugin: "ghissuedata",
 		send:   []string{"issue org/repo#123 org/repo#123 org/repo#124"},
 		recv: []string{
-			"PRIVMSG nick :Issue org/repo#123: Title of 123 <label1> <label2> <Created by joe> <https://github.com/org/repo/issue/123>",
-			"PRIVMSG nick :Issue org/repo#124: Title of 124 <Created by joe> <https://github.com/org/repo/issue/124>",
+			"PRIVMSG nick :Issue org/repo#123: Title of 123 <label1> <label2> <Created by joe> <https://github.com/org/repo/issues/123>",
+			"PRIVMSG nick :Issue org/repo#124: Title of 124 <Created by joe> <https://github.com/org/repo/issues/124>",
 		},
 	}, {
 		// Project configured to org.
@@ -72,8 +72,8 @@ var lpTests = []ghTest{
 		config: mup.Map{"project": "org"},
 		send:   []string{"issue repo#1", "issue other/repo#2"},
 		recv: []string{
-			"PRIVMSG nick :Issue repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
-			"PRIVMSG nick :Issue other/repo#2: Title of 2 <Created by joe> <https://github.com/other/repo/issue/2>",
+			"PRIVMSG nick :Issue repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issues/1>",
+			"PRIVMSG nick :Issue other/repo#2: Title of 2 <Created by joe> <https://github.com/other/repo/issues/2>",
 		},
 	}, {
 		// Project configured to repo.
@@ -81,9 +81,9 @@ var lpTests = []ghTest{
 		config: mup.Map{"project": "org/repo"},
 		send:   []string{"issue #1", "issue other#2", "issue other/repo#3"},
 		recv: []string{
-			"PRIVMSG nick :Issue #1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
-			"PRIVMSG nick :Issue other#2: Title of 2 <Created by joe> <https://github.com/org/other/issue/2>",
-			"PRIVMSG nick :Issue other/repo#3: Title of 3 <Created by joe> <https://github.com/other/repo/issue/3>",
+			"PRIVMSG nick :Issue #1: Title of 1 <Created by joe> <https://github.com/org/repo/issues/1>",
+			"PRIVMSG nick :Issue other#2: Title of 2 <Created by joe> <https://github.com/org/other/issues/2>",
+			"PRIVMSG nick :Issue other/repo#3: Title of 3 <Created by joe> <https://github.com/other/repo/issues/3>",
 		},
 	}, {
 		// Overhearing is disabled by default.
@@ -97,7 +97,7 @@ var lpTests = []ghTest{
 		config:  mup.Map{"overhear": true},
 		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] org/repo#1"},
-		recv:    []string{"PRIVMSG #chan :Issue org/repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>"},
+		recv:    []string{"PRIVMSG #chan :Issue org/repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issues/1>"},
 	}, {
 		// When overhearing, do not report errors.
 		plugin:  "ghissuedata",
@@ -113,7 +113,7 @@ var lpTests = []ghTest{
 			{Account: "", Config: `{"overhear": true}`},
 		},
 		send: []string{"[#chan] org/repo#1"},
-		recv: []string{"PRIVMSG #chan :Issue org/repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>"},
+		recv: []string{"PRIVMSG #chan :Issue org/repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issues/1>"},
 	}, {
 		// First matching target wins.
 		plugin: "ghissuedata",
@@ -130,8 +130,8 @@ var lpTests = []ghTest{
 		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] repo#1", "[#chan] other/repo#2"},
 		recv: []string{
-			"PRIVMSG #chan :Issue repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
-			"PRIVMSG #chan :Issue other/repo#2: Title of 2 <Created by joe> <https://github.com/other/repo/issue/2>",
+			"PRIVMSG #chan :Issue repo#1: Title of 1 <Created by joe> <https://github.com/org/repo/issues/1>",
+			"PRIVMSG #chan :Issue other/repo#2: Title of 2 <Created by joe> <https://github.com/other/repo/issues/2>",
 		},
 	}, {
 		// Overhearing with project configured to repo.
@@ -140,9 +140,9 @@ var lpTests = []ghTest{
 		targets: []mup.Target{{Account: ""}},
 		send:    []string{"[#chan] issue #1", "[#chan] issue other#2", "[#chan] issue other/repo#3"},
 		recv: []string{
-			"PRIVMSG #chan :Issue #1: Title of 1 <Created by joe> <https://github.com/org/repo/issue/1>",
-			"PRIVMSG #chan :Issue other#2: Title of 2 <Created by joe> <https://github.com/org/other/issue/2>",
-			"PRIVMSG #chan :Issue other/repo#3: Title of 3 <Created by joe> <https://github.com/other/repo/issue/3>",
+			"PRIVMSG #chan :Issue #1: Title of 1 <Created by joe> <https://github.com/org/repo/issues/1>",
+			"PRIVMSG #chan :Issue other#2: Title of 2 <Created by joe> <https://github.com/org/other/issues/2>",
+			"PRIVMSG #chan :Issue other/repo#3: Title of 3 <Created by joe> <https://github.com/other/repo/issues/3>",
 		},
 	},
 }

@@ -326,7 +326,7 @@ func (p *ghPlugin) showIssue(msg *mup.Message, issue *ghIssue, prefix string) {
 		return
 	}
 	defaultPrefix := "Issue %v"
-	what := "issue"
+	what := "issues"
 	if issue.isPull() {
 		defaultPrefix = "PR %v"
 		what = "pull"
@@ -565,6 +565,7 @@ func issueNums(issues []*ghIssue) []int {
 func (p *ghPlugin) pollIssues() error {
 	var oldIssues []*ghIssue
 	var first = true
+NextPoll:
 	for {
 		select {
 		case <-time.After(p.config.PollDelay.Duration):
@@ -577,7 +578,7 @@ func (p *ghPlugin) pollIssues() error {
 			var pageIssues []*ghIssue
 			err := p.request("/repos/"+p.config.Project+"/issues?direction=asc&per_page=100&page="+strconv.Itoa(page), &pageIssues)
 			if err != nil {
-				continue
+				continue NextPoll
 			}
 			// Cut out potential dups due to in-between activity.
 			for len(newIssues) > 0 && len(pageIssues) > 0 && newIssues[len(newIssues)-1].Number >= pageIssues[0].Number {
