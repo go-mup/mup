@@ -33,10 +33,10 @@ var ldapTests = []struct {
 		config: mup.Map{"ldap": "unknown"},
 	}, {
 		send: []string{"poke tesla"},
-		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <https://t.me/ntesla> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 	}, {
 		send: []string{"poke nikola tesla"},
-		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <https://t.me/ntesla> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 	}, {
 		send: []string{"poke euler"},
 		recv: []string{"PRIVMSG nick :euler is Leonhard Euler <euler@example.com>"},
@@ -51,7 +51,7 @@ var ldapTests = []struct {
 		recv: []string{"PRIVMSG nick :riemann is Bernhard Riemann <riemann@example.com>"},
 	}, {
 		send: []string{"poke +11"},
-		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
+		recv: []string{"PRIVMSG nick :tesla is Nikola Tesla <tesla@example.com> <https://t.me/ntesla> <mobile:+11> <mobile:+22> <home:+33> <voip:+44> <skype:+55>"},
 	},
 }
 
@@ -64,6 +64,7 @@ var nikolaTesla = ldap.Result{
 		{Name: "homePhone", Values: []string{"+33"}},
 		{Name: "voipPhone", Values: []string{"+44"}},
 		{Name: "skypePhone", Values: []string{"+55"}},
+		{Name: "telegramID", Values: []string{"@ntesla"}},
 	},
 }
 

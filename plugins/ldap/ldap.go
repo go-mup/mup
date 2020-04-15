@@ -11,6 +11,7 @@ import (
 	"gopkg.in/mup.v0/ldap"
 	"gopkg.in/mup.v0/schema"
 	"gopkg.in/tomb.v2"
+	"strings"
 )
 
 var Plugin = mup.PluginSpec{
@@ -98,6 +99,7 @@ func (p *ldapPlugin) loop() error {
 var ldapAttributes = []string{
 	"cn",
 	"mozillaNickname",
+	"telegramID",
 	"mail",
 	"mobile",
 	"telephoneNumber",
@@ -112,8 +114,9 @@ var ldapFormat = []struct {
 	format string
 	filter func(string) string
 }{
-	{"mail", "<%s>", nil},
 	{"mozillaCustom4", "<time:%s>", ldapLocalTime},
+	{"mail", "<%s>", nil},
+	{"telegramID", "<https://t.me/%s>", ldapTrimAt},
 	{"telephoneNumber", "<phone:%s>", nil},
 	{"mobile", "<mobile:%s>", nil},
 	{"homePhone", "<home:%s>", nil},
@@ -129,6 +132,10 @@ func ldapLocalTime(v string) string {
 	t = t.UTC()
 	there := time.Now().UTC().Add(time.Time{}.Sub(t))
 	return there.Format("15h04") + v
+}
+
+func ldapTrimAt(v string) string {
+	return strings.TrimPrefix(v, "@")
 }
 
 var phoneRegexp = regexp.MustCompile(`^\+?[0-9-]{2,}$`)
