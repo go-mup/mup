@@ -15,7 +15,7 @@ import (
 
 const defaultDir = "~/.config/mup"
 
-var dir = flag.String("dir", defaultDir, "Configuration and data directory.")
+var dbdir = flag.String("db", defaultDir, "Configuration and data directory.")
 var accounts = flag.String("accounts", "*", "Configured account names to connect to, comma-separated. Defaults to all.")
 var noaccounts = flag.Bool("no-accounts", false, "Do not connect to accounts in this instance.")
 var plugins = flag.String("plugins", "*", "Configured plugin names to run, comma-separated. Defaults to all.")
@@ -73,14 +73,14 @@ func run() error {
 		config.Plugins = strings.Split(*plugins, ",")
 	}
 
-	envdir := os.Getenv("MUPDIR")
-	if *dir == defaultDir && envdir != "" {
-		*dir = envdir
+	envdb := os.Getenv("MUPDB")
+	if *dbdir == defaultDir && envdb != "" {
+		*dbdir = envdb
 	}
 
-	db, err := mup.OpenDB(*dir)
+	db, err := mup.OpenDB(*dbdir)
 	if err != nil {
-		return fmt.Errorf("cannot open %q: %v", *dir, err)
+		return fmt.Errorf("cannot open %q: %v", *dbdir, err)
 	}
 
 	config.DB = db
