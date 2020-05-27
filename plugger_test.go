@@ -204,7 +204,7 @@ func (s *PluggerSuite) TestUnmarshalConfig(c *C) {
 func (s *PluggerSuite) TestTargets(c *C) {
 	p := s.plugger(nil, nil, []mup.Target{
 		{Account: "one", Channel: "#chan"},
-		{Account: "two", Nick: "nick"},
+		{Account: "two", Nick: "nick", Config: `{"key":"value"}`},
 		{Account: "three", Channel: "#other", Nick: "nick"},
 		{Account: "four"},
 		{Channel: "#other"},
@@ -235,6 +235,14 @@ func (s *PluggerSuite) TestTargets(c *C) {
 	c.Assert(targets[3].CanSend(), Equals, false)
 	c.Assert(targets[4].CanSend(), Equals, false)
 	c.Assert(targets[5].CanSend(), Equals, false)
+
+	var config struct{ Key string }
+	err := targets[0].UnmarshalConfig(&config)
+	c.Assert(err, IsNil)
+	c.Assert(config.Key, Equals, "")
+	err = targets[1].UnmarshalConfig(&config)
+	c.Assert(err, IsNil)
+	c.Assert(config.Key, Equals, "value")
 }
 
 func (s *PluggerSuite) TestBroadcastf(c *C) {

@@ -51,6 +51,9 @@ func (t Target) Address() Address {
 
 // UnmarshalConfig unmarshals into result the plugin target configuration using the json package.
 func (t Target) UnmarshalConfig(result interface{}) error {
+	if t.Config == "" {
+		return nil
+	}
 	err := json.Unmarshal([]byte(t.Config), result)
 	if err != nil {
 		return fmt.Errorf("cannot parse config for %s: %v", t, err)
